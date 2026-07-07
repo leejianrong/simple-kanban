@@ -42,6 +42,34 @@ class CardCreate(BaseModel):
         return v
 
 
+class CardUpdate(BaseModel):
+    """Field edits (BREADBOARD §3). All optional — only sent fields are applied.
+
+    Column is intentionally absent: moving a card is done via /move, not PATCH
+    (ADR 0006). ticket_number and position are not editable either. `title` may
+    not be set empty/null; description/story_points/assignee accept null to clear.
+    """
+
+    title: str | None = None
+    description: str | None = None
+    story_points: int | None = None
+    assignee: str | None = None
+
+    @field_validator("title")
+    @classmethod
+    def title_non_empty(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            raise ValueError("title must not be empty")
+        return v
+
+    @field_validator("story_points")
+    @classmethod
+    def story_points_in_set(cls, v: int | None) -> int | None:
+        if v is not None and v not in STORY_POINTS:
+            raise ValueError(f"story_points must be one of {sorted(STORY_POINTS)} or null")
+        return v
+
+
 class CardRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
