@@ -81,9 +81,9 @@ def test_validation_story_points_must_be_fibonacci(client):
     assert client.post("/api/cards", json={"title": "x", "story_points": 4}).status_code == 422
     assert client.post("/api/cards", json={"title": "x", "story_points": 0}).status_code == 422
     # Allowed values and null pass.
-    for pts in (1, 2, 3, 5, 8, 13):
-        assert client.post("/api/cards", json={"title": "x", "story_points": pts}).status_code == 201
-    assert client.post("/api/cards", json={"title": "x", "story_points": None}).status_code == 201
+    for pts in (1, 2, 3, 5, 8, 13, None):
+        r = client.post("/api/cards", json={"title": "x", "story_points": pts})
+        assert r.status_code == 201
 
 
 def test_validation_rejects_unknown_column(client):

@@ -27,8 +27,9 @@ def _database():
         # before any app module is imported (all app imports happen in fixtures).
         os.environ["DATABASE_URL"] = postgres.get_connection_url()
 
-        from alembic import command
         from alembic.config import Config
+
+        from alembic import command
 
         cfg = Config("alembic.ini")
         command.upgrade(cfg, "head")

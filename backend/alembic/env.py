@@ -8,13 +8,13 @@ from __future__ import annotations
 import os
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from app.db import Base
+from alembic import context
 
 # Import models so their metadata is registered on Base for autogenerate.
 from app import models  # noqa: F401
+from app.db import Base
 
 config = context.config
 
