@@ -1,0 +1,21 @@
+# Fly.io app config (ADR 0004). Builds the root Dockerfile (single artifact,
+# ADR 0003) and serves API + SPA on one port. DATABASE_URL is a Fly secret
+# pointing at Neon; migrations run on container start via the Dockerfile CMD
+# (`alembic upgrade head`), so no release_command is needed here.
+app = "simple-kanban-jian"
+primary_region = "iad"
+
+[build]
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  # Scale to zero when idle to stay within the free allowance; wakes on request.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

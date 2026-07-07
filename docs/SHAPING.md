@@ -212,7 +212,7 @@ simple-kanban/
 | Component | Concrete mechanism |
 |-----------|--------------------|
 | **Dockerfile** | Stage 1: Node builds SPA (`npm ci && npm run build`). Stage 2: Python image, install backend via `uv`, copy built SPA into a static dir FastAPI serves; run `uvicorn app.main:app` |
-| **docker-compose** | Local Postgres 16 for dev + CI parity; app reads `DATABASE_URL` pointing at it |
+| **docker-compose** | Local Postgres 17 for dev + CI parity; app reads `DATABASE_URL` pointing at it |
 | **fly.toml** | App config; `release_command = "alembic upgrade head"` runs migrations (incl. seed) before each release; `DATABASE_URL` set as a Fly secret pointing at Neon |
 | **CI** (`ci.yml`) | On PR: spin up Postgres service, `alembic upgrade head`, run `pytest`; separately `npm ci && npm run build && npm run lint`; run Playwright smoke |
 | **Deploy** (`deploy.yml`) | On push to `main`: build image + `flyctl deploy`; auth via `FLY_API_TOKEN` secret |

@@ -28,7 +28,7 @@ Frontend uses **`npm`** (Node 20+). Run backend commands from `backend/`, fronte
 
 **Local database** (from repo root) — required before running the backend:
 ```bash
-docker compose up -d db        # Postgres 16 at kanban:kanban@localhost:5432/kanban
+docker compose up -d db        # Postgres 17 at kanban:kanban@localhost:5432/kanban
 ```
 
 **Backend** (from `backend/`):

@@ -22,7 +22,7 @@ from testcontainers.postgres import PostgresContainer
 @pytest.fixture(scope="session", autouse=True)
 def _database():
     """Start a throwaway Postgres, point the app + Alembic at it, migrate to head."""
-    with PostgresContainer("postgres:16", driver="psycopg") as postgres:
+    with PostgresContainer("postgres:17", driver="psycopg") as postgres:
         # app.db and Alembic both read DATABASE_URL at import/run time; set it
         # before any app module is imported (all app imports happen in fixtures).
         os.environ["DATABASE_URL"] = postgres.get_connection_url()
