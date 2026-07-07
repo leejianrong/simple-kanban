@@ -32,6 +32,11 @@ export interface CardUpdate {
   assignee?: string | null;
 }
 
+export interface CardMove {
+  column: Column;
+  position?: number | null;
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -71,6 +76,16 @@ export async function createCard(payload: CardCreate): Promise<Card> {
 export async function updateCard(id: number, payload: CardUpdate): Promise<Card> {
   const res = await fetch(`/api/cards/${id}`, {
     method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function moveCard(id: number, payload: CardMove): Promise<Card> {
+  const res = await fetch(`/api/cards/${id}/move`, {
+    method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });

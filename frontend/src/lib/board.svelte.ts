@@ -6,9 +6,11 @@ import {
   createCard,
   deleteCard,
   listCards,
+  moveCard as apiMoveCard,
   updateCard,
   type Card,
   type CardCreate,
+  type CardMove,
   type CardUpdate,
   type Column,
 } from "./api";
@@ -60,5 +62,10 @@ export async function editCard(id: number, payload: CardUpdate): Promise<void> {
 
 export async function removeCard(id: number): Promise<void> {
   await deleteCard(id);
+  await refetch();
+}
+
+export async function moveCard(id: number, payload: CardMove): Promise<void> {
+  await apiMoveCard(id, payload);
   await refetch();
 }

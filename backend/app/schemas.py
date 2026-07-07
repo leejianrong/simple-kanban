@@ -1,6 +1,6 @@
 """Pydantic v2 schemas — the API's request/response contract (CONTEXT §4, ADR 0006).
 
-Slice 1 only needs CardCreate and CardRead. CardUpdate / CardMove arrive in later slices.
+CardCreate / CardRead for create+read; CardUpdate for field edits; CardMove for move/reorder.
 """
 from __future__ import annotations
 
@@ -68,6 +68,11 @@ class CardUpdate(BaseModel):
         if v is not None and v not in STORY_POINTS:
             raise ValueError(f"story_points must be one of {sorted(STORY_POINTS)} or null")
         return v
+
+
+class CardMove(BaseModel):
+    column: ColumnEnum
+    position: int | None = Field(default=None, ge=0)
 
 
 class CardRead(BaseModel):
