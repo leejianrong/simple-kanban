@@ -66,6 +66,15 @@ export async function removeCard(id: number): Promise<void> {
 }
 
 export async function moveCard(id: number, payload: CardMove): Promise<void> {
-  await apiMoveCard(id, payload);
-  await refetch();
+  // Unlike the other mutations, a drag has already changed the board visually
+  // (svelte-dnd-action reorders optimistically). So on failure we must refetch
+  // to snap back to the authoritative server order, then surface the error —
+  // refetch() clears board.error, so set it afterwards (BREADBOARD §7).
+  try {
+    await apiMoveCard(id, payload);
+    await refetch();
+  } catch (e) {
+    await refetch();
+    board.error = e instanceof Error ? e.message : "Failed to move card";
+  }
 }
