@@ -2,20 +2,22 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Read this first: docs describe more than is built
+## Read this first: what is and isn't built
 
-This repo is a **walking skeleton (Slice 1)**, not the finished MVP. The [docs/](docs/) folder
-specifies the full planned product ("Shape A"), but only a thin vertical slice is implemented so
-far. **Do not assume a documented feature exists in code** — check the source. Code comments mark
-what is deferred (e.g. "PATCH / DELETE / move come in later slices").
+The core board is **feature-complete and deployed** (live at
+[simple-kanban-jian.fly.dev](https://simple-kanban-jian.fly.dev)): view / create / edit / delete /
+drag-to-move all work end to end, behind a full REST API with an automated test suite and CI/CD to
+Fly.io. Only two documented items from the plan remain. The [docs/](docs/) folder still specifies
+the full planned product ("Shape A"), so **don't assume a documented feature exists in code** —
+check the source.
 
 | Area | Built now | Documented but NOT yet built |
 |------|-----------|------------------------------|
-| API | `GET /api/cards`, `POST /api/cards` (append), `GET/PATCH/DELETE /api/cards/{id}`, `GET /api/health` | `POST /api/cards/{id}/move` |
-| Ordering | `next_position()` (append to end) | `renumber_column()` (transactional re-sequence on move/reorder) |
-| Frontend | list board + create + edit + delete card | drag-and-drop (no `svelte-dnd-action` dep yet) |
+| API | `GET /api/cards`, `POST /api/cards` (append), `GET/PATCH/DELETE /api/cards/{id}`, `POST /api/cards/{id}/move`, `GET /api/health` | — |
+| Ordering | `next_position()` (append to end), `renumber_column()` (re-sequence on move/reorder) | — |
+| Frontend | list board + create + edit + delete + drag-and-drop move/reorder (`svelte-dnd-action`) | — |
 | Data | initial migration | seed-data migration |
-| Ops | `docker-compose.yml` (Postgres + app), `Dockerfile`, backend `tests/` (pytest + testcontainers) | Playwright smoke, `fly.toml`, `.github/workflows/` |
+| Ops | `docker-compose.yml` (Postgres + app), `Dockerfile`, `fly.toml`, `.github/workflows/` (CI + deploy), backend `tests/` (pytest unit + integration via testcontainers) | Playwright smoke test |
 
 When extending the app, follow the plan already written in [docs/SHAPING.md](docs/SHAPING.md)
 (§Detailed shape) and [docs/BREADBOARD.md](docs/BREADBOARD.md) — they define the target endpoints,
@@ -37,9 +39,15 @@ uv sync                                        # install deps (incl. dev group)
 uv run alembic upgrade head                    # apply migrations
 uv run uvicorn app.main:app --reload           # dev server on :8000; OpenAPI at /docs
 uv run alembic revision --autogenerate -m "…"  # new migration (models must be imported in env.py)
-uv run pytest                                  # run tests (needs a running Docker daemon)
-uv run pytest tests/test_x.py::test_name       # run a single test
+uv run ruff check .                            # lint (matches the CI lint job)
+uv run pytest tests/unit                       # fast: pure schema-validation logic, no DB/Docker
+uv run pytest tests/integration                # full API vs a throwaway Postgres (needs a running Docker daemon)
+uv run pytest tests/integration/test_x.py::test_name  # run a single test
 ```
+> Tests are split into `tests/unit` (no DB) and `tests/integration` (real Postgres via
+> testcontainers); the integration `client`/DB fixtures live in `tests/integration/conftest.py`,
+> so integration tests must live under `tests/integration/`. CI runs lint, unit, integration, and
+> the frontend build as four independent jobs (see `.github/workflows/ci.yml`).
 > If `uv` is unavailable, a `python -m venv` + `pip install -e .` (or install from `pyproject.toml`)
 > works too — the package is intentionally not installable (`tool.uv package = false`), so always
 > run from `backend/` (`alembic.ini` sets `prepend_sys_path = .` so `import app` resolves).
@@ -80,7 +88,7 @@ typically doesn't exist and the fallback isn't registered — no CORS in either 
   adding a column value later needs no `ALTER TYPE` migration. Valid values live in three places
   that must stay in sync: `VALID_COLUMNS`/CHECK (models), `ColumnEnum` (schemas), `Column` (api.ts).
 - **`position`** is a *relative sort key within a column*, not necessarily contiguous. Deletes
-  intentionally leave gaps; a later move/reorder re-sequences via `renumber_column()`.
+  intentionally leave gaps; a move/reorder re-sequences the affected column(s) via `renumber_column()`.
 
 **Backend is deliberately flat** (Shape A "Thin Slice" — no service/repository layers):
 `routers/cards.py` → `ordering.py` helper → `models.py`/`schemas.py`, with a `get_db()` FastAPI
@@ -92,7 +100,10 @@ authoritative validation layer (title non-empty, `column` enum, `story_points �
 is a single `$state` store; components read derived slices via `cardsFor(column)`.
 [frontend/src/lib/api.ts](frontend/src/lib/api.ts) is a thin typed `fetch` wrapper that throws
 `ApiError` on non-2xx. Component tree: `App → Board → Column → Card → CardForm` (`Card` owns a
-card's view / edit / confirm-delete states; `CardForm` handles both create and edit).
+card's view / edit / confirm-delete states; `CardForm` handles both create and edit). `Column`
+wraps its cards in a `svelte-dnd-action` dropzone; on `DROPPED_INTO_ZONE` it calls `moveCard(id,
+{column, position})` and the usual `refetch()` reconciles — the `<Card>` component still renders
+inside each draggable wrapper, so edit/delete stay available.
 
 **Server state is authoritative — no optimistic UI.** Every successful mutation is followed by a
 `refetch()` of `GET /api/cards`; the UI never renders an order or value the server hasn't confirmed.
@@ -103,8 +114,9 @@ Preserve this pattern (it is a deliberate Shape A decision, [docs/BREADBOARD.md]
 - **API-first:** the UI must never do anything the API can't (R4.1 / ADR 0005). Add the endpoint
   first, then wire the UI to it. The API is being kept clean so future MCP/CLI/agent clients are
   thin adapters — this is the core motivation of the whole project.
-- **Move vs. edit split:** column/position changes go through a dedicated `POST /api/cards/{id}/move`
-  (not yet built); `PATCH` is for field edits only (title/description/story_points/assignee).
+- **Move vs. edit split:** column/position changes go through the dedicated `POST /api/cards/{id}/move`
+  (append to target column, clamp to a requested index, and `renumber_column()` the source); `PATCH`
+  is for field edits only (title/description/story_points/assignee).
 - **No auth, last-write-wins, no real-time** by design (ADR 0007) — don't add locking or websockets.
 - **Neon free tier scales to zero**, so the first request after idle is slow (~1s) — that's a
   documented cold start, not a bug.
