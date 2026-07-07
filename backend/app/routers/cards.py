@@ -66,8 +66,10 @@ def move_card(
         ).all()
     )
 
-    # Task 2 always appends; Task 3 replaces this with a clamped insert-at-index.
-    siblings.append(card)
+    # Insert at the requested index (clamped); None => append to the end.
+    index = payload.position if payload.position is not None else len(siblings)
+    index = max(0, min(index, len(siblings)))
+    siblings.insert(index, card)
     card.column = target_column
     for pos, sibling in enumerate(siblings):
         sibling.position = pos
