@@ -7,16 +7,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 The core board is **feature-complete and deployed** (live at
 [simple-kanban-jian.fly.dev](https://simple-kanban-jian.fly.dev)): view / create / edit / delete /
 drag-to-move all work end to end, behind a full REST API with an automated test suite (backend
-pytest + frontend Playwright e2e) and CI/CD to Fly.io. One documented item from the plan remains
-(seed-data migration). The [docs/](docs/) folder still specifies the full planned product
-("Shape A"), so **don't assume a documented feature exists in code** — check the source.
+pytest + frontend Playwright e2e) and CI/CD to Fly.io. The full "Shape A" plan is now implemented.
+The [docs/](docs/) folder describes that plan at a high level, so **don't assume a documented
+detail matches the code** — check the source.
 
 | Area | Built now | Documented but NOT yet built |
 |------|-----------|------------------------------|
 | API | `GET /api/cards`, `POST /api/cards` (append), `GET/PATCH/DELETE /api/cards/{id}`, `POST /api/cards/{id}/move`, `GET /api/health` | — |
 | Ordering | `next_position()` (append to end), `renumber_column()` (re-sequence on move/reorder) | — |
 | Frontend | list board + create + edit + delete + drag-and-drop move/reorder (`svelte-dnd-action`) | — |
-| Data | initial migration | seed-data migration |
+| Data | initial migration + demo seed-data migration (R0.4, `app/seed.py`, guarded to empty DBs) | — |
 | Ops | `docker-compose.yml` (Postgres + app), `Dockerfile`, `fly.toml`, `.github/workflows/` (CI + deploy), backend `tests/` (pytest unit + integration via testcontainers), frontend `e2e/` (Playwright smoke, in CI) | — |
 
 When extending the app, follow the plan already written in [docs/SHAPING.md](docs/SHAPING.md)
@@ -64,7 +64,7 @@ npm run e2e       # Playwright smoke (auto-starts backend+Vite; needs docker com
 > Playwright e2e specs live in `frontend/e2e/`. The config's `webServer` boots the FastAPI backend
 > (:8000) and Vite (:5173) itself, but a local Postgres must already be up (`docker compose up -d db`).
 > One-time browser install: `npx playwright install chromium`. Tests prefix their cards with `e2e-`
-> and clean up after themselves, so they tolerate existing dev data. Not yet part of CI.
+> and clean up after themselves, so they tolerate existing dev data. Runs in CI as the `e2e` job.
 
 **Full local dev loop:** `docker compose up -d db` → backend `uv run alembic upgrade head` +
 `uvicorn … --reload` → frontend `npm run dev`, then open `:5173`.
