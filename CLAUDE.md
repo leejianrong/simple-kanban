@@ -63,6 +63,45 @@ npm run check     # svelte-check type/lint pass (there is no separate ESLint)
 **Full local dev loop:** `docker compose up -d db` → backend `uv run alembic upgrade head` +
 `uvicorn … --reload` → frontend `npm run dev`, then open `:5173`.
 
+## Development workflow (conventions — for humans and agents)
+
+**Branch per change, off a fresh `main`.** `main` is protected: direct pushes are rejected and
+every change lands via PR only after CI (lint + unit + integration + frontend build) is green.
+Always start from an up-to-date `main`:
+```bash
+git switch main && git pull --ff-only
+git switch -c feat/<slice>        # one branch per vertical slice, matching the Shape Up cadence
+```
+When merging a PR that carries commits you want to preserve (e.g. an external contributor's from a
+fork), **merge with a merge commit, not squash** — that keeps per-commit authorship and lets the
+contributor's fork PR auto-close as *merged*. Delete the branch (local + remote) once it's merged.
+> Integrating a fork branch that predates `main`: fetch it into a review branch and merge it into an
+> integration branch built on current `main` (resolve conflicts there, keep it a true merge so the
+> contributor's commits survive), then PR that integration branch → `main`. See PRs #2/#5 for the
+> worked example.
+
+**Use git worktrees for parallel work — this is the expected workflow here.** Instead of stashing or
+switching branches in place, give each in-flight task its own directory backed by the one clone, so
+your primary checkout stays undisturbed while you review a contributor PR, hotfix, or spike:
+```bash
+git worktree add ../simple-kanban-<slice> -b feat/<slice> main   # new feature in its own dir
+git worktree add ../simple-kanban-review review/<name>           # review someone else's branch
+git worktree list                                                # see them all
+git worktree remove ../simple-kanban-<slice>                     # clean up when merged
+```
+Each worktree needs its own `backend/.venv` (`uv sync`) and `frontend/node_modules` (`npm ci`); the
+Postgres from `docker compose up -d db` is shared across all of them. Agents should prefer the
+harness's built-in worktree isolation (`isolation: "worktree"`) for parallel file-mutating work.
+
+**Pre-push hook.** `scripts/git-hooks/pre-push` (tracked) runs the fast CI checks locally — ruff +
+`tests/unit` + `svelte-check` — so a push never lands red. Integration tests stay CI-only (they need
+a Docker daemon). Hooks aren't auto-installed; install once per clone (it lives in the shared
+`.git/hooks`, so linked worktrees inherit it automatically):
+```bash
+ln -sf ../../scripts/git-hooks/pre-push .git/hooks/pre-push
+```
+Bypass a single push with `git push --no-verify` (use sparingly).
+
 ## Configuration
 
 `DATABASE_URL` is the only required runtime config. It defaults to the docker-compose Postgres:
