@@ -6,10 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The core board is **feature-complete and deployed** (live at
 [simple-kanban-jian.fly.dev](https://simple-kanban-jian.fly.dev)): view / create / edit / delete /
-drag-to-move all work end to end, behind a full REST API with an automated test suite and CI/CD to
-Fly.io. Only two documented items from the plan remain. The [docs/](docs/) folder still specifies
-the full planned product ("Shape A"), so **don't assume a documented feature exists in code** —
-check the source.
+drag-to-move all work end to end, behind a full REST API with an automated test suite (backend
+pytest + frontend Playwright e2e) and CI/CD to Fly.io. One documented item from the plan remains
+(seed-data migration). The [docs/](docs/) folder still specifies the full planned product
+("Shape A"), so **don't assume a documented feature exists in code** — check the source.
 
 | Area | Built now | Documented but NOT yet built |
 |------|-----------|------------------------------|
@@ -17,7 +17,7 @@ check the source.
 | Ordering | `next_position()` (append to end), `renumber_column()` (re-sequence on move/reorder) | — |
 | Frontend | list board + create + edit + delete + drag-and-drop move/reorder (`svelte-dnd-action`) | — |
 | Data | initial migration | seed-data migration |
-| Ops | `docker-compose.yml` (Postgres + app), `Dockerfile`, `fly.toml`, `.github/workflows/` (CI + deploy), backend `tests/` (pytest unit + integration via testcontainers) | Playwright smoke test |
+| Ops | `docker-compose.yml` (Postgres + app), `Dockerfile`, `fly.toml`, `.github/workflows/` (CI + deploy), backend `tests/` (pytest unit + integration via testcontainers), frontend `e2e/` (Playwright smoke) | e2e not yet wired into CI |
 
 When extending the app, follow the plan already written in [docs/SHAPING.md](docs/SHAPING.md)
 (§Detailed shape) and [docs/BREADBOARD.md](docs/BREADBOARD.md) — they define the target endpoints,
@@ -58,7 +58,12 @@ npm ci            # install
 npm run dev       # Vite dev server on :5173; proxies /api → http://localhost:8000
 npm run build     # → frontend/dist (the bundle FastAPI serves in prod)
 npm run check     # svelte-check type/lint pass (there is no separate ESLint)
+npm run e2e       # Playwright smoke (auto-starts backend+Vite; needs docker compose up -d db)
 ```
+> Playwright e2e specs live in `frontend/e2e/`. The config's `webServer` boots the FastAPI backend
+> (:8000) and Vite (:5173) itself, but a local Postgres must already be up (`docker compose up -d db`).
+> One-time browser install: `npx playwright install chromium`. Tests prefix their cards with `e2e-`
+> and clean up after themselves, so they tolerate existing dev data. Not yet part of CI.
 
 **Full local dev loop:** `docker compose up -d db` → backend `uv run alembic upgrade head` +
 `uvicorn … --reload` → frontend `npm run dev`, then open `:5173`.
