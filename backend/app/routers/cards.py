@@ -5,8 +5,7 @@
 - GET    /api/cards/{id}    — read one card
 - PATCH  /api/cards/{id}    — edit fields (title/description/story_points/assignee)
 - DELETE /api/cards/{id}    — hard-delete
-
-The move/reorder endpoint (POST /api/cards/{id}/move) arrives in the next slice.
+- POST   /api/cards/{id}/move — move/reorder a card (column change + reorder within column)
 """
 from __future__ import annotations
 
@@ -16,8 +15,8 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..models import Card
-from ..ordering import next_position
-from ..schemas import CardCreate, CardRead, CardUpdate
+from ..ordering import next_position, renumber_column
+from ..schemas import CardCreate, CardMove, CardRead, CardUpdate
 
 router = APIRouter(prefix="/api/cards", tags=["cards"])
 
@@ -84,3 +83,40 @@ def delete_card(card_id: int, db: Session = Depends(get_db)) -> Response:
     db.commit()
     # Hard delete; the vacated position leaves an intentional gap (ADR 0006).
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{card_id}/move", response_model=CardRead)
+def move_card(
+    card_id: int, payload: CardMove, db: Session = Depends(get_db)
+) -> Card:
+    card = _get_or_404(db, card_id)
+
+    source_column = card.column
+    target_column = payload.column.value
+
+    # The target column's other cards, in order (the moved card excluded).
+    siblings = list(
+        db.scalars(
+            select(Card)
+            .where(Card.column == target_column, Card.id != card.id)
+            .order_by(Card.position, Card.id)
+        ).all()
+    )
+
+    # Insert at the requested index (clamped); None => append to the end.
+    index = payload.position if payload.position is not None else len(siblings)
+    index = max(0, min(index, len(siblings)))
+    siblings.insert(index, card)
+    card.column = target_column
+    for pos, sibling in enumerate(siblings):
+        sibling.position = pos
+
+    # Flush so the moved card's new column is visible to the source renumber query
+    # (the session has autoflush disabled).
+    db.flush()
+    if source_column != target_column:
+        renumber_column(db, source_column)
+
+    db.commit()
+    db.refresh(card)
+    return card

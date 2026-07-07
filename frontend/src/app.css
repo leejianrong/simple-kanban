@@ -91,7 +91,7 @@ main {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  min-height: 8px;
+  min-height: 2.5rem;
 }
 
 .card {
