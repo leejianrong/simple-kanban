@@ -2,16 +2,21 @@
 
 The per-test fixture truncates the card table first, so each test starts from an
 empty board — the same precondition the seed migration guards on.
+
+Note: app modules (app.db / app.seed) are imported *inside* the tests, not at
+module top. The session fixture sets DATABASE_URL to the throwaway testcontainer
+before any app import; importing app.db at collection time would bind its engine
+to the default URL and break the whole suite.
 """
 from __future__ import annotations
 
 from collections import defaultdict
 
-from app.db import engine
-from app.seed import DEMO_CARDS, seed_demo_cards
-
 
 def test_seed_inserts_demo_cards_when_empty(client):
+    from app.db import engine
+    from app.seed import DEMO_CARDS, seed_demo_cards
+
     with engine.begin() as conn:
         inserted = seed_demo_cards(conn)
     assert inserted == len(DEMO_CARDS)
@@ -32,6 +37,9 @@ def test_seed_inserts_demo_cards_when_empty(client):
 
 
 def test_seed_is_a_noop_when_board_not_empty(client):
+    from app.db import engine
+    from app.seed import seed_demo_cards
+
     # A single pre-existing card must suppress seeding (no duplicate demo data).
     client.post("/api/cards", json={"title": "already here"})
 
