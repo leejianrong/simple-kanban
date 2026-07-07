@@ -17,7 +17,7 @@ pytest + frontend Playwright e2e) and CI/CD to Fly.io. One documented item from 
 | Ordering | `next_position()` (append to end), `renumber_column()` (re-sequence on move/reorder) | — |
 | Frontend | list board + create + edit + delete + drag-and-drop move/reorder (`svelte-dnd-action`) | — |
 | Data | initial migration | seed-data migration |
-| Ops | `docker-compose.yml` (Postgres + app), `Dockerfile`, `fly.toml`, `.github/workflows/` (CI + deploy), backend `tests/` (pytest unit + integration via testcontainers), frontend `e2e/` (Playwright smoke) | e2e not yet wired into CI |
+| Ops | `docker-compose.yml` (Postgres + app), `Dockerfile`, `fly.toml`, `.github/workflows/` (CI + deploy), backend `tests/` (pytest unit + integration via testcontainers), frontend `e2e/` (Playwright smoke, in CI) | — |
 
 When extending the app, follow the plan already written in [docs/SHAPING.md](docs/SHAPING.md)
 (§Detailed shape) and [docs/BREADBOARD.md](docs/BREADBOARD.md) — they define the target endpoints,
@@ -46,8 +46,9 @@ uv run pytest tests/integration/test_x.py::test_name  # run a single test
 ```
 > Tests are split into `tests/unit` (no DB) and `tests/integration` (real Postgres via
 > testcontainers); the integration `client`/DB fixtures live in `tests/integration/conftest.py`,
-> so integration tests must live under `tests/integration/`. CI runs lint, unit, integration, and
-> the frontend build as four independent jobs (see `.github/workflows/ci.yml`).
+> so integration tests must live under `tests/integration/`. CI runs lint, unit, integration, the
+> frontend build, and Playwright e2e as five independent jobs (see `.github/workflows/ci.yml`); the
+> e2e job uses a Postgres service container and caches the Chromium download by Playwright version.
 > If `uv` is unavailable, a `python -m venv` + `pip install -e .` (or install from `pyproject.toml`)
 > works too — the package is intentionally not installable (`tool.uv package = false`), so always
 > run from `backend/` (`alembic.ini` sets `prepend_sys_path = .` so `import app` resolves).
