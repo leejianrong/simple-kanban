@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 # Default targets the local docker-compose Postgres. The +psycopg suffix selects
 # the psycopg v3 driver for SQLAlchemy.

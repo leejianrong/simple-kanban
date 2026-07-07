@@ -17,6 +17,7 @@ dev = [
     "pytest>=8.3",
     "httpx>=0.28",
     "testcontainers[postgres]>=4.8",
+    "ruff>=0.8",
 ]
 
 [tool.uv]
@@ -24,3 +25,16 @@ package = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Put the backend root (where the `app` package lives) on sys.path so tests in
+# tests/unit and tests/integration can `import app.*` regardless of CWD.
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+# Generated Alembic migrations follow their own template conventions.
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+# pycodestyle errors, pyflakes, and import sorting.
+select = ["E", "F", "I"]
