@@ -35,9 +35,26 @@
       if (position >= 0) moveCard(id, { column, position });
     }
   }
+
+  // A card being edited or confirming delete renders its form INSIDE the drag
+  // item. svelte-dnd-action already ignores drags that start on interactive
+  // elements (inputs/buttons), but a press on the form's non-interactive chrome
+  // would still start a drag and discard the edit. The library begins a drag
+  // from a mouse/touch press on the drop zone, so we swallow such presses one
+  // level up (capture on the section runs first) when they originate inside a
+  // form/prompt. Guards mouse + touch (pointerdown alone isn't what it listens to).
+  function guardFormPress(e: Event) {
+    if ((e.target as HTMLElement).closest(".card-form, .card.confirm")) {
+      e.stopPropagation();
+    }
+  }
 </script>
 
-<section class="column">
+<section
+  class="column"
+  onmousedowncapture={guardFormPress}
+  ontouchstartcapture={guardFormPress}
+>
   <header class="column-head">
     <h2>{label}</h2>
     <span class="count">{items.length}</span>
