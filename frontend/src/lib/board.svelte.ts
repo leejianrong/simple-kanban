@@ -2,7 +2,16 @@
 // After every mutation we refetch GET /api/cards; the server state is
 // authoritative — no optimistic UI (BREADBOARD §7).
 
-import { createCard, listCards, type Card, type CardCreate, type Column } from "./api";
+import {
+  createCard,
+  deleteCard,
+  listCards,
+  updateCard,
+  type Card,
+  type CardCreate,
+  type CardUpdate,
+  type Column,
+} from "./api";
 
 export const COLUMNS: { key: Column; label: string }[] = [
   { key: "todo", label: "Todo" },
@@ -41,5 +50,15 @@ export async function refetch(): Promise<void> {
 
 export async function addCard(payload: CardCreate): Promise<void> {
   await createCard(payload);
+  await refetch();
+}
+
+export async function editCard(id: number, payload: CardUpdate): Promise<void> {
+  await updateCard(id, payload);
+  await refetch();
+}
+
+export async function removeCard(id: number): Promise<void> {
+  await deleteCard(id);
   await refetch();
 }

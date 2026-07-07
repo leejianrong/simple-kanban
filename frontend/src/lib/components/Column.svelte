@@ -1,9 +1,13 @@
 <script lang="ts">
-  import type { Card, Column } from "../api";
+  import type { Card as CardType, Column } from "../api";
+  import Card from "./Card.svelte";
   import CardForm from "./CardForm.svelte";
 
-  let { column, label, cards }: { column: Column; label: string; cards: Card[] } =
-    $props();
+  let {
+    column,
+    label,
+    cards,
+  }: { column: Column; label: string; cards: CardType[] } = $props();
 
   let adding = $state(false);
 </script>
@@ -16,18 +20,7 @@
 
   <div class="cards">
     {#each cards as card (card.id)}
-      <article class="card">
-        <div class="card-top">
-          <span class="ticket">{card.ticket_number}</span>
-          {#if card.story_points != null}
-            <span class="points">{card.story_points}</span>
-          {/if}
-        </div>
-        <p class="card-title">{card.title}</p>
-        {#if card.assignee}
-          <span class="assignee">{card.assignee}</span>
-        {/if}
-      </article>
+      <Card {card} />
     {/each}
 
     {#if cards.length === 0}

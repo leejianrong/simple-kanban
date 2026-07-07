@@ -137,6 +137,39 @@ main {
   padding: 0.5rem 0;
 }
 
+.card-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+button.link {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+button.link:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+button.link.danger:hover {
+  color: var(--danger);
+}
+
+.card.confirm {
+  border-color: var(--danger);
+}
+.confirm-msg {
+  margin: 0 0 0.5rem;
+  font-size: 0.82rem;
+}
+button.danger {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
+}
+
 .add {
   background: transparent;
   border: none;

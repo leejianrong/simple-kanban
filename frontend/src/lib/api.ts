@@ -24,6 +24,14 @@ export interface CardCreate {
   assignee?: string | null;
 }
 
+// Field edits only — no column (moving is done via /move, not PATCH).
+export interface CardUpdate {
+  title?: string;
+  description?: string | null;
+  story_points?: number | null;
+  assignee?: string | null;
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -58,4 +66,19 @@ export async function createCard(payload: CardCreate): Promise<Card> {
   });
   if (!res.ok) throw new ApiError(res.status, await parseError(res));
   return res.json();
+}
+
+export async function updateCard(id: number, payload: CardUpdate): Promise<Card> {
+  const res = await fetch(`/api/cards/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function deleteCard(id: number): Promise<void> {
+  const res = await fetch(`/api/cards/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
 }
