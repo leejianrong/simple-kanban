@@ -42,6 +42,11 @@ class CardCreate(BaseModel):
         return v
 
 
+class CardMove(BaseModel):
+    column: ColumnEnum
+    position: int | None = Field(default=None, ge=0)
+
+
 class CardRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
