@@ -13,7 +13,7 @@ services:
         condition: service_healthy
 
   db:
-    image: postgres:16
+    image: postgres:17
     environment:
       POSTGRES_USER: kanban
       POSTGRES_PASSWORD: kanban
