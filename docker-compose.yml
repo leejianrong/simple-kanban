@@ -1,6 +1,17 @@
-# Local Postgres for dev/CI parity (SHAPING §Packaging). The app reads DATABASE_URL
-# pointing at this instance. Prod uses Neon; nothing here ships to prod.
+# Local full-stack: Postgres + the combined app image (built SPA served by FastAPI).
+# Mirrors the single production artifact (ADR 0003). Prod uses Neon; nothing here ships.
 services:
+  app:
+    build: .
+    environment:
+      # Points at the db service on the compose network.
+      DATABASE_URL: postgresql+psycopg://kanban:kanban@db:5432/kanban
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
   db:
     image: postgres:16
     environment:

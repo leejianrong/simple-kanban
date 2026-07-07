@@ -1,0 +1,13 @@
+# Keep the build context small and avoid copying host-built artifacts.
+**/.venv
+**/node_modules
+**/__pycache__
+**/*.pyc
+frontend/dist
+.git
+.gitignore
+docs/
+*.md
+docker-compose.yml
+.dockerignore
+Dockerfile
