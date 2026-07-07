@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Fast local gate before pushing. Mirrors the CI lint / unit / frontend jobs so a
+# push never lands red on GitHub. Integration tests need a Docker daemon, so they
+# stay CI-only (run them yourself with `uv run pytest tests/integration`).
+#
+# Install (from repo root):
+#   ln -sf ../../scripts/git-hooks/pre-push .git/hooks/pre-push
+# Bypass for a one-off (use sparingly):  git push --no-verify
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+
+echo "pre-push ▸ backend: ruff + unit tests"
+( cd "$repo_root/backend" && uv run ruff check . && uv run pytest tests/unit -q )
+
+echo "pre-push ▸ frontend: svelte-check"
+( cd "$repo_root/frontend" && npm run check )
+
+echo "pre-push ▸ OK"
