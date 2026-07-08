@@ -126,6 +126,24 @@ export async function dragTo(
   await page.waitForTimeout(300); // let flip animation + refetch settle
 }
 
+// Delete every board these tests created, via the API. Deleting a board cascades
+// away its cards + epics, so this also cleans up anything created on that board.
+export async function cleanupE2eBoards(): Promise<void> {
+  const ctx: APIRequestContext = await request.newContext({ baseURL: API_ORIGIN });
+  try {
+    const boards = await ctx.get("/api/v1/boards");
+    if (boards.ok()) {
+      for (const board of await boards.json()) {
+        if (typeof board.name === "string" && board.name.startsWith(E2E_PREFIX)) {
+          await ctx.delete(`/api/v1/boards/${board.id}`);
+        }
+      }
+    }
+  } finally {
+    await ctx.dispose();
+  }
+}
+
 // Delete every card and epic these tests created, via the API.
 export async function cleanupE2eCards(): Promise<void> {
   const ctx: APIRequestContext = await request.newContext({ baseURL: API_ORIGIN });

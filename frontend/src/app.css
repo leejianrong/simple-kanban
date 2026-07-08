@@ -55,6 +55,36 @@ body {
   font-weight: 600;
 }
 
+/* Board switcher in the top bar (M3 V7). */
+.board-switcher {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.board-switcher select {
+  font: inherit;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--text);
+}
+.board-switcher form {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.board-switcher input {
+  font: inherit;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.board-switcher .confirm-msg {
+  font-size: 0.82rem;
+}
+
 /* Current user + logout, pushed to the right of the top bar (M3 V6). */
 .topbar-user {
   margin-left: auto;

@@ -21,6 +21,7 @@ from ..auth import require_token
 from ..db import get_db
 from ..models import Epic
 from ..schemas import EpicCreate, EpicRead, EpicUpdate
+from .boards import resolve_board_id
 
 router = APIRouter(prefix="/epics", tags=["epics"])
 
@@ -33,8 +34,13 @@ def _get_or_404(db: Session, epic_id: int) -> Epic:
 
 
 @router.get("", response_model=list[EpicRead])
-def list_epics(db: Session = Depends(get_db)) -> list[Epic]:
-    return list(db.scalars(select(Epic).order_by(Epic.id)).all())
+def list_epics(db: Session = Depends(get_db), board_id: int | None = None) -> list[Epic]:
+    """List epics, optionally scoped to a board (M3 V7). Omitted board_id → all
+    epics (back-compat); the SPA always sends it to scope the Epics view."""
+    query = select(Epic).order_by(Epic.id)
+    if board_id is not None:
+        query = query.where(Epic.board_id == board_id)
+    return list(db.scalars(query).all())
 
 
 @router.post(
@@ -44,7 +50,11 @@ def list_epics(db: Session = Depends(get_db)) -> list[Epic]:
     dependencies=[Depends(require_token)],
 )
 def create_epic(payload: EpicCreate, db: Session = Depends(get_db)) -> Epic:
-    epic = Epic(name=payload.name, description=payload.description)
+    epic = Epic(
+        board_id=resolve_board_id(db, payload.board_id),
+        name=payload.name,
+        description=payload.description,
+    )
     db.add(epic)
     db.commit()
     # Refresh so server-assigned fields (id, ticket_number, timestamps) are populated.

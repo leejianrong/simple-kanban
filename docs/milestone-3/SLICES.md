@@ -15,7 +15,7 @@ needs boards + tokens.
 | Slice | What | Ends in (demo) |
 |-------|------|----------------|
 | **V6 · Human login + landing** ✅ **Built** | A1, A2, A3, A9 | Logged out → the landing page; "Sign in with GitHub" → OAuth → your board; reload stays in; log out → landing |
-| **V7 · Boards** | A4, A8 | Create a second board and switch between them; existing cards/epics live in a migrated default board |
+| **V7 · Boards** ✅ **Built** | A4, A8 | Create a second board and switch between them; existing cards/epics live in a migrated default board |
 | **V8 · Board authorization** | A5 | User A gets `403` on user B's board (API + UI); your own boards work; lists show only your boards |
 | **V9 · Agent tokens** | A6 | Create a named token in the UI (shown once), write to your board via `curl` with it, revoke it → `401` |
 | **V10 · MCP board-scoping** | A7 | Claude, via MCP with a PAT, creates/moves cards on a chosen board — and can't touch another user's board |
@@ -47,7 +47,17 @@ needs boards + tokens.
 - **Acceptance:** the login/landing demo works; full suite green. **Config:** `GITHUB_OAUTH_CLIENT_ID`
   / `GITHUB_OAUTH_CLIENT_SECRET` + a session secret (Fly secrets in prod).
 
-## V7 · Boards
+## V7 · Boards ✅ Built
+
+> **Built** (ADR 0012). `board` table (`name` + nullable `owner_id`→user, ON DELETE SET NULL); NOT
+> NULL `board_id` on card + epic (ON DELETE CASCADE); `/api/v1/boards` CRUD; migration `0005` seeds
+> one **unclaimed** default board and backfills all existing cards/epics into it. Positions are now
+> per (board, column). SPA gains a top-bar **board switcher** (select / new / rename / delete) with
+> the active board persisted in localStorage; card/epic views + creates scope to it. `board_id` is
+> **optional on create** (defaults to the earliest board) so the MCP server + older clients keep
+> working. **No authorization yet** — any request can touch any board; owner-only enforcement is V8.
+> Two build decisions (confirmed with the maintainer): the default board is **unclaimed** (nullable
+> owner, no bootstrap user) and deleting a board **cascades** its cards/epics.
 
 - **Build:** `board` table (`id`, `name`, `owner_id`→`user`); nullable→backfilled `card.board_id` /
   `epic.board_id` FKs; `/api/v1/boards` CRUD. **Migration (A8):** create a default board owned by the

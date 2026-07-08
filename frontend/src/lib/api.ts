@@ -10,6 +10,7 @@ export type Column = "todo" | "in_progress" | "done";
 export interface Card {
   id: number;
   ticket_number: string;
+  board_id: number;
   title: string;
   description: string | null;
   column: Column;
@@ -28,6 +29,7 @@ export interface CardCreate {
   story_points?: number | null;
   assignee?: string | null;
   epic_id?: number | null;
+  board_id?: number;
 }
 
 // Field edits only — no column (moving is done via /move, not PATCH).
@@ -40,10 +42,11 @@ export interface CardUpdate {
   epic_id?: number | null;
 }
 
-// An epic is a board-less grouping a story can belong to (ADR 0009).
+// An epic is a grouping a story can belong to (ADR 0009), scoped to a board (V7).
 export interface Epic {
   id: number;
   ticket_number: string;
+  board_id: number;
   name: string;
   description: string | null;
   created_at: string;
@@ -53,6 +56,24 @@ export interface Epic {
 export interface EpicCreate {
   name: string;
   description?: string | null;
+  board_id?: number;
+}
+
+// A board owns a set of cards + epics (M3 V7). owner_id is a user UUID or null.
+export interface Board {
+  id: number;
+  name: string;
+  owner_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BoardCreate {
+  name: string;
+}
+
+export interface BoardUpdate {
+  name?: string;
 }
 
 export interface EpicUpdate {
@@ -85,8 +106,9 @@ async function parseError(res: Response): Promise<string> {
   return `Request failed (${res.status})`;
 }
 
-export async function listCards(): Promise<Card[]> {
-  const res = await fetch(`${API}/cards`);
+export async function listCards(boardId?: number): Promise<Card[]> {
+  const qs = boardId != null ? `?board_id=${boardId}` : "";
+  const res = await fetch(`${API}/cards${qs}`);
   if (!res.ok) throw new ApiError(res.status, await parseError(res));
   return res.json();
 }
@@ -126,8 +148,9 @@ export async function deleteCard(id: number): Promise<void> {
   if (!res.ok) throw new ApiError(res.status, await parseError(res));
 }
 
-export async function listEpics(): Promise<Epic[]> {
-  const res = await fetch(`${API}/epics`);
+export async function listEpics(boardId?: number): Promise<Epic[]> {
+  const qs = boardId != null ? `?board_id=${boardId}` : "";
+  const res = await fetch(`${API}/epics${qs}`);
   if (!res.ok) throw new ApiError(res.status, await parseError(res));
   return res.json();
 }
@@ -154,6 +177,39 @@ export async function updateEpic(id: number, payload: EpicUpdate): Promise<Epic>
 
 export async function deleteEpic(id: number): Promise<void> {
   const res = await fetch(`${API}/epics/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+}
+
+// --- Boards (Milestone 3 V7, ADR 0012) -------------------------------------
+
+export async function listBoards(): Promise<Board[]> {
+  const res = await fetch(`${API}/boards`);
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function createBoard(payload: BoardCreate): Promise<Board> {
+  const res = await fetch(`${API}/boards`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function updateBoard(id: number, payload: BoardUpdate): Promise<Board> {
+  const res = await fetch(`${API}/boards/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function deleteBoard(id: number): Promise<void> {
+  const res = await fetch(`${API}/boards/${id}`, { method: "DELETE" });
   if (!res.ok) throw new ApiError(res.status, await parseError(res));
 }
 

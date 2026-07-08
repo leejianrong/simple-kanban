@@ -133,6 +133,12 @@ fastapi_users = FastAPIUsers[User, uuid.UUID](get_user_manager, [auth_backend])
 # human (V8). Exported now so it's ready for board authorization.
 current_active_user = fastapi_users.current_user(active=True)
 
+# Optional variant: yields the current user when a valid session cookie is
+# present, else None (never 401). V7 uses it to stamp a new board's owner from the
+# session when one exists, while keeping the route reachable by tokenless clients
+# (the MCP server, tests). Enforcement of ownership arrives in V8.
+current_optional_user = fastapi_users.current_user(active=True, optional=True)
+
 github_oauth_client: GitHubOAuth2 | None = None
 if GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET:
     github_oauth_client = GitHubOAuth2(GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET)

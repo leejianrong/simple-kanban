@@ -18,9 +18,8 @@ from __future__ import annotations
 
 from urllib.parse import parse_qs, urlparse
 
-import pytest
-
-# The OAuth identity the mocked GitHub hands back.
+# The `mock_github` fixture lives in conftest.py (shared with the board tests);
+# these must match the identity it returns.
 FAKE_ACCOUNT_ID = "gh-12345"
 FAKE_EMAIL = "octocat@example.com"
 
@@ -33,21 +32,6 @@ def _query_one(sql: str):
 
     with engine.connect() as conn:
         return conn.execute(text(sql)).one()
-
-
-@pytest.fixture
-def mock_github(monkeypatch):
-    """Stub the GitHub client's two network calls so the callback needs no network."""
-    from app import users
-
-    async def fake_get_access_token(code, redirect_uri, code_verifier=None):
-        return {"access_token": "gh-access-token", "expires_at": None}
-
-    async def fake_get_id_email(access_token):
-        return FAKE_ACCOUNT_ID, FAKE_EMAIL
-
-    monkeypatch.setattr(users.github_oauth_client, "get_access_token", fake_get_access_token)
-    monkeypatch.setattr(users.github_oauth_client, "get_id_email", fake_get_id_email)
 
 
 def _login_via_github(client) -> None:
