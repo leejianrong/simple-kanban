@@ -21,7 +21,7 @@ def test_seed_inserts_demo_cards_when_empty(client):
         inserted = seed_demo_cards(conn)
     assert inserted == len(DEMO_CARDS)
 
-    cards = client.get("/api/cards").json()
+    cards = client.get("/api/v1/cards").json()
     assert len(cards) == len(DEMO_CARDS)
 
     # Ticket numbers were assigned by the sequence, not hard-coded in the seed.
@@ -41,10 +41,10 @@ def test_seed_is_a_noop_when_board_not_empty(client):
     from app.seed import seed_demo_cards
 
     # A single pre-existing card must suppress seeding (no duplicate demo data).
-    client.post("/api/cards", json={"title": "already here"})
+    client.post("/api/v1/cards", json={"title": "already here"})
 
     with engine.begin() as conn:
         inserted = seed_demo_cards(conn)
 
     assert inserted == 0
-    assert len(client.get("/api/cards").json()) == 1
+    assert len(client.get("/api/v1/cards").json()) == 1
