@@ -67,7 +67,7 @@ the MCP interface is delivered* (P5/P6). Shared parts extracted per shaping guid
 
 | Part | Mechanism | Flag |
 |------|-----------|:----:|
-| **P1** | **Epic/story model.** Card gains `kind` varchar+CHECK (`epic`\|`story`, default `story`) and nullable `parent_id` self-FK; Alembic migration; validation: a `story` may reference an `epic` parent, an `epic` has no parent. Mirrors the `column` enum pattern (ADR 0008). | |
+| **P1** | **Epic/story model.** *(Built as ADR 0009 — reshaped from the original `kind`-on-card sketch.)* Epic is a **first-class entity**: new `epic` table (own `EPIC-` sequence; `name` + optional `description`) + nullable `card.epic_id` FK (`ON DELETE SET NULL`); Alembic migration; new `/api/epics` CRUD; validation: `epic_id`, if set, must reference an existing epic. | |
 | **P2** | **API token auth.** `Authorization: Bearer <token>`; valid tokens from env (`API_TOKENS`, comma-sep). A FastAPI dependency guards all **mutating** routes (POST/PATCH/DELETE/move); reads stay open for the SPA. 401 on missing/bad token. | |
 | **P3** | 🟡 **API versioning (spike-resolved).** Re-prefix the cards router to `/cards`; include it twice in `main.py` — `/api/v1` (canonical) + `/api` (compat alias, `include_in_schema=False`). SPA (5 refs) + e2e (3 refs) move to `/api/v1`; backend tests stay on the alias for now + one new versioning test. `/api/health` stays unversioned. See `spike-p3-versioning.md`. | |
 | **P4** | **Query API.** `GET /api/v1/cards` gains `kind`, `column`, `parent_id`, `updated_since`, `limit`, `cursor`; keyset pagination ordered by `(updated_at, id)`; response carries a next-cursor. Back-compat: no params = today's behaviour. | |

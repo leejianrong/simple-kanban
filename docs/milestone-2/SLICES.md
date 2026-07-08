@@ -11,7 +11,7 @@ V1 is foundational + immediately visible.
 
 | Slice | Parts | Ends in (demo) |
 |-------|-------|----------------|
-| **V1 · Epic/story model + badges** | P1, P1-v, UI | Create an epic and a story under it in the UI; Epic/Story badges + the story's `↳ KAN-n` parent ref render and survive reload |
+| **V1 · Epic entity + story links** | P1, P1-v, UI | Create an epic in the Epics view (gets `EPIC-n`), link a story to it on the board; the story's epic-name tag + the epic's story rollup render and survive reload |
 | **V2 · API versioning** | P3 | `/docs` shows `/api/v1/*`; SPA still works; `curl` both `/api/v1/cards` and the `/api/cards` alias |
 | **V3 · Query API** | P4 | `curl "/api/v1/cards?kind=epic"`, `?updated_since=…`, `?limit=2` (+ `X-Next-Cursor` header) return the right filtered/paged results |
 | **V4 · Agent token auth** | P2 | With `API_TOKENS` set: write without token → `401`, with token → `201`; reads open. Unset → open (unchanged) |
@@ -19,16 +19,23 @@ V1 is foundational + immediately visible.
 
 ---
 
-## V1 · Epic/story model + card-face badges
+## V1 · Epic entity + story links
 
-- **Build:** `kind` (varchar+CHECK, default `story`) + `parent_id` (nullable self-FK) on
-  `card`; Alembic `0003`; add to `CardRead`/`CardCreate`, `parent_id` to `CardUpdate`.
-  Validation P1-v (story→epic parent; epic has no parent; parent must be an existing epic).
-  UI: kind badge + parent ref on the card face; Kind select + (for stories) parent-epic
-  select in `CardForm`.
-- **Tests:** integration — default `kind=story`; create epic; story with valid epic parent;
-  reject epic-with-parent; reject non-epic / missing parent; PATCH re-parent. e2e — create
-  epic then story-under-epic, assert badges + parent ref visible.
+> **Reshaped during build (ADR 0009).** The original sketch modeled an epic as a `card` with
+> `kind='epic'` + a `parent_id` self-FK. Building it clarified that an epic is *not* a board card
+> (no assignee/points, no column/position, its own `EPIC-` id, managed in a separate UI surface), so
+> the epic became a **first-class entity** in its own table. What shipped is below.
+
+- **Build:** new `epic` table (own `epic_ticket_seq` → `EPIC-n`; fields `name` + optional
+  `description` only) + nullable `card.epic_id` FK (`ON DELETE SET NULL`); Alembic `0003`. New
+  `/api/epics` CRUD; add `epic_id` to `CardCreate`/`CardRead`/`CardUpdate`. Validation P1-v:
+  `epic_id`, if set, must reference an existing epic (else 422). UI: board shows stories only, each
+  with its epic-name tag; an epic selector in `CardForm` (create + edit); a separate **Epics view**
+  (top-bar `Board | Epics` toggle) for epic create/read with a child-story rollup.
+- **Tests:** integration — epic CRUD; independent `EPIC-`/`KAN-` sequences; create/PATCH story with
+  valid `epic_id`; reject missing epic; clear link; delete-epic-detaches-stories. e2e — create an
+  epic in the Epics view, link a story on the board, assert the tag + rollup and that they survive
+  reload.
 - **Acceptance:** the demo above works; full suite green.
 
 ## V2 · API versioning (`/api/v1` + alias)
