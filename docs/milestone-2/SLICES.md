@@ -80,14 +80,22 @@ V1 is foundational + immediately visible.
   back-compat (no params = all).
 - **Acceptance:** met — the `curl` demos return correct filtered/paged results; SPA + e2e green.
 
-## V4 · Agent token auth (writes)
+## V4 · Agent token auth (writes) — **Built**
 
-- **Build:** `require_token` dependency on POST/PATCH/DELETE/move (both mounts). Tokens from
-  `API_TOKENS` env. **Unset → writes open** (existing tests + local dev unaffected); set →
-  enforced, `401` on missing/bad. Reads always open.
-- **Tests:** a suite that sets `API_TOKENS` — write without/with-bad token → `401`, with
-  token → `201`, GET open. Existing write tests run with `API_TOKENS` unset (unchanged).
-- **Acceptance:** the 401/201 demo works; prod sets `API_TOKENS` (Fly secret).
+> **Built as shaped (ADR 0010); "both mounts" is moot** — the `/api` alias was dropped in the V2
+> cleanup, so the guard applies to the single `/api/v1` mount. Extended to cover epic writes too.
+
+- **Build:** `require_token` dependency ([backend/app/auth.py](../../backend/app/auth.py)) on every
+  mutating route — cards **and** epics (POST/PATCH/DELETE/move). Tokens from `API_TOKENS` (comma-sep
+  env, read per request). **Unset → writes open** (existing tests + local dev unaffected); set →
+  enforced, `401` + `WWW-Authenticate: Bearer` on missing/bad. Reads always open. Uses
+  `HTTPBearer(auto_error=False)` so `/docs` gets an Authorize button. Flat token list — scopes +
+  revocation (R3.4) deferred.
+- **Tests:** integration `test_auth.py` sets `API_TOKENS` — write without/with-bad token → `401`,
+  with token → `201`/`200`/`204`, every mutating card + epic route guarded, GET open. One test pins
+  the unset → open default. The rest of the suite runs with `API_TOKENS` unset (unchanged).
+- **Acceptance:** met — the 401/201 demo works; SPA + e2e green (tokenless). **Prod opts in** by
+  setting `API_TOKENS` as a Fly secret; until then prod writes stay open (unchanged).
 
 ## V5 · MCP server + Claude Code wiring
 
