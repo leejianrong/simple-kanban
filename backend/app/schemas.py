@@ -5,6 +5,7 @@ Epic{Create,Update,Read} are the contract for the separate epic entity (ADR 0009
 """
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from enum import Enum
 from typing import Annotated
@@ -30,6 +31,10 @@ class CardCreate(BaseModel):
     # Optional parent epic. That the id references an existing epic is checked in
     # the router (routers/cards.py), which returns 422 on violation.
     epic_id: int | None = None
+    # The target board (M3 V7). Optional for back-compat: when omitted the router
+    # falls back to the default board, so pre-board clients (the MCP server, older
+    # tests) keep working. The referenced board must exist (422 otherwise).
+    board_id: int | None = None
 
     @field_validator("title")
     @classmethod
@@ -87,6 +92,7 @@ class CardRead(BaseModel):
 
     id: int
     ticket_number: str
+    board_id: int
     title: str
     description: str | None
     column: ColumnEnum
@@ -104,6 +110,8 @@ class EpicCreate(BaseModel):
 
     name: Annotated[str, Field(min_length=1)]
     description: str | None = None
+    # Target board (M3 V7); optional → default board when omitted (see CardCreate).
+    board_id: int | None = None
 
     @field_validator("name")
     @classmethod
@@ -132,7 +140,47 @@ class EpicRead(BaseModel):
 
     id: int
     ticket_number: str
+    board_id: int
     name: str
     description: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class BoardCreate(BaseModel):
+    """Create a board (M3 V7, ADR 0012). Carries only a name; the owner is set
+    from the session, not the request body."""
+
+    name: Annotated[str, Field(min_length=1)]
+
+    @field_validator("name")
+    @classmethod
+    def name_non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("name must not be empty")
+        return v
+
+
+class BoardUpdate(BaseModel):
+    """Rename a board. Only ``name`` is editable; ownership isn't reassignable here."""
+
+    name: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def name_non_empty(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            raise ValueError("name must not be empty")
+        return v
+
+
+class BoardRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    # The owning user (UUID), or null for an unclaimed board (e.g. the migrated
+    # default board). Server-enforced ownership checks arrive in V8.
+    owner_id: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
