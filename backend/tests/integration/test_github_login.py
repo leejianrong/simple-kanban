@@ -9,19 +9,30 @@ authenticated request is recognised; logout revokes the session.
 These run on the **async** auth engine (unlike the sync board tests) but share the
 same TestClient/DB fixtures — the async work happens inside the app, under the
 TestClient's event loop. (V4's env-token write-guard lives in test_auth.py.)
+
+Per the suite convention, app-module imports (which build the DB engines from
+DATABASE_URL) go **inside** test/fixture bodies — never at module top — so they
+run after the session fixture points DATABASE_URL at the throwaway Postgres.
 """
 from __future__ import annotations
 
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-from sqlalchemy import text
-
-from app.db import engine
 
 # The OAuth identity the mocked GitHub hands back.
 FAKE_ACCOUNT_ID = "gh-12345"
 FAKE_EMAIL = "octocat@example.com"
+
+
+def _query_one(sql: str):
+    """Run a read against the app's (sync) engine; imported lazily per convention."""
+    from sqlalchemy import text
+
+    from app.db import engine
+
+    with engine.connect() as conn:
+        return conn.execute(text(sql)).one()
 
 
 @pytest.fixture
@@ -74,11 +85,8 @@ def test_oauth_callback_creates_user_and_session(client, mock_github):
     assert me.json()["email"] == FAKE_EMAIL
 
     # Exactly one user + one linked GitHub account were created.
-    with engine.connect() as conn:
-        assert conn.execute(text('SELECT count(*) FROM "user"')).scalar() == 1
-        oauth = conn.execute(
-            text("SELECT oauth_name, account_id, account_email FROM oauth_account")
-        ).one()
+    assert _query_one('SELECT count(*) FROM "user"')[0] == 1
+    oauth = _query_one("SELECT oauth_name, account_id, account_email FROM oauth_account")
     assert oauth == ("github", FAKE_ACCOUNT_ID, FAKE_EMAIL)
 
 
@@ -88,9 +96,8 @@ def test_repeat_login_is_idempotent(client, mock_github):
     client.cookies.clear()  # forget the first session; log in fresh
     _login_via_github(client)
 
-    with engine.connect() as conn:
-        assert conn.execute(text('SELECT count(*) FROM "user"')).scalar() == 1
-        assert conn.execute(text("SELECT count(*) FROM oauth_account")).scalar() == 1
+    assert _query_one('SELECT count(*) FROM "user"')[0] == 1
+    assert _query_one("SELECT count(*) FROM oauth_account")[0] == 1
 
 
 def test_logout_revokes_the_session(client, mock_github):
@@ -98,13 +105,11 @@ def test_logout_revokes_the_session(client, mock_github):
     assert client.get("/users/me").status_code == 200
 
     # There is a live session row; logout deletes it (revocable, D3).
-    with engine.connect() as conn:
-        assert conn.execute(text("SELECT count(*) FROM access_token")).scalar() == 1
+    assert _query_one("SELECT count(*) FROM access_token")[0] == 1
 
     assert client.post("/auth/logout").status_code == 204
 
-    with engine.connect() as conn:
-        assert conn.execute(text("SELECT count(*) FROM access_token")).scalar() == 0
+    assert _query_one("SELECT count(*) FROM access_token")[0] == 0
 
     # The cookie the client still holds no longer resolves to a user.
     assert client.get("/users/me").status_code == 401
