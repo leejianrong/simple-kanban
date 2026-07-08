@@ -1,129 +1,140 @@
-"""API tests for the epic/story model (Milestone 2 V1, P1 + P1-v).
+"""API tests for the epic entity + story→epic links (Milestone 2 V1, ADR 0009).
 
-Covers the `kind` default, creating epics, parenting a story to an epic, the
-parent-validation rules (epic-with-parent, missing/non-epic parent, self-parent),
-and PATCH re-parenting. Uses only the HTTP client — per the suite convention any
-app-module imports go inside test bodies, not at module top.
+Covers epic CRUD, the independent EPIC-<n> ticket sequence, linking a story to an
+epic (create + PATCH), epic-link validation, and detach-on-delete. Uses only the
+HTTP client — per the suite convention any app-module imports go inside test
+bodies, not at module top.
 """
 from __future__ import annotations
 
 
-def _create(client, **fields):
-    payload = {"title": "T", **fields}
-    r = client.post("/api/cards", json=payload)
-    return r
+def _create_card(client, **fields):
+    return client.post("/api/cards", json={"title": "T", **fields})
 
 
-# --- kind on create --------------------------------------------------------
+def _create_epic(client, **fields):
+    return client.post("/api/epics", json={"name": "E", **fields})
 
 
-def test_kind_defaults_to_story(client):
-    body = _create(client).json()
-    assert body["kind"] == "story"
-    assert body["parent_id"] is None
+# --- epic CRUD -------------------------------------------------------------
 
 
-def test_create_epic(client):
-    r = _create(client, title="An epic", kind="epic")
+def test_create_epic_gets_epic_ticket(client):
+    r = _create_epic(client, name="Mobile Checkout", description="Pay on mobile")
     assert r.status_code == 201
     body = r.json()
-    assert body["kind"] == "epic"
-    assert body["parent_id"] is None
+    assert body["ticket_number"] == "EPIC-1"
+    assert body["name"] == "Mobile Checkout"
+    assert body["description"] == "Pay on mobile"
+    # An epic is not a board card — no column/position/assignee/story_points.
+    assert "column" not in body
+    assert "position" not in body
+    assert "story_points" not in body
+    assert "assignee" not in body
 
 
-def test_create_rejects_unknown_kind(client):
-    assert _create(client, kind="bug").status_code == 422
+def test_epic_ticket_sequence_is_independent_of_cards(client):
+    card = _create_card(client).json()
+    epic = _create_epic(client).json()
+    # Cards and epics number from separate sequences.
+    assert card["ticket_number"] == "KAN-1"
+    assert epic["ticket_number"] == "EPIC-1"
 
 
-# --- parenting a story -----------------------------------------------------
+def test_epic_ticket_numbers_increment(client):
+    a = _create_epic(client, name="A").json()
+    b = _create_epic(client, name="B").json()
+    assert [a["ticket_number"], b["ticket_number"]] == ["EPIC-1", "EPIC-2"]
 
 
-def test_story_with_valid_epic_parent(client):
-    epic = _create(client, title="Epic", kind="epic").json()
-    r = _create(client, title="Story", kind="story", parent_id=epic["id"])
-    assert r.status_code == 201
-    assert r.json()["parent_id"] == epic["id"]
+def test_epic_create_rejects_empty_name(client):
+    assert client.post("/api/epics", json={"name": ""}).status_code == 422
+    assert client.post("/api/epics", json={"name": "   "}).status_code == 422
+    assert client.post("/api/epics", json={}).status_code == 422
 
 
-def test_story_default_kind_can_have_epic_parent(client):
-    # kind omitted → defaults to story, which may still carry a parent.
-    epic = _create(client, title="Epic", kind="epic").json()
-    r = _create(client, title="Child", parent_id=epic["id"])
-    assert r.status_code == 201
-    assert r.json()["kind"] == "story"
-    assert r.json()["parent_id"] == epic["id"]
+def test_list_and_get_epics(client):
+    _create_epic(client, name="A")
+    _create_epic(client, name="B")
+    listed = client.get("/api/epics").json()
+    assert {e["name"] for e in listed} == {"A", "B"}
+    one = listed[0]
+    assert client.get(f"/api/epics/{one['id']}").json() == one
 
 
-# --- parent validation (P1-v) ---------------------------------------------
+def test_get_missing_epic_404(client):
+    assert client.get("/api/epics/999").status_code == 404
 
 
-def test_reject_epic_with_parent(client):
-    epic = _create(client, title="Parent epic", kind="epic").json()
-    r = _create(client, title="Nested epic", kind="epic", parent_id=epic["id"])
-    assert r.status_code == 422
-
-
-def test_reject_missing_parent(client):
-    r = _create(client, title="Orphan", kind="story", parent_id=999999)
-    assert r.status_code == 422
-
-
-def test_reject_non_epic_parent(client):
-    story = _create(client, title="A story", kind="story").json()
-    r = _create(client, title="Child of a story", kind="story", parent_id=story["id"])
-    assert r.status_code == 422
-
-
-# --- PATCH re-parent -------------------------------------------------------
-
-
-def test_patch_reparents_story(client):
-    epic_a = _create(client, title="Epic A", kind="epic").json()
-    epic_b = _create(client, title="Epic B", kind="epic").json()
-    story = _create(client, title="Story", kind="story", parent_id=epic_a["id"]).json()
-
-    r = client.patch(f"/api/cards/{story['id']}", json={"parent_id": epic_b["id"]})
+def test_patch_epic_fields(client):
+    epic = _create_epic(client, name="Before").json()
+    r = client.patch(f"/api/epics/{epic['id']}", json={"name": "After", "description": "d"})
     assert r.status_code == 200
-    assert r.json()["parent_id"] == epic_b["id"]
+    body = r.json()
+    assert body["name"] == "After"
+    assert body["description"] == "d"
 
 
-def test_patch_can_clear_parent(client):
-    epic = _create(client, title="Epic", kind="epic").json()
-    story = _create(client, title="Story", kind="story", parent_id=epic["id"]).json()
+def test_patch_epic_rejects_empty_name(client):
+    epic = _create_epic(client).json()
+    assert client.patch(f"/api/epics/{epic['id']}", json={"name": ""}).status_code == 422
 
-    r = client.patch(f"/api/cards/{story['id']}", json={"parent_id": None})
+
+def test_delete_epic(client):
+    epic = _create_epic(client).json()
+    assert client.delete(f"/api/epics/{epic['id']}").status_code == 204
+    assert client.get(f"/api/epics/{epic['id']}").status_code == 404
+
+
+# --- linking a story to an epic --------------------------------------------
+
+
+def test_card_has_no_epic_by_default(client):
+    assert _create_card(client).json()["epic_id"] is None
+
+
+def test_create_card_with_valid_epic(client):
+    epic = _create_epic(client).json()
+    r = _create_card(client, epic_id=epic["id"])
+    assert r.status_code == 201
+    assert r.json()["epic_id"] == epic["id"]
+
+
+def test_create_card_rejects_missing_epic(client):
+    assert _create_card(client, epic_id=999999).status_code == 422
+
+
+def test_patch_relinks_story_to_epic(client):
+    epic_a = _create_epic(client, name="A").json()
+    epic_b = _create_epic(client, name="B").json()
+    card = _create_card(client, epic_id=epic_a["id"]).json()
+
+    r = client.patch(f"/api/cards/{card['id']}", json={"epic_id": epic_b["id"]})
     assert r.status_code == 200
-    assert r.json()["parent_id"] is None
+    assert r.json()["epic_id"] == epic_b["id"]
 
 
-def test_patch_reject_reparent_to_non_epic(client):
-    other = _create(client, title="Another story", kind="story").json()
-    story = _create(client, title="Story", kind="story").json()
-    r = client.patch(f"/api/cards/{story['id']}", json={"parent_id": other["id"]})
-    assert r.status_code == 422
+def test_patch_can_clear_epic_link(client):
+    epic = _create_epic(client).json()
+    card = _create_card(client, epic_id=epic["id"]).json()
+    r = client.patch(f"/api/cards/{card['id']}", json={"epic_id": None})
+    assert r.status_code == 200
+    assert r.json()["epic_id"] is None
 
 
-def test_patch_reject_self_parent(client):
-    story = _create(client, title="Story", kind="story").json()
-    r = client.patch(f"/api/cards/{story['id']}", json={"parent_id": story["id"]})
-    assert r.status_code == 422
+def test_patch_rejects_missing_epic(client):
+    card = _create_card(client).json()
+    assert client.patch(f"/api/cards/{card['id']}", json={"epic_id": 999999}).status_code == 422
 
 
-def test_patch_reject_parent_on_epic(client):
-    parent = _create(client, title="Parent epic", kind="epic").json()
-    epic = _create(client, title="Epic", kind="epic").json()
-    r = client.patch(f"/api/cards/{epic['id']}", json={"parent_id": parent["id"]})
-    assert r.status_code == 422
-
-
-# --- delete detaches children (ON DELETE SET NULL) -------------------------
+# --- delete detaches child stories (ON DELETE SET NULL) --------------------
 
 
 def test_deleting_epic_detaches_its_stories(client):
-    epic = _create(client, title="Epic", kind="epic").json()
-    story = _create(client, title="Story", kind="story", parent_id=epic["id"]).json()
+    epic = _create_epic(client).json()
+    card = _create_card(client, epic_id=epic["id"]).json()
 
-    assert client.delete(f"/api/cards/{epic['id']}").status_code == 204
-    # The story survives, with its parent reference cleared rather than dangling.
-    body = client.get(f"/api/cards/{story['id']}").json()
-    assert body["parent_id"] is None
+    assert client.delete(f"/api/epics/{epic['id']}").status_code == 204
+    # The story survives on the board, with its epic link cleared.
+    body = client.get(f"/api/cards/{card['id']}").json()
+    assert body["epic_id"] is None

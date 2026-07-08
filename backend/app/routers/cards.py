@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import Card
+from ..models import Card, Epic
 from ..ordering import next_position, renumber_column
 from ..schemas import CardCreate, CardMove, CardRead, CardUpdate
 
@@ -28,37 +28,15 @@ def _get_or_404(db: Session, card_id: int) -> Card:
     return card
 
 
-def _validate_parent(
-    db: Session, *, kind: str, parent_id: int | None, self_id: int | None = None
-) -> None:
-    """Enforce the epic/story parenting rules (BREADBOARD P1-v); 422 on violation.
-
-    A story may reference an epic parent (or none); an epic has no parent; a
-    parent must be an existing card with kind='epic'; no card is its own parent.
-    (Epics can't nest, so no cycles are possible.)
-    """
-    if parent_id is None:
+def _validate_epic(db: Session, epic_id: int | None) -> None:
+    """A story's ``epic_id`` (if set) must reference an existing epic (ADR 0009);
+    422 otherwise."""
+    if epic_id is None:
         return
-    if kind == "epic":
+    if db.get(Epic, epic_id) is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="an epic cannot have a parent",
-        )
-    if self_id is not None and parent_id == self_id:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="a card cannot be its own parent",
-        )
-    parent = db.get(Card, parent_id)
-    if parent is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="parent_id must reference an existing card",
-        )
-    if parent.kind != "epic":
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="parent_id must reference an epic",
+            detail="epic_id must reference an existing epic",
         )
 
 
@@ -71,7 +49,7 @@ def list_cards(db: Session = Depends(get_db)) -> list[Card]:
 
 @router.post("", response_model=CardRead, status_code=status.HTTP_201_CREATED)
 def create_card(payload: CardCreate, db: Session = Depends(get_db)) -> Card:
-    _validate_parent(db, kind=payload.kind.value, parent_id=payload.parent_id)
+    _validate_epic(db, payload.epic_id)
     card = Card(
         title=payload.title,
         description=payload.description,
@@ -79,8 +57,7 @@ def create_card(payload: CardCreate, db: Session = Depends(get_db)) -> Card:
         position=next_position(db, payload.column.value),
         story_points=payload.story_points,
         assignee=payload.assignee,
-        kind=payload.kind.value,
-        parent_id=payload.parent_id,
+        epic_id=payload.epic_id,
     )
     db.add(card)
     db.commit()
@@ -106,12 +83,8 @@ def update_card(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="title must not be empty",
         )
-    if "parent_id" in data:
-        # Re-parenting rules are checked against the card's existing kind
-        # (kind itself is not editable via PATCH).
-        _validate_parent(
-            db, kind=card.kind, parent_id=data["parent_id"], self_id=card.id
-        )
+    if "epic_id" in data:
+        _validate_epic(db, data["epic_id"])
     for field, value in data.items():
         setattr(card, field, value)
     db.commit()  # updated_at is bumped server-side via onupdate

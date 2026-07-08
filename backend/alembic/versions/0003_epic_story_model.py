@@ -1,15 +1,17 @@
-"""epic/story model: card.kind + card.parent_id
+"""epic entity + card.epic_id
 
 Revision ID: 0003_epic_story_model
 Revises: 0002_seed_demo_cards
 Create Date: 2026-07-08
 
-Milestone 2 V1 (P1). Adds:
-- `kind` varchar guarded by a CHECK constraint (`epic`|`story`, default `story`),
-  mirroring the `column` pattern so a new kind needs no ALTER TYPE later (ADR 0008).
-  The server_default backfills every existing row to `story`.
-- `parent_id` nullable self-FK → card.id (a story's parent epic). ON DELETE SET NULL
-  so deleting an epic detaches its stories, consistent with the hard-delete model.
+Milestone 2 V1 (ADR 0009). Introduces the epic as a first-class entity, separate
+from the board's cards:
+- a new `epic` table with its own `EPIC-<n>` ticket sequence (independent of the
+  card `KAN-<n>` sequence — KAN-1 and EPIC-1 can coexist). Epics carry only a
+  name + optional description; no column/position/assignee/story_points.
+- `card.epic_id`: a nullable FK → epic.id (a story's parent epic). ON DELETE SET
+  NULL so deleting an epic detaches its stories, consistent with the hard-delete
+  model.
 """
 from typing import Sequence, Union
 
@@ -23,34 +25,50 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "card",
+    # Sequence must exist before the table default references it.
+    op.execute("CREATE SEQUENCE epic_ticket_seq START 1")
+
+    op.create_table(
+        "epic",
+        sa.Column("id", sa.BigInteger(), sa.Identity(always=False), primary_key=True),
         sa.Column(
-            "kind",
+            "ticket_number",
             sa.String(length=32),
             nullable=False,
-            server_default=sa.text("'story'"),
+            server_default=sa.text("'EPIC-' || nextval('epic_ticket_seq')"),
         ),
+        sa.Column("name", sa.String(length=255), nullable=False),
+        sa.Column("description", sa.Text(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
+        sa.UniqueConstraint("ticket_number", name="uq_epic_ticket_number"),
     )
-    op.add_column(
-        "card",
-        sa.Column("parent_id", sa.BigInteger(), nullable=True),
-    )
-    op.create_check_constraint(
-        "ck_card_kind", "card", "kind IN ('epic', 'story')"
-    )
+    # Tie the sequence's lifecycle to the table so DROP TABLE cleans it up.
+    op.execute("ALTER SEQUENCE epic_ticket_seq OWNED BY epic.id")
+
+    op.add_column("card", sa.Column("epic_id", sa.BigInteger(), nullable=True))
     op.create_foreign_key(
-        "fk_card_parent_id",
+        "fk_card_epic_id",
         "card",
-        "card",
-        ["parent_id"],
+        "epic",
+        ["epic_id"],
         ["id"],
         ondelete="SET NULL",
     )
 
 
 def downgrade() -> None:
-    op.drop_constraint("fk_card_parent_id", "card", type_="foreignkey")
-    op.drop_constraint("ck_card_kind", "card", type_="check")
-    op.drop_column("card", "parent_id")
-    op.drop_column("card", "kind")
+    op.drop_constraint("fk_card_epic_id", "card", type_="foreignkey")
+    op.drop_column("card", "epic_id")
+    op.drop_table("epic")
+    op.execute("DROP SEQUENCE IF EXISTS epic_ticket_seq")

@@ -16,11 +16,12 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .routers import cards
+from .routers import cards, epics
 
 app = FastAPI(title="Simple Kanban API", version="0.1.0")
 
 app.include_router(cards.router)
+app.include_router(epics.router)
 
 
 @app.get("/api/health", tags=["meta"])

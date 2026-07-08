@@ -1,6 +1,7 @@
-"""Pydantic v2 schemas — the API's request/response contract (CONTEXT §4, ADR 0006).
+"""Pydantic v2 schemas — the API's request/response contract (CONTEXT §4, ADR 0006 + 0009).
 
 CardCreate / CardRead for create+read; CardUpdate for field edits; CardMove for move/reorder.
+Epic{Create,Update,Read} are the contract for the separate epic entity (ADR 0009).
 """
 from __future__ import annotations
 
@@ -17,11 +18,6 @@ class ColumnEnum(str, Enum):
     done = "done"
 
 
-class KindEnum(str, Enum):
-    epic = "epic"
-    story = "story"
-
-
 STORY_POINTS = {1, 2, 3, 5, 8, 13}
 
 
@@ -31,11 +27,9 @@ class CardCreate(BaseModel):
     column: ColumnEnum = ColumnEnum.todo
     story_points: int | None = None
     assignee: str | None = None
-    kind: KindEnum = KindEnum.story
-    # Parent epic for a story. Cross-entity rules (parent must exist and be an
-    # epic; an epic has no parent; no self-parent) need a DB lookup and are
-    # enforced in the router (routers/cards.py), which returns 422 on violation.
-    parent_id: int | None = None
+    # Optional parent epic. That the id references an existing epic is checked in
+    # the router (routers/cards.py), which returns 422 on violation.
+    epic_id: int | None = None
 
     @field_validator("title")
     @classmethod
@@ -64,9 +58,9 @@ class CardUpdate(BaseModel):
     description: str | None = None
     story_points: int | None = None
     assignee: str | None = None
-    # Re-parent a story (or clear it with null). Same cross-entity rules as create,
-    # enforced in the router; kind itself is not editable via PATCH.
-    parent_id: int | None = None
+    # Re-link the story to a different epic, or clear it with null. The referenced
+    # epic must exist; enforced in the router.
+    epic_id: int | None = None
 
     @field_validator("title")
     @classmethod
@@ -99,7 +93,46 @@ class CardRead(BaseModel):
     position: int
     story_points: int | None
     assignee: str | None
-    kind: KindEnum
-    parent_id: int | None
+    epic_id: int | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class EpicCreate(BaseModel):
+    """Create an epic (ADR 0009). Epics carry only a name + optional description —
+    no column/position/assignee/story_points."""
+
+    name: Annotated[str, Field(min_length=1)]
+    description: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def name_non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("name must not be empty")
+        return v
+
+
+class EpicUpdate(BaseModel):
+    """Field edits for an epic. All optional — only sent fields are applied."""
+
+    name: str | None = None
+    description: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def name_non_empty(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            raise ValueError("name must not be empty")
+        return v
+
+
+class EpicRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    ticket_number: str
+    name: str
+    description: str | None
     created_at: datetime
     updated_at: datetime
