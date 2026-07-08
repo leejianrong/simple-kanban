@@ -109,19 +109,19 @@ export async function dragTo(
 export async function cleanupE2eCards(): Promise<void> {
   const ctx: APIRequestContext = await request.newContext({ baseURL: API_ORIGIN });
   try {
-    const cards = await ctx.get("/api/cards");
+    const cards = await ctx.get("/api/v1/cards");
     if (cards.ok()) {
       for (const card of await cards.json()) {
         if (typeof card.title === "string" && card.title.startsWith(E2E_PREFIX)) {
-          await ctx.delete(`/api/cards/${card.id}`);
+          await ctx.delete(`/api/v1/cards/${card.id}`);
         }
       }
     }
-    const epics = await ctx.get("/api/epics");
+    const epics = await ctx.get("/api/v1/epics");
     if (epics.ok()) {
       for (const epic of await epics.json()) {
         if (typeof epic.name === "string" && epic.name.startsWith(E2E_PREFIX)) {
-          await ctx.delete(`/api/epics/${epic.id}`);
+          await ctx.delete(`/api/v1/epics/${epic.id}`);
         }
       }
     }

@@ -1,11 +1,14 @@
-"""/api/cards endpoints (BREADBOARD §6).
+"""Cards endpoints (BREADBOARD §6).
 
-- GET    /api/cards         — list all cards (client groups by column, sorts by position)
-- POST   /api/cards         — create a card (appended to the end of its column)
-- GET    /api/cards/{id}    — read one card
-- PATCH  /api/cards/{id}    — edit fields (title/description/story_points/assignee)
-- DELETE /api/cards/{id}    — hard-delete
-- POST   /api/cards/{id}/move — move/reorder a card (column change + reorder within column)
+Mounted by ``main.py`` under ``/api/v1`` (canonical) and ``/api`` (compat alias),
+so the paths below are relative to those prefixes (e.g. ``/api/v1/cards``):
+
+- GET    /cards         — list all cards (client groups by column, sorts by position)
+- POST   /cards         — create a card (appended to the end of its column)
+- GET    /cards/{id}    — read one card
+- PATCH  /cards/{id}    — edit fields (title/description/story_points/assignee)
+- DELETE /cards/{id}    — hard-delete
+- POST   /cards/{id}/move — move/reorder a card (column change + reorder within column)
 """
 from __future__ import annotations
 
@@ -18,7 +21,7 @@ from ..models import Card, Epic
 from ..ordering import next_position, renumber_column
 from ..schemas import CardCreate, CardMove, CardRead, CardUpdate
 
-router = APIRouter(prefix="/api/cards", tags=["cards"])
+router = APIRouter(prefix="/cards", tags=["cards"])
 
 
 def _get_or_404(db: Session, card_id: int) -> Card:

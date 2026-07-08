@@ -1,5 +1,9 @@
-// Thin typed fetch wrapper over /api (SHAPING §Frontend components).
+// Thin typed fetch wrapper over the versioned API (SHAPING §Frontend components).
 // The UI performs no action the API can't (R4.1). Throws on non-2xx.
+//
+// All calls go through the canonical /api/v1 prefix (P3, milestone-2 V2). The
+// backend also serves a temporary /api alias, but the SPA rides the versioned path.
+const API = "/api/v1";
 
 export type Column = "todo" | "in_progress" | "done";
 
@@ -82,13 +86,13 @@ async function parseError(res: Response): Promise<string> {
 }
 
 export async function listCards(): Promise<Card[]> {
-  const res = await fetch("/api/cards");
+  const res = await fetch(`${API}/cards`);
   if (!res.ok) throw new ApiError(res.status, await parseError(res));
   return res.json();
 }
 
 export async function createCard(payload: CardCreate): Promise<Card> {
-  const res = await fetch("/api/cards", {
+  const res = await fetch(`${API}/cards`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -98,7 +102,7 @@ export async function createCard(payload: CardCreate): Promise<Card> {
 }
 
 export async function updateCard(id: number, payload: CardUpdate): Promise<Card> {
-  const res = await fetch(`/api/cards/${id}`, {
+  const res = await fetch(`${API}/cards/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -108,7 +112,7 @@ export async function updateCard(id: number, payload: CardUpdate): Promise<Card>
 }
 
 export async function moveCard(id: number, payload: CardMove): Promise<Card> {
-  const res = await fetch(`/api/cards/${id}/move`, {
+  const res = await fetch(`${API}/cards/${id}/move`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -118,18 +122,18 @@ export async function moveCard(id: number, payload: CardMove): Promise<Card> {
 }
 
 export async function deleteCard(id: number): Promise<void> {
-  const res = await fetch(`/api/cards/${id}`, { method: "DELETE" });
+  const res = await fetch(`${API}/cards/${id}`, { method: "DELETE" });
   if (!res.ok) throw new ApiError(res.status, await parseError(res));
 }
 
 export async function listEpics(): Promise<Epic[]> {
-  const res = await fetch("/api/epics");
+  const res = await fetch(`${API}/epics`);
   if (!res.ok) throw new ApiError(res.status, await parseError(res));
   return res.json();
 }
 
 export async function createEpic(payload: EpicCreate): Promise<Epic> {
-  const res = await fetch("/api/epics", {
+  const res = await fetch(`${API}/epics`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -139,7 +143,7 @@ export async function createEpic(payload: EpicCreate): Promise<Epic> {
 }
 
 export async function updateEpic(id: number, payload: EpicUpdate): Promise<Epic> {
-  const res = await fetch(`/api/epics/${id}`, {
+  const res = await fetch(`${API}/epics/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -149,6 +153,6 @@ export async function updateEpic(id: number, payload: EpicUpdate): Promise<Epic>
 }
 
 export async function deleteEpic(id: number): Promise<void> {
-  const res = await fetch(`/api/epics/${id}`, { method: "DELETE" });
+  const res = await fetch(`${API}/epics/${id}`, { method: "DELETE" });
   if (!res.ok) throw new ApiError(res.status, await parseError(res));
 }

@@ -34,7 +34,7 @@ test("failed move reverts the board and surfaces an error", async ({ page }) => 
   await createCard(page, "Todo", title);
 
   // Force the move to fail (create/list still hit the real backend).
-  await page.route("**/api/cards/*/move", (route) =>
+  await page.route("**/api/v1/cards/*/move", (route) =>
     route.fulfill({
       status: 500,
       contentType: "application/json",

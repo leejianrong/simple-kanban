@@ -1,14 +1,15 @@
-"""/api/epics endpoints (ADR 0009).
+"""Epics endpoints (ADR 0009).
 
 Epics are a board-less grouping a story can belong to — created and read in a
 separate UI surface, not on the kanban board. Full CRUD, mirroring the flat
-structure of the cards router (API-first, ADR 0005):
+structure of the cards router (API-first, ADR 0005). Mounted by ``main.py`` under
+``/api/v1`` (canonical) and ``/api`` (compat alias); paths below are relative:
 
-- GET    /api/epics       — list all epics (newest ticket first)
-- POST   /api/epics       — create an epic (EPIC-<n> assigned by the DB)
-- GET    /api/epics/{id}  — read one epic
-- PATCH  /api/epics/{id}  — edit fields (name/description)
-- DELETE /api/epics/{id}  — hard-delete; child stories are detached (epic_id → NULL)
+- GET    /epics       — list all epics (newest ticket first)
+- POST   /epics       — create an epic (EPIC-<n> assigned by the DB)
+- GET    /epics/{id}  — read one epic
+- PATCH  /epics/{id}  — edit fields (name/description)
+- DELETE /epics/{id}  — hard-delete; child stories are detached (epic_id → NULL)
 """
 from __future__ import annotations
 
@@ -20,7 +21,7 @@ from ..db import get_db
 from ..models import Epic
 from ..schemas import EpicCreate, EpicRead, EpicUpdate
 
-router = APIRouter(prefix="/api/epics", tags=["epics"])
+router = APIRouter(prefix="/epics", tags=["epics"])
 
 
 def _get_or_404(db: Session, epic_id: int) -> Epic:
