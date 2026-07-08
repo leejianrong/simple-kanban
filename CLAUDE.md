@@ -8,9 +8,10 @@ The core board is **feature-complete and deployed** (live at
 [simple-kanban-jian.fly.dev](https://simple-kanban-jian.fly.dev)): view / create / edit / delete /
 drag-to-move all work end to end, behind a full REST API with an automated test suite (backend
 pytest + frontend Playwright e2e) and CI/CD to Fly.io. The full "Shape A" plan is now implemented.
-**Milestone 2 (Agent-Driven Task Tracking)** is now in progress — V1 (epic entity + story links),
-V2 (API versioning), V3 (query API) and V4 (token auth) have landed; V5 (MCP server) is shaped but
-not yet built (see the milestone table below and [docs/milestone-2/SLICES.md](docs/milestone-2/SLICES.md)).
+**Milestone 2 (Agent-Driven Task Tracking)** is now **feature-complete** — all five slices landed:
+V1 (epic entity + story links), V2 (API versioning), V3 (query API), V4 (token auth), and V5 (the
+MCP server in [mcp/](mcp/) + Claude Code wiring). See the milestone table below and
+[docs/milestone-2/SLICES.md](docs/milestone-2/SLICES.md).
 The [docs/](docs/) folder describes those plans at a high level, so **don't assume a documented
 detail matches the code** — check the source.
 
@@ -30,7 +31,7 @@ detail matches the code** — check the source.
 | V2 | API versioning: all routers under `/api/v1` (the temporary `/api` compat alias has been dropped; `/api/health` stays unversioned) | **Built** |
 | V3 | Query API on `GET /api/v1/cards` (`column`/`epic_id`/`updated_since`/`limit`/`cursor`; keyset pagination via `X-Next-Cursor`; `app/pagination.py`) | **Built** |
 | V4 | Agent token auth on writes — `require_token` dep (`app/auth.py`) on all mutating card+epic routes; tokens from `API_TOKENS`; unset → open (ADR 0010) | **Built** |
-| V5 | MCP server (`/mcp`, stdio) + Claude Code wiring | Not yet built |
+| V5 | MCP server (`mcp/`, official `mcp` SDK/FastMCP, stdio) — 7 tools wrapping `/api/v1` via httpx; `.mcp.json.example` + `mcp/README.md` for Claude Code | **Built** |
 
 When extending the app, follow the plan already written in [docs/SHAPING.md](docs/SHAPING.md)
 (§Detailed shape) and [docs/BREADBOARD.md](docs/BREADBOARD.md) for the core board, and
@@ -80,13 +81,25 @@ npm run e2e       # Playwright smoke (auto-starts backend+Vite; needs docker com
 > One-time browser install: `npx playwright install chromium`. Tests prefix their cards with `e2e-`
 > and clean up after themselves, so they tolerate existing dev data. Runs in CI as the `e2e` job.
 
+**MCP server** (from `mcp/`) — the agent entry point (V5), its own `uv` package:
+```bash
+uv sync                                             # install (mcp SDK + httpx)
+uv run ruff check .                                 # lint (matches CI mcp job)
+uv run pytest -q                                    # unit (mocked httpx) + tool-list smoke; no DB
+KANBAN_API_URL=http://localhost:8000 uv run python -m kanban_mcp   # run the stdio server by hand
+```
+> Thin `httpx` wrapper over `/api/v1` — 7 tools, no DB of its own. Config via `KANBAN_API_URL` +
+> optional `KANBAN_TOKEN` (needed only against a server with `API_TOKENS` set). Wire into Claude
+> Code by copying `.mcp.json.example` → `.mcp.json`; see [mcp/README.md](mcp/README.md). CI runs it
+> as the `mcp` job.
+
 **Full local dev loop:** `docker compose up -d db` → backend `uv run alembic upgrade head` +
 `uvicorn … --reload` → frontend `npm run dev`, then open `:5173`.
 
 ## Development workflow (conventions — for humans and agents)
 
 **Branch per change, off a fresh `main`.** `main` is protected: direct pushes are rejected and
-every change lands via PR only after CI (lint + unit + integration + frontend build) is green.
+every change lands via PR only after CI (lint + unit + integration + frontend build + e2e + mcp) is green.
 Always start from an up-to-date `main`:
 ```bash
 git switch main && git pull --ff-only

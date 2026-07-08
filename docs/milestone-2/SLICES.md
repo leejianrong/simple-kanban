@@ -97,17 +97,23 @@ V1 is foundational + immediately visible.
 - **Acceptance:** met — the 401/201 demo works; SPA + e2e green (tokenless). **Prod opts in** by
   setting `API_TOKENS` as a Fly secret; until then prod writes stay open (unchanged).
 
-## V5 · MCP server + Claude Code wiring
+## V5 · MCP server + Claude Code wiring — **Built**
 
-- **Build:** `/mcp` package (own `pyproject.toml`) — official `mcp` SDK, stdio; tools
-  `list_cards` / `get_card` / `create_card` / `create_epic` / `update_card` / `move_card` /
-  `delete_card`, each mapping to `/api/v1` via `httpx` with `KANBAN_TOKEN`. `.mcp.json`
-  snippet + README for Claude Code (`KANBAN_API_URL`, `KANBAN_TOKEN`).
-- **Tests:** unit — each tool issues the expected request (mocked httpx) and maps errors;
-  a smoke that the server advertises the tool list. (Optional: end-to-end against a live
-  test API.)
-- **Acceptance:** connect Claude Code; it lists/creates/moves cards via MCP; changes show
-  on the board. Then dogfood: seed this repo's own epics/stories via the agent.
+- **Build:** `/mcp` package (own `pyproject.toml` + `uv.lock`) — official `mcp` SDK (FastMCP,
+  stdio); seven tools `list_cards` / `get_card` / `create_card` / `create_epic` / `update_card` /
+  `move_card` / `delete_card`, each a thin `httpx` wrapper over `/api/v1` (`kanban_mcp/api.py` →
+  `server.py`). Config via `KANBAN_API_URL` + optional `KANBAN_TOKEN` (`config.py`); the token is
+  sent as `Authorization: Bearer` and is only needed when the target has `API_TOKENS` set. `list_cards`
+  exposes the V3 query params. `.mcp.json.example` at the repo root + `mcp/README.md` document Claude
+  Code wiring (local + prod). CI gains a sixth job (mcp lint + tests); pre-push hook mirrors it.
+- **Tests:** unit — each client method issues the expected request against a mocked httpx transport
+  (method/path/params/body), sends the bearer header when a token is set, and maps non-2xx → a
+  `KanbanApiError` carrying the API's `detail`; a smoke asserting the server advertises exactly the
+  seven tools with descriptions + schemas. Verified end-to-end over a real stdio MCP session against
+  a live backend (create epic → create linked story → move → list), including the 401-without-token
+  and 201-with-token paths against an auth-enabled backend.
+- **Acceptance:** met — an MCP client lists/creates/moves cards over stdio and they appear on the
+  board; token auth enforced end-to-end. Ready to connect Claude Code via `.mcp.json` and dogfood.
 
 ---
 
