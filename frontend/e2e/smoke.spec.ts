@@ -5,9 +5,13 @@ import {
   createCard,
   dragTo,
   dropzone,
+  loginStub,
   uniqueTitle,
 } from "./helpers";
 
+// The board is now behind an auth check (M3 V6) — stub a signed-in user so these
+// board specs reach the board.
+test.beforeEach(({ page }) => loginStub(page));
 test.afterAll(cleanupE2eCards);
 
 test("load → create → drag-move persists across reload", async ({ page }) => {

@@ -156,3 +156,39 @@ export async function deleteEpic(id: number): Promise<void> {
   const res = await fetch(`${API}/epics/${id}`, { method: "DELETE" });
   if (!res.ok) throw new ApiError(res.status, await parseError(res));
 }
+
+// --- Auth (Milestone 3 V6, ADR 0011) ---------------------------------------
+// The fastapi-users auth + identity routes live at the origin root (/auth,
+// /users), NOT under /api/v1 — they're session plumbing, so no API prefix.
+
+export interface CurrentUser {
+  id: string;
+  email: string;
+  is_active: boolean;
+  is_superuser: boolean;
+  is_verified: boolean;
+}
+
+// The signed-in user, or null when logged out (401). The app-shell auth check.
+export async function getCurrentUser(): Promise<CurrentUser | null> {
+  const res = await fetch("/users/me");
+  if (res.status === 401) return null;
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function logout(): Promise<void> {
+  const res = await fetch("/auth/logout", { method: "POST" });
+  // 204 on success; 401 means the session was already gone — both are "logged out".
+  if (!res.ok && res.status !== 401) throw new ApiError(res.status, await parseError(res));
+}
+
+// The GitHub authorize endpoint returns JSON `{ authorization_url }` rather than a
+// redirect, so we fetch it and then navigate the browser there (ADR 0011). On the
+// return trip the backend sets the session cookie and redirects to `/`.
+export async function startGitHubLogin(): Promise<void> {
+  const res = await fetch("/auth/github/authorize");
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  const { authorization_url } = await res.json();
+  window.location.href = authorization_url;
+}

@@ -55,6 +55,22 @@ body {
   font-weight: 600;
 }
 
+/* Current user + logout, pushed to the right of the top bar (M3 V6). */
+.topbar-user {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.topbar-user .user-email {
+  font-size: 0.8rem;
+  color: var(--muted);
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 main {
   padding: 1.5rem;
 }

@@ -15,6 +15,27 @@ export function uniqueTitle(label = "card"): string {
   return `${E2E_PREFIX}${label}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 }
 
+// A fake signed-in user for the auth-gated shell (M3 V6). The board now sits
+// behind an auth check (`GET /users/me`); stubbing it as authenticated lets the
+// board specs reach the board without a real GitHub session. Call before goto().
+export const E2E_USER = {
+  id: "00000000-0000-0000-0000-000000000001",
+  email: "e2e@example.com",
+  is_active: true,
+  is_superuser: false,
+  is_verified: true,
+};
+
+export async function loginStub(page: Page): Promise<void> {
+  await page.route("**/users/me", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(E2E_USER),
+    }),
+  );
+}
+
 export function column(page: Page, label: string): Locator {
   return page.locator(".column", {
     has: page.getByRole("heading", { name: label, exact: true }),
