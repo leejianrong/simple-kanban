@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .routers import cards, epics
+from .users import register_auth_routes
 
 app = FastAPI(title="Simple Kanban API", version="0.1.0")
 
@@ -26,6 +27,11 @@ app = FastAPI(title="Simple Kanban API", version="0.1.0")
 # /api/v1. /api/health stays unversioned (infra, not a versioned resource).
 app.include_router(cards.router, prefix="/api/v1")
 app.include_router(epics.router, prefix="/api/v1")
+
+# Human auth (M3 V6, ADR 0011): /auth/* + /users/*, unversioned like /api/health
+# (session/identity plumbing, not versioned API resources). The GitHub OAuth
+# routes register only when creds are set — see register_auth_routes.
+register_auth_routes(app)
 
 
 @app.get("/api/health", tags=["meta"])
