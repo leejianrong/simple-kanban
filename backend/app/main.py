@@ -20,8 +20,14 @@ from .routers import cards, epics
 
 app = FastAPI(title="Simple Kanban API", version="0.1.0")
 
-app.include_router(cards.router)
-app.include_router(epics.router)
+# Dual-mount each router (P3, spike-p3-versioning.md): the canonical versioned
+# path /api/v1/... plus a temporary /api alias for clients not yet migrated. Both
+# mounts hit identical handlers; the alias is hidden from OpenAPI so /docs shows
+# only /api/v1 (+ /api/health). Dropping the alias is a later chore.
+app.include_router(cards.router, prefix="/api/v1")
+app.include_router(epics.router, prefix="/api/v1")
+app.include_router(cards.router, prefix="/api", include_in_schema=False)
+app.include_router(epics.router, prefix="/api", include_in_schema=False)
 
 
 @app.get("/api/health", tags=["meta"])
