@@ -14,9 +14,37 @@ deterministic ticket numbers.
 from __future__ import annotations
 
 import os
+import sys
 
 import pytest
 from testcontainers.postgres import PostgresContainer
+
+
+def pytest_collection_finish(session: pytest.Session) -> None:
+    """Guard against the import-order trap that let PR #17 pass locally but fail CI.
+
+    App modules build the SQLAlchemy engines from ``DATABASE_URL`` **at import
+    time**. If an integration test imports one at *module top level*, that import
+    runs during pytest **collection** — before the session ``_database`` fixture
+    repoints ``DATABASE_URL`` at the throwaway Postgres — so the engines bind to
+    the default ``localhost:5432`` URL. On a dev box with a local Postgres up that
+    silently "passes" (against the wrong DB); in CI, with nothing on 5432, every
+    integration test errors with "connection refused".
+
+    So: **all app imports must live inside test/fixture bodies**, never at module
+    top (see DEVELOPER-WORKFLOWS.md §1a). ``app.db`` is the module that reads
+    ``DATABASE_URL`` and builds the engines; every other app module pulls it in
+    transitively, so checking it here catches them all. This fires at collection —
+    Docker-free — so ``pytest --collect-only`` in the pre-push hook catches it
+    before a push, deterministically, whether or not a local DB is running.
+    """
+    if "app.db" in sys.modules:
+        raise pytest.UsageError(
+            "app.db was imported at collection time — an integration test (or its "
+            "conftest) has a top-level `import app...`. Move app imports inside the "
+            "test/fixture bodies so the _database fixture's DATABASE_URL override "
+            "takes effect first. See DEVELOPER-WORKFLOWS.md §1a."
+        )
 
 
 @pytest.fixture(scope="session", autouse=True)

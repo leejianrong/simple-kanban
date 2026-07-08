@@ -76,7 +76,12 @@ uv run pytest tests/integration/test_x.py::test_name  # run a single test
 ```
 > Tests are split into `tests/unit` (no DB) and `tests/integration` (real Postgres via
 > testcontainers); the integration `client`/DB fixtures live in `tests/integration/conftest.py`,
-> so integration tests must live under `tests/integration/`. CI runs lint, unit, integration, the
+> so integration tests must live under `tests/integration/`. **In integration tests, keep every
+> `import app.*` inside the test/fixture body, never at module top** — a top-level app import runs at
+> pytest collection (before the `_database` fixture sets `DATABASE_URL`), binding the engines to the
+> wrong DB; it passes locally against your dev Postgres but fails CI (the PR #17 trap). A
+> `pytest_collection_finish` guard in conftest + a `pytest --collect-only` step in the pre-push hook
+> now catch this. CI runs lint, unit, integration, the
 > frontend build, and Playwright e2e as five independent jobs (see `.github/workflows/ci.yml`); the
 > e2e job uses a Postgres service container and caches the Chromium download by Playwright version.
 > If `uv` is unavailable, a `python -m venv` + `pip install -e .` (or install from `pyproject.toml`)

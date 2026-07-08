@@ -13,6 +13,14 @@ repo_root="$(git rev-parse --show-toplevel)"
 echo "pre-push ▸ backend: ruff + unit tests"
 ( cd "$repo_root/backend" && uv run ruff check . && uv run pytest tests/unit -q )
 
+# Integration tests themselves need Docker (CI-only), but *collecting* them does
+# not — and collection fires a guard (tests/integration/conftest.py
+# pytest_collection_finish) that catches app modules imported at top level, which
+# would otherwise bind the DB engines to the wrong URL and pass locally / fail CI
+# (the PR #17 trap). This is a fast, Docker-free import-hygiene check.
+echo "pre-push ▸ backend: integration import hygiene (collect-only, no Docker)"
+( cd "$repo_root/backend" && uv run pytest tests/integration --collect-only -q >/dev/null )
+
 echo "pre-push ▸ frontend: svelte-check"
 ( cd "$repo_root/frontend" && npm run check )
 
