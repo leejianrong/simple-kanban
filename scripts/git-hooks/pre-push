@@ -16,4 +16,9 @@ echo "pre-push ▸ backend: ruff + unit tests"
 echo "pre-push ▸ frontend: svelte-check"
 ( cd "$repo_root/frontend" && npm run check )
 
+if [ -d "$repo_root/mcp" ]; then
+  echo "pre-push ▸ mcp: ruff + tests"
+  ( cd "$repo_root/mcp" && uv run ruff check . && uv run pytest -q )
+fi
+
 echo "pre-push ▸ OK"
