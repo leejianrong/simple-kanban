@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import type { Card, Column, Kind } from "../api";
-  import { addCard, editCard, epics } from "../board.svelte";
+  import type { Card, Column } from "../api";
+  import { addCard, editCard, epicStore } from "../board.svelte";
 
   // Create mode: pass `column`. Edit mode: pass `card` (P3). `onrequestdelete`
   // is shown only in edit mode and routes to the delete confirmation (P4).
@@ -23,32 +23,32 @@
   // mode and the initial (normalized) field values once. untrack() makes the
   // one-time read explicit — the form must not reset itself if board state
   // refetches while it's open. The initials also drive change detection.
-  const { isEdit, iTitle, iDesc, iAssignee, iPts } = untrack(() => ({
+  const { isEdit, iTitle, iDesc, iAssignee, iPts, iEpic } = untrack(() => ({
     isEdit: !!card,
     iTitle: card?.title ?? "",
     iDesc: card?.description ?? "",
     iAssignee: card?.assignee ?? "",
     iPts: card?.story_points != null ? String(card.story_points) : "",
+    iEpic: card?.epic_id != null ? String(card.epic_id) : "",
   }));
 
   let title = $state(iTitle);
   let description = $state(iDesc);
   let assignee = $state(iAssignee);
   let storyPoints = $state<string>(iPts); // "" = unestimated
+  let epicId = $state<string>(iEpic); // "" = no epic
   let submitting = $state(false);
   let error = $state<string | null>(null);
 
-  // Kind + parent are set only at creation (kind is not editable via PATCH).
-  let kind = $state<Kind>("story");
-  let parentId = $state<string>(""); // "" = no parent epic
-  // The epics a new story can be parented under.
-  const parentOptions = $derived(epics());
+  // Epics this story can be linked to (create + edit).
+  const epicOptions = $derived(epicStore.epics);
 
   const dirty = $derived(
     title.trim() !== iTitle ||
       description.trim() !== iDesc ||
       assignee.trim() !== iAssignee ||
-      storyPoints !== iPts,
+      storyPoints !== iPts ||
+      epicId !== iEpic,
   );
   // Create is always submittable once titled; Edit also needs a change.
   const canSubmit = $derived(
@@ -65,17 +65,13 @@
       description: description.trim() || null,
       assignee: assignee.trim() || null,
       story_points: storyPoints ? Number(storyPoints) : null,
+      epic_id: epicId ? Number(epicId) : null,
     };
     try {
       if (isEdit) {
         await editCard(card!.id, fields);
       } else {
-        await addCard({
-          ...fields,
-          column: column!,
-          kind,
-          parent_id: kind === "story" && parentId ? Number(parentId) : null,
-        });
+        await addCard({ ...fields, column: column! });
       }
       onclose();
     } catch (e) {
@@ -104,22 +100,12 @@
     </select>
   </div>
 
-  {#if !isEdit}
-    <div class="row">
-      <select bind:value={kind} aria-label="Kind">
-        <option value="story">Story</option>
-        <option value="epic">Epic</option>
-      </select>
-      {#if kind === "story"}
-        <select bind:value={parentId} aria-label="Parent epic">
-          <option value="">— no epic</option>
-          {#each parentOptions as epic (epic.id)}
-            <option value={String(epic.id)}>{epic.ticket_number} · {epic.title}</option>
-          {/each}
-        </select>
-      {/if}
-    </div>
-  {/if}
+  <select bind:value={epicId} aria-label="Epic">
+    <option value="">— no epic</option>
+    {#each epicOptions as epic (epic.id)}
+      <option value={String(epic.id)}>{epic.ticket_number} · {epic.name}</option>
+    {/each}
+  </select>
 
   {#if error}
     <p class="form-error" role="alert">{error}</p>

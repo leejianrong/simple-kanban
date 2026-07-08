@@ -4,15 +4,22 @@
 
 import {
   createCard,
+  createEpic,
   deleteCard,
+  deleteEpic,
   listCards,
+  listEpics,
   moveCard as apiMoveCard,
   updateCard,
+  updateEpic,
   type Card,
   type CardCreate,
   type CardMove,
   type CardUpdate,
   type Column,
+  type Epic,
+  type EpicCreate,
+  type EpicUpdate,
 } from "./api";
 
 export const COLUMNS: { key: Column; label: string }[] = [
@@ -38,15 +45,28 @@ export function cardsFor(column: Column): Card[] {
     .sort((a, b) => a.position - b.position);
 }
 
-// Epics available to parent a story under (used by the create form's selector).
-export function epics(): Card[] {
-  return board.cards.filter((c) => c.kind === "epic");
+// Epics live in their own store (they are not board cards — ADR 0009). Loaded
+// alongside cards so both the Board (story epic-tags) and the Epics view can read
+// them.
+export const epicStore = $state<{
+  epics: Epic[];
+  loading: boolean;
+  error: string | null;
+}>({
+  epics: [],
+  loading: false,
+  error: null,
+});
+
+// The epic a story belongs to (for its card-face tag), or null.
+export function epicFor(id: number | null): Epic | null {
+  if (id == null) return null;
+  return epicStore.epics.find((e) => e.id === id) ?? null;
 }
 
-// A card's ticket number by id (used to render a story's `↳ KAN-n` parent ref),
-// or null if it isn't on the board.
-export function ticketFor(id: number): string | null {
-  return board.cards.find((c) => c.id === id)?.ticket_number ?? null;
+// Stories that belong to a given epic (for the Epics-view rollup).
+export function cardsForEpic(epicId: number): Card[] {
+  return board.cards.filter((c) => c.epic_id === epicId);
 }
 
 export async function refetch(): Promise<void> {
@@ -88,4 +108,33 @@ export async function moveCard(id: number, payload: CardMove): Promise<void> {
     await refetch();
     board.error = e instanceof Error ? e.message : "Failed to move card";
   }
+}
+
+export async function refetchEpics(): Promise<void> {
+  epicStore.loading = true;
+  epicStore.error = null;
+  try {
+    epicStore.epics = await listEpics();
+  } catch (e) {
+    epicStore.error = e instanceof Error ? e.message : "Failed to load epics";
+  } finally {
+    epicStore.loading = false;
+  }
+}
+
+export async function addEpic(payload: EpicCreate): Promise<void> {
+  await createEpic(payload);
+  await refetchEpics();
+}
+
+export async function editEpic(id: number, payload: EpicUpdate): Promise<void> {
+  await updateEpic(id, payload);
+  await refetchEpics();
+}
+
+export async function removeEpic(id: number): Promise<void> {
+  await deleteEpic(id);
+  // Deleting an epic detaches its stories server-side (epic_id → null), so
+  // refetch cards too to drop their now-stale epic tags.
+  await Promise.all([refetchEpics(), refetch()]);
 }

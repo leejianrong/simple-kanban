@@ -4,35 +4,39 @@ import {
   cleanupE2eCards,
   createEpic,
   createStoryUnder,
+  epicItem,
   uniqueTitle,
 } from "./helpers";
 
 test.afterAll(cleanupE2eCards);
 
-// Milestone 2 V1 demo: create an epic, then a story under it, and assert the
-// kind badges + the story's `↳ KAN-n` parent ref render and survive a reload.
-test("create an epic and a story under it → badges + parent ref persist", async ({ page }) => {
+// Milestone 2 V1 demo (ADR 0009): epics live in their own view with an EPIC-
+// ticket; the board shows stories, each tagged with its epic's name. Create an
+// epic, link a story to it, and assert the tag + rollup render and survive reload.
+test("create an epic (own view), link a story, tag + rollup persist", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Todo", exact: true })).toBeVisible();
 
-  const epicTitle = uniqueTitle("epic");
+  const epicName = uniqueTitle("epic");
   const storyTitle = uniqueTitle("story");
 
-  const epicTicket = await createEpic(page, "Todo", epicTitle);
+  // Epic is created in the Epics view and gets an EPIC- ticket (not KAN-).
+  const epicTicket = await createEpic(page, epicName);
+  expect(epicTicket).toMatch(/^EPIC-\d+$/);
 
-  const epicCard = cardInColumn(page, "Todo", epicTitle);
-  await expect(epicCard.locator(".kind")).toHaveText("Epic");
+  // Link a story to the epic from the board.
+  await createStoryUnder(page, "Todo", storyTitle, epicTicket, epicName);
 
-  await createStoryUnder(page, "Todo", storyTitle, epicTicket, epicTitle);
-
+  // The story card shows the epic's name as a tag.
   const storyCard = cardInColumn(page, "Todo", storyTitle);
-  await expect(storyCard.locator(".kind")).toHaveText("Story");
-  await expect(storyCard.locator(".parent-ref")).toHaveText(`↳ ${epicTicket}`);
+  await expect(storyCard.locator(".epic-tag")).toHaveText(epicName);
 
-  // Server-authoritative: the kind + parent survive a full reload.
+  // The Epics view rolls the story up under its epic.
+  await page.getByRole("button", { name: "Epics", exact: true }).click();
+  await expect(epicItem(page, epicName).locator(".epic-stories")).toContainText(storyTitle);
+
+  // Server-authoritative: the link survives a full reload.
   await page.reload();
-  await expect(cardInColumn(page, "Todo", epicTitle).locator(".kind")).toHaveText("Epic");
-  const storyAfter = cardInColumn(page, "Todo", storyTitle);
-  await expect(storyAfter.locator(".kind")).toHaveText("Story");
-  await expect(storyAfter.locator(".parent-ref")).toHaveText(`↳ ${epicTicket}`);
+  await page.getByRole("button", { name: "Board", exact: true }).click();
+  await expect(cardInColumn(page, "Todo", storyTitle).locator(".epic-tag")).toHaveText(epicName);
 });

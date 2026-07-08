@@ -45,36 +45,36 @@ export async function createCard(
   await expect(cardInColumn(page, columnLabel, title)).toBeVisible();
 }
 
-// Create an epic; returns its assigned ticket number (e.g. "KAN-3"), read off
-// the card face so callers can assert a child story's parent ref.
-export async function createEpic(
-  page: Page,
-  columnLabel: string,
-  title: string,
-): Promise<string> {
-  const col = column(page, columnLabel);
-  await col.getByRole("button", { name: "+ Add card" }).click();
-  await col.getByPlaceholder("Title (required)").fill(title);
-  await col.getByLabel("Kind").selectOption("epic");
-  await col.getByRole("button", { name: "Create" }).click();
-  const face = cardInColumn(page, columnLabel, title);
-  await expect(face).toBeVisible();
-  return (await face.locator(".ticket").innerText()).trim();
+// The epic list item (in the Epics view) matched by its name.
+export function epicItem(page: Page, name: string): Locator {
+  return page.locator(".epic-card", { has: page.getByText(name, { exact: true }) });
 }
 
-// Create a story parented under an existing epic (identified by its ticket + title).
+// Create an epic via the Epics view; returns its assigned ticket (e.g. "EPIC-1")
+// so callers can assert a linked story's epic tag. Leaves the Epics view open.
+export async function createEpic(page: Page, name: string): Promise<string> {
+  await page.getByRole("button", { name: "Epics", exact: true }).click();
+  await page.getByRole("button", { name: "+ New epic" }).click();
+  await page.getByPlaceholder("Epic name (required)").fill(name);
+  await page.getByRole("button", { name: "Create" }).click();
+  const item = epicItem(page, name);
+  await expect(item).toBeVisible();
+  return (await item.locator(".ticket").innerText()).trim();
+}
+
+// Create a story on the board linked to an existing epic (by its ticket + name).
 export async function createStoryUnder(
   page: Page,
   columnLabel: string,
   title: string,
-  parentTicket: string,
-  parentTitle: string,
+  epicTicket: string,
+  epicName: string,
 ): Promise<void> {
+  await page.getByRole("button", { name: "Board", exact: true }).click();
   const col = column(page, columnLabel);
   await col.getByRole("button", { name: "+ Add card" }).click();
   await col.getByPlaceholder("Title (required)").fill(title);
-  // Kind defaults to Story; pick the parent epic by its option label.
-  await col.getByLabel("Parent epic").selectOption({ label: `${parentTicket} · ${parentTitle}` });
+  await col.getByLabel("Epic", { exact: true }).selectOption({ label: `${epicTicket} · ${epicName}` });
   await col.getByRole("button", { name: "Create" }).click();
   await expect(cardInColumn(page, columnLabel, title)).toBeVisible();
 }
@@ -105,15 +105,23 @@ export async function dragTo(
   await page.waitForTimeout(300); // let flip animation + refetch settle
 }
 
-// Delete every card these tests created, via the API.
+// Delete every card and epic these tests created, via the API.
 export async function cleanupE2eCards(): Promise<void> {
   const ctx: APIRequestContext = await request.newContext({ baseURL: API_ORIGIN });
   try {
-    const res = await ctx.get("/api/cards");
-    if (res.ok()) {
-      for (const card of await res.json()) {
+    const cards = await ctx.get("/api/cards");
+    if (cards.ok()) {
+      for (const card of await cards.json()) {
         if (typeof card.title === "string" && card.title.startsWith(E2E_PREFIX)) {
           await ctx.delete(`/api/cards/${card.id}`);
+        }
+      }
+    }
+    const epics = await ctx.get("/api/epics");
+    if (epics.ok()) {
+      for (const epic of await epics.json()) {
+        if (typeof epic.name === "string" && epic.name.startsWith(E2E_PREFIX)) {
+          await ctx.delete(`/api/epics/${epic.id}`);
         }
       }
     }
