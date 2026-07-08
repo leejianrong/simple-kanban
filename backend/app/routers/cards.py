@@ -23,6 +23,7 @@ from ..models import Card, Epic
 from ..ordering import next_position, renumber_column
 from ..pagination import NEXT_CURSOR_HEADER, decode_cursor, encode_cursor
 from ..schemas import CardCreate, CardMove, CardRead, CardUpdate, ColumnEnum
+from .boards import resolve_board_id
 
 router = APIRouter(prefix="/cards", tags=["cards"])
 
@@ -50,6 +51,7 @@ def _validate_epic(db: Session, epic_id: int | None) -> None:
 def list_cards(
     response: Response,
     db: Session = Depends(get_db),
+    board_id: int | None = None,
     column: ColumnEnum | None = None,
     epic_id: int | None = None,
     updated_since: datetime | None = None,
@@ -58,10 +60,12 @@ def list_cards(
 ) -> list[Card]:
     """List cards, optionally filtered and keyset-paginated (P4).
 
-    Filters (all optional, AND-ed): ``column``; ``epic_id`` (stories linked to
-    that epic); ``updated_since`` (an ISO-8601 timestamp — cards whose
-    ``updated_at`` is at or after it, **inclusive**, the "changed since" feed for
-    polling agents). With no params the response is the full list, unchanged.
+    Filters (all optional, AND-ed): ``board_id`` (cards on that board — the SPA
+    always sends it to scope the view; omitted → all boards, for back-compat);
+    ``column``; ``epic_id`` (stories linked to that epic); ``updated_since`` (an
+    ISO-8601 timestamp — cards whose ``updated_at`` is at or after it,
+    **inclusive**, the "changed since" feed for polling agents). With no params
+    the response is the full list, unchanged.
 
     Pagination is keyset over ``(updated_at, id)``: pass ``limit`` to cap the
     page; when a full page is returned the next page's opaque cursor rides the
@@ -74,6 +78,8 @@ def list_cards(
     """
     query = select(Card).order_by(Card.updated_at, Card.id)
 
+    if board_id is not None:
+        query = query.where(Card.board_id == board_id)
     if column is not None:
         query = query.where(Card.column == column.value)
     if epic_id is not None:
@@ -113,11 +119,13 @@ def list_cards(
 )
 def create_card(payload: CardCreate, db: Session = Depends(get_db)) -> Card:
     _validate_epic(db, payload.epic_id)
+    board_id = resolve_board_id(db, payload.board_id)
     card = Card(
+        board_id=board_id,
         title=payload.title,
         description=payload.description,
         column=payload.column.value,
-        position=next_position(db, payload.column.value),
+        position=next_position(db, board_id, payload.column.value),
         story_points=payload.story_points,
         assignee=payload.assignee,
         epic_id=payload.epic_id,
@@ -185,11 +193,16 @@ def move_card(
     source_column = card.column
     target_column = payload.column.value
 
-    # The target column's other cards, in order (the moved card excluded).
+    # The target column's other cards **on the same board**, in order (the moved
+    # card excluded). A move only reorders within a board (M3 V7).
     siblings = list(
         db.scalars(
             select(Card)
-            .where(Card.column == target_column, Card.id != card.id)
+            .where(
+                Card.board_id == card.board_id,
+                Card.column == target_column,
+                Card.id != card.id,
+            )
             .order_by(Card.position, Card.id)
         ).all()
     )
@@ -206,7 +219,7 @@ def move_card(
     # (the session has autoflush disabled).
     db.flush()
     if source_column != target_column:
-        renumber_column(db, source_column)
+        renumber_column(db, card.board_id, source_column)
 
     db.commit()
     db.refresh(card)

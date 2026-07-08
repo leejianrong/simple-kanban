@@ -80,15 +80,19 @@ def _reset_tables():
     from app.db import engine
 
     with engine.begin() as conn:
-        # The auth tables (M3 V6) are cleared too so each test starts principal-free;
-        # CASCADE drops dependent oauth_account/access_token rows. "user" is quoted
-        # (reserved word).
+        # Clear board + card + epic + the auth tables so each test starts clean;
+        # CASCADE drops dependents (a board's cards/epics, a user's oauth/tokens).
+        # "user" is quoted (reserved word). RESTART IDENTITY makes ids deterministic.
         conn.execute(
-            text('TRUNCATE card, epic, "user", oauth_account, access_token '
+            text('TRUNCATE board, card, epic, "user", oauth_account, access_token '
                  "RESTART IDENTITY CASCADE")
         )
         conn.execute(text("ALTER SEQUENCE card_ticket_seq RESTART WITH 1"))
         conn.execute(text("ALTER SEQUENCE epic_ticket_seq RESTART WITH 1"))
+        # Re-seed the default board (id=1) so card/epic creation without an explicit
+        # board_id resolves to it — matching the post-migration steady state and
+        # keeping the pre-board tests (which send no board_id) green.
+        conn.execute(text("INSERT INTO board (name) VALUES ('Default Board')"))
     yield
 
 
@@ -101,3 +105,42 @@ def client():
 
     with TestClient(app) as c:
         yield c
+
+
+# The OAuth identity the mocked GitHub hands back (shared by the auth + board tests).
+FAKE_ACCOUNT_ID = "gh-12345"
+FAKE_EMAIL = "octocat@example.com"
+
+
+@pytest.fixture
+def mock_github(monkeypatch):
+    """Stub the GitHub client's two network calls so login needs no network."""
+    from app import users
+
+    async def fake_get_access_token(code, redirect_uri, code_verifier=None):
+        return {"access_token": "gh-access-token", "expires_at": None}
+
+    async def fake_get_id_email(access_token):
+        return FAKE_ACCOUNT_ID, FAKE_EMAIL
+
+    monkeypatch.setattr(users.github_oauth_client, "get_access_token", fake_get_access_token)
+    monkeypatch.setattr(users.github_oauth_client, "get_id_email", fake_get_id_email)
+
+
+@pytest.fixture
+def logged_in_client(client, mock_github):
+    """A TestClient carrying a valid GitHub cookie session (authorize → callback).
+
+    The authorize step returns the state token and sets the CSRF cookie; the
+    callback validates both, creates/links the user, and sets the session cookie.
+    """
+    from urllib.parse import parse_qs, urlparse
+
+    authorize = client.get("/auth/github/authorize")
+    state = parse_qs(urlparse(authorize.json()["authorization_url"]).query)["state"][0]
+    client.get(
+        "/auth/github/callback",
+        params={"code": "fake-code", "state": state},
+        follow_redirects=False,
+    )
+    return client
