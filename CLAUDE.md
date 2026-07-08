@@ -13,16 +13,20 @@ V1 (epic entity + story links), V2 (API versioning), V3 (query API), V4 (token a
 MCP server in [mcp/](mcp/) + Claude Code wiring). See the milestone table below and
 [docs/milestone-2/SLICES.md](docs/milestone-2/SLICES.md).
 **Milestone 3 (Accounts, Boards & Agent Access)** is fully shaped ([docs/milestone-3/](docs/milestone-3/))
-and **in progress**: its first slice, **V6 (human GitHub login + landing page + auth-gated SPA)**, is
-**built** (ADR 0011); V7–V10 (boards, board authz, agent tokens, MCP scoping) are not yet built.
+and **in progress**: **V6 (human GitHub login + landing + auth-gated SPA, ADR 0011)** and **V7
+(multi-board with ownership, ADR 0012)** are **built**; V8–V10 (board authorization, agent tokens,
+MCP board-scoping) are not yet built. **Note V8 is not done:** boards exist and are owned, but
+`/api/v1` is **not yet access-controlled** — any request can read/write any board.
 The [docs/](docs/) folder describes those plans at a high level, so **don't assume a documented
 detail matches the code** — check the source.
 
 | Area | Built now | Documented but NOT yet built |
 |------|-----------|------------------------------|
-| API | Canonical `/api/v1` (V2): `GET/POST /api/v1/cards`, `GET/PATCH/DELETE /api/v1/cards/{id}`, `POST /api/v1/cards/{id}/move`; `GET/POST /api/v1/epics`, `GET/PATCH/DELETE /api/v1/epics/{id}`; unversioned `GET /api/health`. `GET /api/v1/cards` takes query params `column`/`epic_id`/`updated_since`/`limit`/`cursor` with keyset pagination via the `X-Next-Cursor` header (V3). Writes (POST/PATCH/DELETE/move on cards + epics) require a bearer token **iff** `API_TOKENS` is set; reads always open (V4) | Board authz (V8): `/api/v1` becomes user-gated |
+| API | Canonical `/api/v1` (V2): `GET/POST /api/v1/cards`, `GET/PATCH/DELETE /api/v1/cards/{id}`, `POST /api/v1/cards/{id}/move`; `GET/POST /api/v1/epics`, `GET/PATCH/DELETE /api/v1/epics/{id}`; `GET/POST /api/v1/boards`, `GET/PATCH/DELETE /api/v1/boards/{id}` (V7); unversioned `GET /api/health`. `GET /api/v1/cards` takes query params `board_id`/`column`/`epic_id`/`updated_since`/`limit`/`cursor` with keyset pagination via the `X-Next-Cursor` header (V3); `GET /api/v1/epics` takes `board_id`. Card/epic create takes optional `board_id` (defaults to the earliest board). Writes require a bearer token **iff** `API_TOKENS` is set; reads always open (V4). **Not yet owner-gated (V8 pending)** | Board authz (V8): `/api/v1` becomes owner-gated |
+| Boards (M3 V7) | `board` table (`name` + nullable `owner_id`→user); NOT NULL `board_id` on card+epic (ON DELETE CASCADE); `/api/v1/boards` CRUD (owner from session, cascade delete). Migration `0005` seeds one unclaimed default board + backfills existing cards/epics. Positions are per (board, column). Ticket numbers stay global `KAN-`/`EPIC-` (ADR 0012) | Owner-only authz + list scoping (V8) |
 | Auth (M3 V6) | Human login: unversioned `GET /auth/github/authorize` + `/auth/github/callback` (GitHub OAuth, **only mounted when creds are set**), `POST /auth/logout`, `GET/PATCH /users/me`. Revocable httpOnly cookie session (fastapi-users `CookieTransport` + `DatabaseStrategy`). `User`/`OAuthAccount`/`access_token` tables on a second **async** engine (ADR 0011) | Boards + ownership (V7), board authz (V8), self-serve agent PATs replacing `API_TOKENS` (V9) |
-| Frontend auth | `Landing.svelte` for logged-out visitors (from the mockup, `.landing`-scoped tokens, light/dark); `App.svelte` gates on `GET /users/me` (401 → landing, else board); top-bar shows the user email + **Log out** | board switcher (V7), Tokens page (V9) |
+| Frontend auth | `Landing.svelte` for logged-out visitors (from the mockup, `.landing`-scoped tokens, light/dark); `App.svelte` gates on `GET /users/me` (401 → landing, else board); top-bar shows the user email + **Log out** | Tokens page (V9) |
+| Frontend boards | Top-bar **board switcher** (`BoardSwitcher.svelte`): select / new / rename / delete; active board persisted in localStorage; card + epic views/creates scope to it (`boardStore` in board.svelte.ts) | — |
 | Ordering | `next_position()` (append to end), `renumber_column()` (re-sequence on move/reorder) | — |
 | Frontend | `Board \| Epics` top-bar toggle. Board: list + create + edit + delete + drag-and-drop (`svelte-dnd-action`); each story shows its epic-name tag; epic selector in the story form. Epics view: create / list / edit / delete epics with a child-story rollup | — |
 | Data | initial migration + demo seed-data migration (R0.4, `app/seed.py`, guarded to empty DBs); epic-entity migration `0003` (`epic` table + `EPIC-` sequence, nullable `card.epic_id` FK) | — |
@@ -43,8 +47,8 @@ detail matches the code** — check the source.
 | Slice | What | Status |
 |-------|------|--------|
 | V6 | Human login: fastapi-users on a second **async** engine; GitHub OAuth + revocable cookie session; `Landing.svelte` + `GET /users/me` auth-gated SPA + logout (ADR 0011) | **Built** |
-| V7 | Boards as a first-class entity (`board` table, `card`/`epic` `board_id`), board switcher, default-board migration | Not built |
-| V8 | Board authorization — `/api/v1` becomes user-gated (owner-only) | Not built |
+| V7 | Boards as a first-class entity (`board` table, `card`/`epic` `board_id`), board switcher, default-board migration (ADR 0012) | **Built** |
+| V8 | Board authorization — `/api/v1` becomes owner-gated (list scoping + 403) | Not built |
 | V9 | Self-serve agent personal-access-tokens (hashed), Tokens UI; retires V4's `API_TOKENS` | Not built |
 | V10 | MCP board-scoping + PAT auth | Not built |
 
@@ -194,9 +198,11 @@ static files with an SPA catch-all fallback (see [backend/app/main.py](backend/a
 they win. In local dev, Vite serves the SPA and proxies `/api` to the backend, so `STATIC_DIR`
 typically doesn't exist and the fallback isn't registered — no CORS in either case.
 
-**Two tables: `card` (a story on the board) and `epic`** ([backend/app/models.py](backend/app/models.py)).
-Milestone 2 V1 promoted the epic to a **first-class entity** (ADR 0009) — it is *not* a card. These
-mechanisms matter and are load-bearing:
+**Three tables: `board`, `card` (a story on a board) and `epic`** ([backend/app/models.py](backend/app/models.py)).
+Milestone 2 V1 promoted the epic to a **first-class entity** (ADR 0009) — it is *not* a card;
+Milestone 3 V7 promoted the board likewise (ADR 0012, evolving 0006's implicit single board). Every
+card + epic has a NOT NULL `board_id` FK → `board` (`ON DELETE CASCADE`); `board.owner_id` → `user`
+is nullable (`ON DELETE SET NULL`). These mechanisms matter and are load-bearing:
 - **Ticket numbers** are per-table `SEQUENCE`s via a column `server_default`, atomic at INSERT,
   immutable, never reused: cards get `KAN-<n>` (`card_ticket_seq`), epics get `EPIC-<n>`
   (`epic_ticket_seq`). Independent — `KAN-1` and `EPIC-1` coexist. Sequences are created in the
@@ -210,8 +216,9 @@ mechanisms matter and are load-bearing:
   stories rather than blocking or cascading). That `epic_id` references an existing epic is enforced
   in `routers/cards.py` (`_validate_epic`, 422) on POST/PATCH. Epics have their own CRUD router
   ([backend/app/routers/epics.py](backend/app/routers/epics.py)) and are managed in a separate UI view.
-- **`position`** is a *relative sort key within a column*, not necessarily contiguous. Deletes
-  intentionally leave gaps; a move/reorder re-sequences the affected column(s) via `renumber_column()`.
+- **`position`** is a *relative sort key within a (board, column)*, not necessarily contiguous
+  (since V7 ordering is per board). Deletes intentionally leave gaps; a move/reorder re-sequences the
+  affected board+column(s) via `renumber_column()` — `next_position`/`renumber_column` take `board_id`.
 
 **Two engines, one database (M3 V6, ADR 0011).** The board is **sync** (ADR 0008): a `get_db()`
 dependency yields a synchronous session for all card/epic CRUD. Human auth (fastapi-users) needs an
@@ -253,10 +260,11 @@ Preserve this pattern (it is a deliberate Shape A decision, [docs/BREADBOARD.md]
 - **Last-write-wins, no real-time** by design (ADR 0007) — don't add locking or websockets. Auth
   was originally "none" (ADR 0007); V4 added **optional** bearer-token auth on writes only (ADR
   0010) — off unless `API_TOKENS` is set, reads always open. **M3 V6 added human GitHub login** with
-  a first-class `User` + revocable cookie session (ADR 0011), but the board `/api/v1` is **not yet
-  user-gated** — that (board ownership + authorization) is V7/V8. So in V6 the board API still
-  behaves as before; only *login* exists. The V4 `API_TOKENS` write-guard is untouched by V6 (it's
-  superseded later by per-user PATs in V9).
+  a first-class `User` + revocable cookie session (ADR 0011). V7 added **multi-board with ownership**
+  (ADR 0012) — but the board `/api/v1` is **still not access-controlled**: any request can read/write
+  any board, and the board list is unscoped. Server-enforced **owner-only** access (list scoping +
+  `403`) is **V8** (not yet built) — don't assume the API is authorized. The V4 `API_TOKENS`
+  write-guard is untouched (superseded later by per-user PATs in V9).
 - **Neon free tier scales to zero**, so the first request after idle is slow (~1s) — that's a
   documented cold start, not a bug.
 
@@ -269,11 +277,12 @@ spec for intended behavior:
 `SHAPING.md` (selects Shape A) → `BREADBOARD.md` (UI places & wiring) → build in slices.
 
 - **[docs/CONTEXT.md](docs/CONTEXT.md)** — canonical glossary and domain model. Use these terms exactly.
-- **[docs/adr/](docs/adr/)** (0001–0011, all Accepted) — the *why* behind each decision: monorepo &
+- **[docs/adr/](docs/adr/)** (0001–0012, all Accepted) — the *why* behind each decision: monorepo &
   stack (0001), Postgres+Alembic from day one (0002), single-artifact serving (0003), Fly.io+Neon
   CI/CD (0004), API-first/MCP-ready (0005), data model (0006), no-auth/LWW/no-realtime (0007),
   sync-SQLAlchemy + psycopg v3 + varchar-CHECK column + Vite dev-proxy (0008), epic as a first-class
   entity — separate `epic` table + `EPIC-` sequence, evolving 0006's one-table stance (0009),
   optional bearer-token auth on writes (`API_TOKENS`), evolving 0007's no-auth stance (0010),
   human GitHub login + revocable cookie sessions via fastapi-users on a second async engine, further
-  evolving 0007 (0011).
+  evolving 0007 (0011), multi-board with ownership — `board` table + `board_id` on card/epic,
+  evolving 0006's single-board stance (0012).
