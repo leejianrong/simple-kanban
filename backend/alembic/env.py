@@ -12,8 +12,10 @@ from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 
-# Import models so their metadata is registered on Base for autogenerate.
-from app import models  # noqa: F401
+# Import models so their metadata is registered on Base for autogenerate. Both
+# the board domain (models) and the fastapi-users auth tables (auth_models) live
+# on the one shared Base — one metadata, one migration pipeline (ADR 0011).
+from app import auth_models, models  # noqa: F401
 from app.db import Base
 
 config = context.config

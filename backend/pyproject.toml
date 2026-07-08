@@ -6,10 +6,15 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.34",
-    "sqlalchemy>=2.0",
+    "sqlalchemy[asyncio]>=2.0",
     "psycopg[binary]>=3.2",
     "alembic>=1.14",
     "pydantic>=2.10",
+    # Human auth foundation (Milestone 3 V6, ADR 0011). fastapi-users' user store
+    # is async-only, so this pulls in the SQLAlchemy async stack (greenlet) used by
+    # a second, async engine alongside the sync one (ADR 0008 preserved).
+    "fastapi-users[sqlalchemy,oauth]>=14",
+    "greenlet>=3.1",
 ]
 
 [dependency-groups]

@@ -1,6 +1,16 @@
 import { expect, test } from "@playwright/test";
-import { cardInColumn, cleanupE2eCards, createCard, dragTo, dropzone, uniqueTitle } from "./helpers";
+import {
+  cardInColumn,
+  cleanupE2eCards,
+  createCard,
+  dragTo,
+  dropzone,
+  loginStub,
+  uniqueTitle,
+} from "./helpers";
 
+// The board is now behind an auth check (M3 V6) — stub a signed-in user.
+test.beforeEach(({ page }) => loginStub(page));
 test.afterAll(cleanupE2eCards);
 
 // Finding 2: a card in edit mode still sits inside the drag zone, so a pointer

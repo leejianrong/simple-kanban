@@ -5,9 +5,12 @@ import {
   createEpic,
   createStoryUnder,
   epicItem,
+  loginStub,
   uniqueTitle,
 } from "./helpers";
 
+// The board is now behind an auth check (M3 V6) — stub a signed-in user.
+test.beforeEach(({ page }) => loginStub(page));
 test.afterAll(cleanupE2eCards);
 
 // Milestone 2 V1 demo (ADR 0009): epics live in their own view with an EPIC-

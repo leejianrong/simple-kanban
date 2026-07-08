@@ -12,12 +12,17 @@ pytest + frontend Playwright e2e) and CI/CD to Fly.io. The full "Shape A" plan i
 V1 (epic entity + story links), V2 (API versioning), V3 (query API), V4 (token auth), and V5 (the
 MCP server in [mcp/](mcp/) + Claude Code wiring). See the milestone table below and
 [docs/milestone-2/SLICES.md](docs/milestone-2/SLICES.md).
+**Milestone 3 (Accounts, Boards & Agent Access)** is fully shaped ([docs/milestone-3/](docs/milestone-3/))
+and **in progress**: its first slice, **V6 (human GitHub login + landing page + auth-gated SPA)**, is
+**built** (ADR 0011); V7–V10 (boards, board authz, agent tokens, MCP scoping) are not yet built.
 The [docs/](docs/) folder describes those plans at a high level, so **don't assume a documented
 detail matches the code** — check the source.
 
 | Area | Built now | Documented but NOT yet built |
 |------|-----------|------------------------------|
-| API | Canonical `/api/v1` (V2): `GET/POST /api/v1/cards`, `GET/PATCH/DELETE /api/v1/cards/{id}`, `POST /api/v1/cards/{id}/move`; `GET/POST /api/v1/epics`, `GET/PATCH/DELETE /api/v1/epics/{id}`; unversioned `GET /api/health`. `GET /api/v1/cards` takes query params `column`/`epic_id`/`updated_since`/`limit`/`cursor` with keyset pagination via the `X-Next-Cursor` header (V3). Writes (POST/PATCH/DELETE/move on cards + epics) require a bearer token **iff** `API_TOKENS` is set; reads always open (V4) | — |
+| API | Canonical `/api/v1` (V2): `GET/POST /api/v1/cards`, `GET/PATCH/DELETE /api/v1/cards/{id}`, `POST /api/v1/cards/{id}/move`; `GET/POST /api/v1/epics`, `GET/PATCH/DELETE /api/v1/epics/{id}`; unversioned `GET /api/health`. `GET /api/v1/cards` takes query params `column`/`epic_id`/`updated_since`/`limit`/`cursor` with keyset pagination via the `X-Next-Cursor` header (V3). Writes (POST/PATCH/DELETE/move on cards + epics) require a bearer token **iff** `API_TOKENS` is set; reads always open (V4) | Board authz (V8): `/api/v1` becomes user-gated |
+| Auth (M3 V6) | Human login: unversioned `GET /auth/github/authorize` + `/auth/github/callback` (GitHub OAuth, **only mounted when creds are set**), `POST /auth/logout`, `GET/PATCH /users/me`. Revocable httpOnly cookie session (fastapi-users `CookieTransport` + `DatabaseStrategy`). `User`/`OAuthAccount`/`access_token` tables on a second **async** engine (ADR 0011) | Boards + ownership (V7), board authz (V8), self-serve agent PATs replacing `API_TOKENS` (V9) |
+| Frontend auth | `Landing.svelte` for logged-out visitors (from the mockup, `.landing`-scoped tokens, light/dark); `App.svelte` gates on `GET /users/me` (401 → landing, else board); top-bar shows the user email + **Log out** | board switcher (V7), Tokens page (V9) |
 | Ordering | `next_position()` (append to end), `renumber_column()` (re-sequence on move/reorder) | — |
 | Frontend | `Board \| Epics` top-bar toggle. Board: list + create + edit + delete + drag-and-drop (`svelte-dnd-action`); each story shows its epic-name tag; epic selector in the story form. Epics view: create / list / edit / delete epics with a child-story rollup | — |
 | Data | initial migration + demo seed-data migration (R0.4, `app/seed.py`, guarded to empty DBs); epic-entity migration `0003` (`epic` table + `EPIC-` sequence, nullable `card.epic_id` FK) | — |
@@ -32,6 +37,16 @@ detail matches the code** — check the source.
 | V3 | Query API on `GET /api/v1/cards` (`column`/`epic_id`/`updated_since`/`limit`/`cursor`; keyset pagination via `X-Next-Cursor`; `app/pagination.py`) | **Built** |
 | V4 | Agent token auth on writes — `require_token` dep (`app/auth.py`) on all mutating card+epic routes; tokens from `API_TOKENS`; unset → open (ADR 0010) | **Built** |
 | V5 | MCP server (`mcp/`, official `mcp` SDK/FastMCP, stdio) — 7 tools wrapping `/api/v1` via httpx; `.mcp.json.example` + `mcp/README.md` for Claude Code | **Built** |
+
+**Milestone 3 slices** (see [docs/milestone-3/SLICES.md](docs/milestone-3/SLICES.md)):
+
+| Slice | What | Status |
+|-------|------|--------|
+| V6 | Human login: fastapi-users on a second **async** engine; GitHub OAuth + revocable cookie session; `Landing.svelte` + `GET /users/me` auth-gated SPA + logout (ADR 0011) | **Built** |
+| V7 | Boards as a first-class entity (`board` table, `card`/`epic` `board_id`), board switcher, default-board migration | Not built |
+| V8 | Board authorization — `/api/v1` becomes user-gated (owner-only) | Not built |
+| V9 | Self-serve agent personal-access-tokens (hashed), Tokens UI; retires V4's `API_TOKENS` | Not built |
+| V10 | MCP board-scoping + PAT auth | Not built |
 
 When extending the app, follow the plan already written in [docs/SHAPING.md](docs/SHAPING.md)
 (§Detailed shape) and [docs/BREADBOARD.md](docs/BREADBOARD.md) for the core board, and
@@ -149,6 +164,23 @@ mutating routes require `Authorization: Bearer <token>` (else `401`); reads stay
 from the environment per request (rotatable, and tests toggle it via `monkeypatch.setenv`). Prod
 enables auth by setting it as a Fly secret.
 
+**Human auth env vars (M3 V6, ADR 0011)** — all read at import time in [backend/app/users.py](backend/app/users.py):
+- `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET` — GitHub OAuth App credentials. **Both
+  unset → the GitHub login routes don't register** and the app still boots (landing shows, login
+  unavailable). Set both to enable login. The OAuth App's callback URL is
+  `<origin>/auth/github/callback` (dev: `http://localhost:5173/auth/github/callback`, proxied to
+  :8000; prod: `https://<host>/auth/github/callback`). A GitHub OAuth App allows only **one** callback
+  URL, so dev and prod use **separate** OAuth Apps. Prod runs behind Fly's TLS-terminating proxy, so
+  the `Dockerfile` starts uvicorn with `--proxy-headers --forwarded-allow-ips=*` — without it the
+  generated `redirect_uri` is `http://` and GitHub rejects the mismatch.
+- `AUTH_SECRET` — signs session/OAuth-state tokens. Has an **insecure dev default**; prod **must**
+  set a strong random value (Fly secret).
+- `COOKIE_SECURE` — `1`/`true` to mark session + CSRF cookies `Secure` (HTTPS-only). Off by default
+  (dev + tests run over http); set in prod.
+
+These are separate from the sync board API: only human login touches the async engine. Board reads/
+writes are **not** yet user-gated in V6 — that arrives in V8.
+
 ## Architecture (the big picture)
 
 **Single deployable artifact, one origin.** In production FastAPI serves the built Svelte SPA as
@@ -175,6 +207,15 @@ mechanisms matter and are load-bearing:
   ([backend/app/routers/epics.py](backend/app/routers/epics.py)) and are managed in a separate UI view.
 - **`position`** is a *relative sort key within a column*, not necessarily contiguous. Deletes
   intentionally leave gaps; a move/reorder re-sequences the affected column(s) via `renumber_column()`.
+
+**Two engines, one database (M3 V6, ADR 0011).** The board is **sync** (ADR 0008): a `get_db()`
+dependency yields a synchronous session for all card/epic CRUD. Human auth (fastapi-users) needs an
+**async** store, so [backend/app/db.py](backend/app/db.py) also builds a **second, async** engine
+(`async_engine` / `get_async_session`) used **only** by the auth routes — same `DATABASE_URL`, same
+psycopg v3 driver, same shared `Base`/metadata (so one Alembic pipeline covers `card`/`epic` **and**
+`user`/`oauth_account`/`access_token`; auth models live in [backend/app/auth_models.py](backend/app/auth_models.py),
+imported in `alembic/env.py`). Auth wiring is in [backend/app/users.py](backend/app/users.py). Don't
+route board CRUD through the async engine — the sync path is deliberate and load-bearing.
 
 **Backend is deliberately flat** (Shape A "Thin Slice" — no service/repository layers):
 `routers/cards.py` (+ `routers/epics.py`) → `ordering.py` helper → `models.py`/`schemas.py`, with a
@@ -206,7 +247,11 @@ Preserve this pattern (it is a deliberate Shape A decision, [docs/BREADBOARD.md]
   is for field edits only (title/description/story_points/assignee).
 - **Last-write-wins, no real-time** by design (ADR 0007) — don't add locking or websockets. Auth
   was originally "none" (ADR 0007); V4 added **optional** bearer-token auth on writes only (ADR
-  0010) — off unless `API_TOKENS` is set, reads always open. Don't add per-user accounts/sessions.
+  0010) — off unless `API_TOKENS` is set, reads always open. **M3 V6 added human GitHub login** with
+  a first-class `User` + revocable cookie session (ADR 0011), but the board `/api/v1` is **not yet
+  user-gated** — that (board ownership + authorization) is V7/V8. So in V6 the board API still
+  behaves as before; only *login* exists. The V4 `API_TOKENS` write-guard is untouched by V6 (it's
+  superseded later by per-user PATs in V9).
 - **Neon free tier scales to zero**, so the first request after idle is slow (~1s) — that's a
   documented cold start, not a bug.
 
@@ -219,9 +264,11 @@ spec for intended behavior:
 `SHAPING.md` (selects Shape A) → `BREADBOARD.md` (UI places & wiring) → build in slices.
 
 - **[docs/CONTEXT.md](docs/CONTEXT.md)** — canonical glossary and domain model. Use these terms exactly.
-- **[docs/adr/](docs/adr/)** (0001–0010, all Accepted) — the *why* behind each decision: monorepo &
+- **[docs/adr/](docs/adr/)** (0001–0011, all Accepted) — the *why* behind each decision: monorepo &
   stack (0001), Postgres+Alembic from day one (0002), single-artifact serving (0003), Fly.io+Neon
   CI/CD (0004), API-first/MCP-ready (0005), data model (0006), no-auth/LWW/no-realtime (0007),
   sync-SQLAlchemy + psycopg v3 + varchar-CHECK column + Vite dev-proxy (0008), epic as a first-class
   entity — separate `epic` table + `EPIC-` sequence, evolving 0006's one-table stance (0009),
-  optional bearer-token auth on writes (`API_TOKENS`), evolving 0007's no-auth stance (0010).
+  optional bearer-token auth on writes (`API_TOKENS`), evolving 0007's no-auth stance (0010),
+  human GitHub login + revocable cookie sessions via fastapi-users on a second async engine, further
+  evolving 0007 (0011).
