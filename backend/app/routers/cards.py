@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session
 
+from ..auth import require_token
 from ..db import get_db
 from ..models import Card, Epic
 from ..ordering import next_position, renumber_column
@@ -104,7 +105,12 @@ def list_cards(
     return cards
 
 
-@router.post("", response_model=CardRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=CardRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_token)],
+)
 def create_card(payload: CardCreate, db: Session = Depends(get_db)) -> Card:
     _validate_epic(db, payload.epic_id)
     card = Card(
@@ -128,7 +134,11 @@ def get_card(card_id: int, db: Session = Depends(get_db)) -> Card:
     return _get_or_404(db, card_id)
 
 
-@router.patch("/{card_id}", response_model=CardRead)
+@router.patch(
+    "/{card_id}",
+    response_model=CardRead,
+    dependencies=[Depends(require_token)],
+)
 def update_card(
     card_id: int, payload: CardUpdate, db: Session = Depends(get_db)
 ) -> Card:
@@ -149,7 +159,11 @@ def update_card(
     return card
 
 
-@router.delete("/{card_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{card_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_token)],
+)
 def delete_card(card_id: int, db: Session = Depends(get_db)) -> Response:
     card = _get_or_404(db, card_id)
     db.delete(card)
@@ -158,7 +172,11 @@ def delete_card(card_id: int, db: Session = Depends(get_db)) -> Response:
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/{card_id}/move", response_model=CardRead)
+@router.post(
+    "/{card_id}/move",
+    response_model=CardRead,
+    dependencies=[Depends(require_token)],
+)
 def move_card(
     card_id: int, payload: CardMove, db: Session = Depends(get_db)
 ) -> Card:

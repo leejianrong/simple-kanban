@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..auth import require_token
 from ..db import get_db
 from ..models import Epic
 from ..schemas import EpicCreate, EpicRead, EpicUpdate
@@ -36,7 +37,12 @@ def list_epics(db: Session = Depends(get_db)) -> list[Epic]:
     return list(db.scalars(select(Epic).order_by(Epic.id)).all())
 
 
-@router.post("", response_model=EpicRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=EpicRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_token)],
+)
 def create_epic(payload: EpicCreate, db: Session = Depends(get_db)) -> Epic:
     epic = Epic(name=payload.name, description=payload.description)
     db.add(epic)
@@ -51,7 +57,11 @@ def get_epic(epic_id: int, db: Session = Depends(get_db)) -> Epic:
     return _get_or_404(db, epic_id)
 
 
-@router.patch("/{epic_id}", response_model=EpicRead)
+@router.patch(
+    "/{epic_id}",
+    response_model=EpicRead,
+    dependencies=[Depends(require_token)],
+)
 def update_epic(
     epic_id: int, payload: EpicUpdate, db: Session = Depends(get_db)
 ) -> Epic:
@@ -69,7 +79,11 @@ def update_epic(
     return epic
 
 
-@router.delete("/{epic_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{epic_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_token)],
+)
 def delete_epic(epic_id: int, db: Session = Depends(get_db)) -> Response:
     epic = _get_or_404(db, epic_id)
     db.delete(epic)
