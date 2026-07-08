@@ -8,15 +8,15 @@ The core board is **feature-complete and deployed** (live at
 [simple-kanban-jian.fly.dev](https://simple-kanban-jian.fly.dev)): view / create / edit / delete /
 drag-to-move all work end to end, behind a full REST API with an automated test suite (backend
 pytest + frontend Playwright e2e) and CI/CD to Fly.io. The full "Shape A" plan is now implemented.
-**Milestone 2 (Agent-Driven Task Tracking)** is now in progress — V1 (epic entity + story links)
-and V2 (API versioning) have landed; V3–V5 (query API, token auth, MCP server) are shaped but not
-yet built (see the milestone table below and [docs/milestone-2/SLICES.md](docs/milestone-2/SLICES.md)).
+**Milestone 2 (Agent-Driven Task Tracking)** is now in progress — V1 (epic entity + story links),
+V2 (API versioning) and V3 (query API) have landed; V4–V5 (token auth, MCP server) are shaped but
+not yet built (see the milestone table below and [docs/milestone-2/SLICES.md](docs/milestone-2/SLICES.md)).
 The [docs/](docs/) folder describes those plans at a high level, so **don't assume a documented
 detail matches the code** — check the source.
 
 | Area | Built now | Documented but NOT yet built |
 |------|-----------|------------------------------|
-| API | Canonical `/api/v1` (V2): `GET/POST /api/v1/cards`, `GET/PATCH/DELETE /api/v1/cards/{id}`, `POST /api/v1/cards/{id}/move`; `GET/POST /api/v1/epics`, `GET/PATCH/DELETE /api/v1/epics/{id}`; unversioned `GET /api/health` | — |
+| API | Canonical `/api/v1` (V2): `GET/POST /api/v1/cards`, `GET/PATCH/DELETE /api/v1/cards/{id}`, `POST /api/v1/cards/{id}/move`; `GET/POST /api/v1/epics`, `GET/PATCH/DELETE /api/v1/epics/{id}`; unversioned `GET /api/health`. `GET /api/v1/cards` takes query params `column`/`epic_id`/`updated_since`/`limit`/`cursor` with keyset pagination via the `X-Next-Cursor` header (V3) | — |
 | Ordering | `next_position()` (append to end), `renumber_column()` (re-sequence on move/reorder) | — |
 | Frontend | `Board \| Epics` top-bar toggle. Board: list + create + edit + delete + drag-and-drop (`svelte-dnd-action`); each story shows its epic-name tag; epic selector in the story form. Epics view: create / list / edit / delete epics with a child-story rollup | — |
 | Data | initial migration + demo seed-data migration (R0.4, `app/seed.py`, guarded to empty DBs); epic-entity migration `0003` (`epic` table + `EPIC-` sequence, nullable `card.epic_id` FK) | — |
@@ -28,7 +28,7 @@ detail matches the code** — check the source.
 |-------|------|--------|
 | V1 | Epic as a first-class entity (`epic` table + `EPIC-`, `card.epic_id`) + Epics view / story tags (ADR 0009) | **Built** |
 | V2 | API versioning: all routers under `/api/v1` (the temporary `/api` compat alias has been dropped; `/api/health` stays unversioned) | **Built** |
-| V3 | Query API (filter / pagination / changed-since) | Not yet built |
+| V3 | Query API on `GET /api/v1/cards` (`column`/`epic_id`/`updated_since`/`limit`/`cursor`; keyset pagination via `X-Next-Cursor`; `app/pagination.py`) | **Built** |
 | V4 | Agent token auth on writes (`API_TOKENS`) | Not yet built |
 | V5 | MCP server (`/mcp`, stdio) + Claude Code wiring | Not yet built |
 

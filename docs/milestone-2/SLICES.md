@@ -13,7 +13,7 @@ V1 is foundational + immediately visible.
 |-------|-------|----------------|
 | **V1 · Epic entity + story links** | P1, P1-v, UI | Create an epic in the Epics view (gets `EPIC-n`), link a story to it on the board; the story's epic-name tag + the epic's story rollup render and survive reload |
 | **V2 · API versioning** | P3 | `/docs` shows `/api/v1/*`; SPA still works; `curl /api/v1/cards` (the temporary `/api` alias has since been dropped) |
-| **V3 · Query API** | P4 | `curl "/api/v1/cards?kind=epic"`, `?updated_since=…`, `?limit=2` (+ `X-Next-Cursor` header) return the right filtered/paged results |
+| **V3 · Query API** | P4 | `curl "/api/v1/cards?column=done"`, `?epic_id=…`, `?updated_since=…`, `?limit=2` (+ `X-Next-Cursor` header) return the right filtered/paged results |
 | **V4 · Agent token auth** | P2 | With `API_TOKENS` set: write without token → `401`, with token → `201`; reads open. Unset → open (unchanged) |
 | **V5 · MCP server + Claude Code** | A5, A6 | Claude Code, via MCP, creates an epic + stories and moves one — the cards appear on the board. **The milestone demo.** |
 
@@ -60,14 +60,25 @@ V1 is foundational + immediately visible.
 - **Acceptance:** met — `/docs` lists only `/api/v1/*` (+ health); SPA + e2e green on `/api/v1`;
   `curl` confirms `/api/v1` for cards and epics.
 
-## V3 · Query API (filter / pagination / changed-since)
+## V3 · Query API (filter / pagination / changed-since) — **Built**
 
-- **Build:** `kind`, `column`, `parent_id`, `updated_since`, `limit`, `cursor` on
-  `GET /api/v1/cards`; keyset pagination `(updated_at, id)`; next cursor via `X-Next-Cursor`
-  header; **body stays a bare `CardRead[]`** (SPA unaffected); no params → full list.
-- **Tests:** integration — each filter; `updated_since` boundary; `limit` + cursor paging
-  returns disjoint pages; empty result; back-compat (no params = all).
-- **Acceptance:** the `curl` demos above return correct results.
+> **Built; param list corrected against the ADR-0009 schema.** The pre-V1 sketch listed `kind`
+> and `parent_id`, neither of which exists now: a card is always a story (no `kind`), and the
+> parent link is the nullable FK `card.epic_id` (not `parent_id`). Shipped params are `column`,
+> `epic_id`, `updated_since`, `limit`, `cursor`. `updated_since` is **inclusive** (`>=`).
+> Requesting unassigned stories (`epic_id IS NULL`) was left out of V3. `/api/v1/epics` stays a
+> plain full list. The keyset cursor codec lives in `app/pagination.py` (unit-tested, DB-free).
+
+- **Build:** `column`, `epic_id`, `updated_since`, `limit`, `cursor` on `GET /api/v1/cards`;
+  keyset pagination ordered by `(updated_at, id)`; next cursor via the `X-Next-Cursor` response
+  header (present only on a full page); **body stays a bare `CardRead[]`** (SPA unaffected — it
+  re-sorts by `position` client-side); no params → full list.
+- **Tests:** unit — cursor codec round-trip + malformed→ValueError. integration — each filter;
+  `updated_since` inclusive boundary + excludes-older; combined filters AND; `limit` + cursor
+  paging returns disjoint gap-free pages; last page omits the cursor; `(updated_at, id)` order;
+  empty result; bad inputs (unknown column / malformed cursor / out-of-range limit → 422);
+  back-compat (no params = all).
+- **Acceptance:** met — the `curl` demos return correct filtered/paged results; SPA + e2e green.
 
 ## V4 · Agent token auth (writes)
 
