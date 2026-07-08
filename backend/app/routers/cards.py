@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import Card
+from ..models import Card, Epic
 from ..ordering import next_position, renumber_column
 from ..schemas import CardCreate, CardMove, CardRead, CardUpdate
 
@@ -28,6 +28,18 @@ def _get_or_404(db: Session, card_id: int) -> Card:
     return card
 
 
+def _validate_epic(db: Session, epic_id: int | None) -> None:
+    """A story's ``epic_id`` (if set) must reference an existing epic (ADR 0009);
+    422 otherwise."""
+    if epic_id is None:
+        return
+    if db.get(Epic, epic_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="epic_id must reference an existing epic",
+        )
+
+
 @router.get("", response_model=list[CardRead])
 def list_cards(db: Session = Depends(get_db)) -> list[Card]:
     return list(
@@ -37,6 +49,7 @@ def list_cards(db: Session = Depends(get_db)) -> list[Card]:
 
 @router.post("", response_model=CardRead, status_code=status.HTTP_201_CREATED)
 def create_card(payload: CardCreate, db: Session = Depends(get_db)) -> Card:
+    _validate_epic(db, payload.epic_id)
     card = Card(
         title=payload.title,
         description=payload.description,
@@ -44,6 +57,7 @@ def create_card(payload: CardCreate, db: Session = Depends(get_db)) -> Card:
         position=next_position(db, payload.column.value),
         story_points=payload.story_points,
         assignee=payload.assignee,
+        epic_id=payload.epic_id,
     )
     db.add(card)
     db.commit()
@@ -69,6 +83,8 @@ def update_card(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="title must not be empty",
         )
+    if "epic_id" in data:
+        _validate_epic(db, data["epic_id"])
     for field, value in data.items():
         setattr(card, field, value)
     db.commit()  # updated_at is bumped server-side via onupdate

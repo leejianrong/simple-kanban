@@ -21,6 +21,9 @@ body {
 }
 
 .topbar {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
   padding: 0.75rem 1.5rem;
   background: var(--card-bg);
   border-bottom: 1px solid var(--border);
@@ -29,6 +32,27 @@ body {
 .topbar h1 {
   margin: 0;
   font-size: 1.15rem;
+}
+
+.topbar-nav {
+  display: flex;
+  gap: 0.4rem;
+}
+.topbar-nav button {
+  border: 1px solid transparent;
+  background: none;
+  color: var(--muted);
+  padding: 0.3rem 0.7rem;
+  font-size: 0.85rem;
+}
+.topbar-nav button:hover {
+  color: var(--text);
+}
+.topbar-nav button.active {
+  background: #e9f2ff;
+  border-color: var(--border);
+  color: var(--accent);
+  font-weight: 600;
 }
 
 main {
@@ -119,6 +143,25 @@ main {
   color: var(--accent);
   border-radius: 10px;
   padding: 0.05rem 0.45rem;
+}
+.card-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.3rem;
+}
+.epic-tag {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.65rem;
+  font-weight: 600;
+  background: #eae6ff;
+  color: #5243aa;
+  border-radius: 3px;
+  padding: 0.05rem 0.4rem;
 }
 .card-title {
   margin: 0;
@@ -235,4 +278,51 @@ button.primary {
 button.primary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* --- Epics view (ADR 0009) --- */
+.epics-view {
+  max-width: 640px;
+}
+.epics-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+.epics-head h2 {
+  margin: 0;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.epics-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.epic-desc {
+  margin: 0.3rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.epic-count {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+.epic-stories {
+  margin: 0.5rem 0 0;
+  padding-left: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.epic-stories li {
+  font-size: 0.78rem;
+  color: var(--text);
+}
+.epic-stories .ticket {
+  margin-right: 0.3rem;
 }

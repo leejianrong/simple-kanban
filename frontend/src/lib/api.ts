@@ -12,6 +12,7 @@ export interface Card {
   position: number;
   story_points: number | null;
   assignee: string | null;
+  epic_id: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -22,14 +23,37 @@ export interface CardCreate {
   column?: Column;
   story_points?: number | null;
   assignee?: string | null;
+  epic_id?: number | null;
 }
 
 // Field edits only — no column (moving is done via /move, not PATCH).
+// `epic_id` re-links the story to a different epic (or null to clear).
 export interface CardUpdate {
   title?: string;
   description?: string | null;
   story_points?: number | null;
   assignee?: string | null;
+  epic_id?: number | null;
+}
+
+// An epic is a board-less grouping a story can belong to (ADR 0009).
+export interface Epic {
+  id: number;
+  ticket_number: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EpicCreate {
+  name: string;
+  description?: string | null;
+}
+
+export interface EpicUpdate {
+  name?: string;
+  description?: string | null;
 }
 
 export interface CardMove {
@@ -95,5 +119,36 @@ export async function moveCard(id: number, payload: CardMove): Promise<Card> {
 
 export async function deleteCard(id: number): Promise<void> {
   const res = await fetch(`/api/cards/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+}
+
+export async function listEpics(): Promise<Epic[]> {
+  const res = await fetch("/api/epics");
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function createEpic(payload: EpicCreate): Promise<Epic> {
+  const res = await fetch("/api/epics", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function updateEpic(id: number, payload: EpicUpdate): Promise<Epic> {
+  const res = await fetch(`/api/epics/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function deleteEpic(id: number): Promise<void> {
+  const res = await fetch(`/api/epics/${id}`, { method: "DELETE" });
   if (!res.ok) throw new ApiError(res.status, await parseError(res));
 }

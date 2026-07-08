@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from app.schemas import CardCreate, CardUpdate, ColumnEnum
+from app.schemas import CardCreate, CardUpdate, ColumnEnum, EpicCreate
 
 
 def test_create_minimal_defaults_to_todo():
@@ -17,6 +17,20 @@ def test_create_minimal_defaults_to_todo():
     assert card.column is ColumnEnum.todo
     assert card.description is None
     assert card.story_points is None
+    # No epic link by default (that the id references an existing epic is checked
+    # in the router, not here).
+    assert card.epic_id is None
+
+
+def test_create_accepts_epic_id():
+    assert CardCreate(title="ok", epic_id=7).epic_id == 7
+
+
+def test_epic_create_requires_non_empty_name():
+    assert EpicCreate(name="Mobile Checkout").description is None
+    for bad_name in ("", "   ", "\t\n"):
+        with pytest.raises(ValidationError):
+            EpicCreate(name=bad_name)
 
 
 @pytest.mark.parametrize("bad_title", ["", "   ", "\t\n"])

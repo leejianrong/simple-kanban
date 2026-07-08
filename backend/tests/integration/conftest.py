@@ -39,14 +39,15 @@ def _database():
 
 @pytest.fixture(autouse=True)
 def _reset_tables():
-    """Empty the card table and restart sequences before each test."""
+    """Empty the card + epic tables and restart sequences before each test."""
     from sqlalchemy import text
 
     from app.db import engine
 
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE card RESTART IDENTITY CASCADE"))
+        conn.execute(text("TRUNCATE card, epic RESTART IDENTITY CASCADE"))
         conn.execute(text("ALTER SEQUENCE card_ticket_seq RESTART WITH 1"))
+        conn.execute(text("ALTER SEQUENCE epic_ticket_seq RESTART WITH 1"))
     yield
 
 
