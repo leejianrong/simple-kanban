@@ -38,14 +38,23 @@ V1 is foundational + immediately visible.
   reload.
 - **Acceptance:** the demo above works; full suite green.
 
-## V2 · API versioning (`/api/v1` + alias)
+## V2 · API versioning (`/api/v1` + alias) — **Built**
 
-- **Build:** re-prefix router to `/cards`; include twice (`/api/v1`, `/api` alias hidden
-  from schema); migrate `api.ts` (5 refs) + e2e (3 refs) to `/api/v1`. `/api/health`
-  unchanged. (Per `spike-p3-versioning.md`.)
-- **Tests:** new `test_versioning.py` — `/api/v1/cards` works **and** `/api/cards` alias
-  works; existing suites stay green (they ride the alias).
-- **Acceptance:** `/docs` lists only `/api/v1/*` (+ health); SPA + e2e green on `/api/v1`.
+> **Built as shaped, extended to cover epics (V1 landed after this was written).** Both the
+> `cards` **and** `epics` routers were re-prefixed and dual-mounted, and the `epics` refs in
+> `api.ts` / e2e moved to `/api/v1` alongside the card ones. Reference counts differed from the
+> pre-V1 spike: `api.ts` had **8** `fetch` calls (5 card + 3 epic), e2e had **5** refs
+> (helpers.ts ×4 for cards+epics cleanup, smoke.spec.ts route glob ×1).
+
+- **Build:** re-prefix both routers to `/cards` / `/epics`; in `main.py` include each twice
+  (`/api/v1` canonical, `/api` alias `include_in_schema=False`); migrate `api.ts` (8 refs, via an
+  `API = "/api/v1"` base) + e2e (5 refs) to `/api/v1`. `/api/health` unchanged. (Per
+  `spike-p3-versioning.md`.)
+- **Tests:** new `test_versioning.py` — `/api/v1/{cards,epics}` work **and** the `/api/*` aliases
+  work (same handler), OpenAPI shows only `/api/v1/*` (+ health), `/api/health` stays unversioned;
+  existing suites stay green (they ride the alias).
+- **Acceptance:** met — `/docs` lists only `/api/v1/*` (+ health); SPA + e2e green on `/api/v1`;
+  `curl` confirms both mounts for cards and epics.
 
 ## V3 · Query API (filter / pagination / changed-since)
 

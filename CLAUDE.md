@@ -9,14 +9,14 @@ The core board is **feature-complete and deployed** (live at
 drag-to-move all work end to end, behind a full REST API with an automated test suite (backend
 pytest + frontend Playwright e2e) and CI/CD to Fly.io. The full "Shape A" plan is now implemented.
 **Milestone 2 (Agent-Driven Task Tracking)** is now in progress — V1 (epic entity + story links)
-has landed; V2–V5 (API versioning, query API, token auth, MCP server) are shaped but not
+and V2 (API versioning) have landed; V3–V5 (query API, token auth, MCP server) are shaped but not
 yet built (see the milestone table below and [docs/milestone-2/SLICES.md](docs/milestone-2/SLICES.md)).
 The [docs/](docs/) folder describes those plans at a high level, so **don't assume a documented
 detail matches the code** — check the source.
 
 | Area | Built now | Documented but NOT yet built |
 |------|-----------|------------------------------|
-| API | `GET/POST /api/cards`, `GET/PATCH/DELETE /api/cards/{id}`, `POST /api/cards/{id}/move`; `GET/POST /api/epics`, `GET/PATCH/DELETE /api/epics/{id}`; `GET /api/health` | — |
+| API | Canonical `/api/v1` (+ hidden `/api` compat alias, V2): `GET/POST /api/v1/cards`, `GET/PATCH/DELETE /api/v1/cards/{id}`, `POST /api/v1/cards/{id}/move`; `GET/POST /api/v1/epics`, `GET/PATCH/DELETE /api/v1/epics/{id}`; unversioned `GET /api/health` | — |
 | Ordering | `next_position()` (append to end), `renumber_column()` (re-sequence on move/reorder) | — |
 | Frontend | `Board \| Epics` top-bar toggle. Board: list + create + edit + delete + drag-and-drop (`svelte-dnd-action`); each story shows its epic-name tag; epic selector in the story form. Epics view: create / list / edit / delete epics with a child-story rollup | — |
 | Data | initial migration + demo seed-data migration (R0.4, `app/seed.py`, guarded to empty DBs); epic-entity migration `0003` (`epic` table + `EPIC-` sequence, nullable `card.epic_id` FK) | — |
@@ -27,7 +27,7 @@ detail matches the code** — check the source.
 | Slice | What | Status |
 |-------|------|--------|
 | V1 | Epic as a first-class entity (`epic` table + `EPIC-`, `card.epic_id`) + Epics view / story tags (ADR 0009) | **Built** |
-| V2 | API versioning (`/api/v1` + `/api` alias) | Not yet built |
+| V2 | API versioning (`/api/v1` + hidden `/api` compat alias; SPA + e2e ride `/api/v1`) | **Built** |
 | V3 | Query API (filter / pagination / changed-since) | Not yet built |
 | V4 | Agent token auth on writes (`API_TOKENS`) | Not yet built |
 | V5 | MCP server (`/mcp`, stdio) + Claude Code wiring | Not yet built |
@@ -174,7 +174,7 @@ view/edit/delete shape). `Column` wraps its cards in a `svelte-dnd-action` dropz
 `DROPPED_INTO_ZONE` it calls `moveCard(id, {column, position})` and the usual `refetch()` reconciles.
 
 **Server state is authoritative — no optimistic UI.** Every successful mutation is followed by a
-`refetch()` (`GET /api/cards`) / `refetchEpics()`; the UI never renders a value the server hasn't confirmed.
+`refetch()` (`GET /api/v1/cards`) / `refetchEpics()`; the UI never renders a value the server hasn't confirmed.
 Preserve this pattern (it is a deliberate Shape A decision, [docs/BREADBOARD.md](docs/BREADBOARD.md) §7).
 
 ## Non-obvious conventions
@@ -182,7 +182,7 @@ Preserve this pattern (it is a deliberate Shape A decision, [docs/BREADBOARD.md]
 - **API-first:** the UI must never do anything the API can't (R4.1 / ADR 0005). Add the endpoint
   first, then wire the UI to it. The API is being kept clean so future MCP/CLI/agent clients are
   thin adapters — this is the core motivation of the whole project.
-- **Move vs. edit split:** column/position changes go through the dedicated `POST /api/cards/{id}/move`
+- **Move vs. edit split:** column/position changes go through the dedicated `POST /api/v1/cards/{id}/move`
   (append to target column, clamp to a requested index, and `renumber_column()` the source); `PATCH`
   is for field edits only (title/description/story_points/assignee).
 - **No auth, last-write-wins, no real-time** by design (ADR 0007) — don't add locking or websockets.
