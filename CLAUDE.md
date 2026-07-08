@@ -8,19 +8,33 @@ The core board is **feature-complete and deployed** (live at
 [simple-kanban-jian.fly.dev](https://simple-kanban-jian.fly.dev)): view / create / edit / delete /
 drag-to-move all work end to end, behind a full REST API with an automated test suite (backend
 pytest + frontend Playwright e2e) and CI/CD to Fly.io. The full "Shape A" plan is now implemented.
-The [docs/](docs/) folder describes that plan at a high level, so **don't assume a documented
+**Milestone 2 (Agent-Driven Task Tracking)** is now in progress — V1 (epic/story model + card-face
+badges) has landed; V2–V5 (API versioning, query API, token auth, MCP server) are shaped but not
+yet built (see the milestone table below and [docs/milestone-2/SLICES.md](docs/milestone-2/SLICES.md)).
+The [docs/](docs/) folder describes those plans at a high level, so **don't assume a documented
 detail matches the code** — check the source.
 
 | Area | Built now | Documented but NOT yet built |
 |------|-----------|------------------------------|
 | API | `GET /api/cards`, `POST /api/cards` (append), `GET/PATCH/DELETE /api/cards/{id}`, `POST /api/cards/{id}/move`, `GET /api/health` | — |
 | Ordering | `next_position()` (append to end), `renumber_column()` (re-sequence on move/reorder) | — |
-| Frontend | list board + create + edit + delete + drag-and-drop move/reorder (`svelte-dnd-action`) | — |
-| Data | initial migration + demo seed-data migration (R0.4, `app/seed.py`, guarded to empty DBs) | — |
+| Frontend | list board + create + edit + delete + drag-and-drop move/reorder (`svelte-dnd-action`); epic/story kind badge + `↳ KAN-n` parent ref on the card face; Kind + parent-epic selectors in the create form | — |
+| Data | initial migration + demo seed-data migration (R0.4, `app/seed.py`, guarded to empty DBs); epic/story migration `0003` (`kind` varchar+CHECK, nullable `parent_id` self-FK) | — |
 | Ops | `docker-compose.yml` (Postgres + app), `Dockerfile`, `fly.toml`, `.github/workflows/` (CI + deploy), backend `tests/` (pytest unit + integration via testcontainers), frontend `e2e/` (Playwright smoke, in CI) | — |
 
+**Milestone 2 slices** (see [docs/milestone-2/SLICES.md](docs/milestone-2/SLICES.md)):
+
+| Slice | What | Status |
+|-------|------|--------|
+| V1 | Epic/story model (`kind` + `parent_id`) + card-face badges/parent ref | **Built** |
+| V2 | API versioning (`/api/v1` + `/api` alias) | Not yet built |
+| V3 | Query API (filter / pagination / changed-since) | Not yet built |
+| V4 | Agent token auth on writes (`API_TOKENS`) | Not yet built |
+| V5 | MCP server (`/mcp`, stdio) + Claude Code wiring | Not yet built |
+
 When extending the app, follow the plan already written in [docs/SHAPING.md](docs/SHAPING.md)
-(§Detailed shape) and [docs/BREADBOARD.md](docs/BREADBOARD.md) — they define the target endpoints,
+(§Detailed shape) and [docs/BREADBOARD.md](docs/BREADBOARD.md) for the core board, and
+[docs/milestone-2/](docs/milestone-2/) for the agent milestone — they define the target endpoints,
 UI places, and mechanisms. Build in slices, matching the existing incremental style.
 
 ## Commands
@@ -125,13 +139,19 @@ they win. In local dev, Vite serves the SPA and proxies `/api` to the backend, s
 typically doesn't exist and the fallback isn't registered — no CORS in either case.
 
 **One table, no other entities.** The entire domain is the `card` table
-([backend/app/models.py](backend/app/models.py)). Three mechanisms matter and are load-bearing:
+([backend/app/models.py](backend/app/models.py)). Four mechanisms matter and are load-bearing:
 - **Ticket number** `KAN-<n>`: assigned by a Postgres `SEQUENCE` via a column `server_default`
   (`'KAN-' || nextval('card_ticket_seq')`) — atomic at INSERT, immutable, never reused. The
   sequence is created in the initial migration, not by the ORM.
 - **`column`** is a plain `varchar` guarded by a `CHECK` constraint (not a native PG enum), so
   adding a column value later needs no `ALTER TYPE` migration. Valid values live in three places
   that must stay in sync: `VALID_COLUMNS`/CHECK (models), `ColumnEnum` (schemas), `Column` (api.ts).
+- **`kind`** (`epic`\|`story`, default `story`) mirrors that same varchar+CHECK/enum pattern —
+  synced across `VALID_KINDS`/CHECK (models), `KindEnum` (schemas), `Kind` (api.ts). A `story` may
+  reference a parent epic via the nullable **`parent_id`** self-FK (`ON DELETE SET NULL`, so
+  deleting an epic detaches its stories); an epic has no parent. These cross-entity rules can't be
+  expressed in a column CHECK, so they're enforced in `routers/cards.py` (`_validate_parent`, 422)
+  on POST/PATCH — `kind` is set only at create, `parent_id` is also editable via PATCH.
 - **`position`** is a *relative sort key within a column*, not necessarily contiguous. Deletes
   intentionally leave gaps; a move/reorder re-sequences the affected column(s) via `renumber_column()`.
 
