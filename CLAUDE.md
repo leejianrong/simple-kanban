@@ -169,7 +169,10 @@ enables auth by setting it as a Fly secret.
   unset → the GitHub login routes don't register** and the app still boots (landing shows, login
   unavailable). Set both to enable login. The OAuth App's callback URL is
   `<origin>/auth/github/callback` (dev: `http://localhost:5173/auth/github/callback`, proxied to
-  :8000; prod: `https://<host>/auth/github/callback`).
+  :8000; prod: `https://<host>/auth/github/callback`). A GitHub OAuth App allows only **one** callback
+  URL, so dev and prod use **separate** OAuth Apps. Prod runs behind Fly's TLS-terminating proxy, so
+  the `Dockerfile` starts uvicorn with `--proxy-headers --forwarded-allow-ips=*` — without it the
+  generated `redirect_uri` is `http://` and GitHub rejects the mismatch.
 - `AUTH_SECRET` — signs session/OAuth-state tokens. Has an **insecure dev default**; prod **must**
   set a strong random value (Fly secret).
 - `COOKIE_SECURE` — `1`/`true` to mark session + CSRF cookies `Secure` (HTTPS-only). Off by default

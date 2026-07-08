@@ -35,4 +35,11 @@ COPY --from=frontend /frontend/dist ./static
 EXPOSE 8000
 # Apply migrations (incl. future seed) then start the server. Migrations are
 # idempotent, so this is safe on every start.
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+#
+# --proxy-headers + --forwarded-allow-ips=* make uvicorn honour Fly's
+# X-Forwarded-Proto/Host, so request URLs are built as https://<host> behind the
+# TLS-terminating edge proxy. This is required for the GitHub OAuth callback
+# (M3 V6, ADR 0011): without it the generated redirect_uri is http:// and GitHub
+# rejects the mismatch. Trusting all forwarded IPs is safe here because only the
+# Fly proxy can reach the container's internal port.
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=*"]

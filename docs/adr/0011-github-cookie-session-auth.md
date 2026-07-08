@@ -59,6 +59,12 @@ v3). The chosen library, **fastapi-users** (D2), has an **async-only** user stor
   with `204`, leaving the browser on a blank `/auth/github/callback` page. A thin
   `RedirectCookieTransport` overrides just the *login* response to `302 → /` (still setting the
   cookie), so the user lands on the app. Logout keeps the default `204`.
+- **`https` callback behind Fly's proxy.** The callback `redirect_uri` is derived from the request
+  URL. Behind Fly's TLS-terminating edge the internal request is `http` with `X-Forwarded-Proto:
+  https`, so uvicorn must run with `--proxy-headers --forwarded-allow-ips=*` (set in the `Dockerfile`
+  `CMD`) or it builds an `http://` redirect_uri that mismatches the `https://` URL registered with
+  GitHub and login fails. Dev is unaffected (localhost stays `http`). GitHub OAuth Apps allow **one**
+  callback URL each, so local and prod use **separate** OAuth Apps.
 
 ## Consequences
 
