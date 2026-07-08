@@ -9,11 +9,11 @@ from __future__ import annotations
 
 
 def _create_card(client, **fields):
-    return client.post("/api/cards", json={"title": "T", **fields})
+    return client.post("/api/v1/cards", json={"title": "T", **fields})
 
 
 def _create_epic(client, **fields):
-    return client.post("/api/epics", json={"name": "E", **fields})
+    return client.post("/api/v1/epics", json={"name": "E", **fields})
 
 
 # --- epic CRUD -------------------------------------------------------------
@@ -48,27 +48,27 @@ def test_epic_ticket_numbers_increment(client):
 
 
 def test_epic_create_rejects_empty_name(client):
-    assert client.post("/api/epics", json={"name": ""}).status_code == 422
-    assert client.post("/api/epics", json={"name": "   "}).status_code == 422
-    assert client.post("/api/epics", json={}).status_code == 422
+    assert client.post("/api/v1/epics", json={"name": ""}).status_code == 422
+    assert client.post("/api/v1/epics", json={"name": "   "}).status_code == 422
+    assert client.post("/api/v1/epics", json={}).status_code == 422
 
 
 def test_list_and_get_epics(client):
     _create_epic(client, name="A")
     _create_epic(client, name="B")
-    listed = client.get("/api/epics").json()
+    listed = client.get("/api/v1/epics").json()
     assert {e["name"] for e in listed} == {"A", "B"}
     one = listed[0]
-    assert client.get(f"/api/epics/{one['id']}").json() == one
+    assert client.get(f"/api/v1/epics/{one['id']}").json() == one
 
 
 def test_get_missing_epic_404(client):
-    assert client.get("/api/epics/999").status_code == 404
+    assert client.get("/api/v1/epics/999").status_code == 404
 
 
 def test_patch_epic_fields(client):
     epic = _create_epic(client, name="Before").json()
-    r = client.patch(f"/api/epics/{epic['id']}", json={"name": "After", "description": "d"})
+    r = client.patch(f"/api/v1/epics/{epic['id']}", json={"name": "After", "description": "d"})
     assert r.status_code == 200
     body = r.json()
     assert body["name"] == "After"
@@ -77,13 +77,13 @@ def test_patch_epic_fields(client):
 
 def test_patch_epic_rejects_empty_name(client):
     epic = _create_epic(client).json()
-    assert client.patch(f"/api/epics/{epic['id']}", json={"name": ""}).status_code == 422
+    assert client.patch(f"/api/v1/epics/{epic['id']}", json={"name": ""}).status_code == 422
 
 
 def test_delete_epic(client):
     epic = _create_epic(client).json()
-    assert client.delete(f"/api/epics/{epic['id']}").status_code == 204
-    assert client.get(f"/api/epics/{epic['id']}").status_code == 404
+    assert client.delete(f"/api/v1/epics/{epic['id']}").status_code == 204
+    assert client.get(f"/api/v1/epics/{epic['id']}").status_code == 404
 
 
 # --- linking a story to an epic --------------------------------------------
@@ -109,7 +109,7 @@ def test_patch_relinks_story_to_epic(client):
     epic_b = _create_epic(client, name="B").json()
     card = _create_card(client, epic_id=epic_a["id"]).json()
 
-    r = client.patch(f"/api/cards/{card['id']}", json={"epic_id": epic_b["id"]})
+    r = client.patch(f"/api/v1/cards/{card['id']}", json={"epic_id": epic_b["id"]})
     assert r.status_code == 200
     assert r.json()["epic_id"] == epic_b["id"]
 
@@ -117,14 +117,14 @@ def test_patch_relinks_story_to_epic(client):
 def test_patch_can_clear_epic_link(client):
     epic = _create_epic(client).json()
     card = _create_card(client, epic_id=epic["id"]).json()
-    r = client.patch(f"/api/cards/{card['id']}", json={"epic_id": None})
+    r = client.patch(f"/api/v1/cards/{card['id']}", json={"epic_id": None})
     assert r.status_code == 200
     assert r.json()["epic_id"] is None
 
 
 def test_patch_rejects_missing_epic(client):
     card = _create_card(client).json()
-    assert client.patch(f"/api/cards/{card['id']}", json={"epic_id": 999999}).status_code == 422
+    assert client.patch(f"/api/v1/cards/{card['id']}", json={"epic_id": 999999}).status_code == 422
 
 
 # --- delete detaches child stories (ON DELETE SET NULL) --------------------
@@ -134,7 +134,7 @@ def test_deleting_epic_detaches_its_stories(client):
     epic = _create_epic(client).json()
     card = _create_card(client, epic_id=epic["id"]).json()
 
-    assert client.delete(f"/api/epics/{epic['id']}").status_code == 204
+    assert client.delete(f"/api/v1/epics/{epic['id']}").status_code == 204
     # The story survives on the board, with its epic link cleared.
-    body = client.get(f"/api/cards/{card['id']}").json()
+    body = client.get(f"/api/v1/cards/{card['id']}").json()
     assert body["epic_id"] is None
