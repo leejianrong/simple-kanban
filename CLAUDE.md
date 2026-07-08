@@ -9,14 +9,14 @@ The core board is **feature-complete and deployed** (live at
 drag-to-move all work end to end, behind a full REST API with an automated test suite (backend
 pytest + frontend Playwright e2e) and CI/CD to Fly.io. The full "Shape A" plan is now implemented.
 **Milestone 2 (Agent-Driven Task Tracking)** is now in progress — V1 (epic entity + story links),
-V2 (API versioning) and V3 (query API) have landed; V4–V5 (token auth, MCP server) are shaped but
+V2 (API versioning), V3 (query API) and V4 (token auth) have landed; V5 (MCP server) is shaped but
 not yet built (see the milestone table below and [docs/milestone-2/SLICES.md](docs/milestone-2/SLICES.md)).
 The [docs/](docs/) folder describes those plans at a high level, so **don't assume a documented
 detail matches the code** — check the source.
 
 | Area | Built now | Documented but NOT yet built |
 |------|-----------|------------------------------|
-| API | Canonical `/api/v1` (V2): `GET/POST /api/v1/cards`, `GET/PATCH/DELETE /api/v1/cards/{id}`, `POST /api/v1/cards/{id}/move`; `GET/POST /api/v1/epics`, `GET/PATCH/DELETE /api/v1/epics/{id}`; unversioned `GET /api/health`. `GET /api/v1/cards` takes query params `column`/`epic_id`/`updated_since`/`limit`/`cursor` with keyset pagination via the `X-Next-Cursor` header (V3) | — |
+| API | Canonical `/api/v1` (V2): `GET/POST /api/v1/cards`, `GET/PATCH/DELETE /api/v1/cards/{id}`, `POST /api/v1/cards/{id}/move`; `GET/POST /api/v1/epics`, `GET/PATCH/DELETE /api/v1/epics/{id}`; unversioned `GET /api/health`. `GET /api/v1/cards` takes query params `column`/`epic_id`/`updated_since`/`limit`/`cursor` with keyset pagination via the `X-Next-Cursor` header (V3). Writes (POST/PATCH/DELETE/move on cards + epics) require a bearer token **iff** `API_TOKENS` is set; reads always open (V4) | — |
 | Ordering | `next_position()` (append to end), `renumber_column()` (re-sequence on move/reorder) | — |
 | Frontend | `Board \| Epics` top-bar toggle. Board: list + create + edit + delete + drag-and-drop (`svelte-dnd-action`); each story shows its epic-name tag; epic selector in the story form. Epics view: create / list / edit / delete epics with a child-story rollup | — |
 | Data | initial migration + demo seed-data migration (R0.4, `app/seed.py`, guarded to empty DBs); epic-entity migration `0003` (`epic` table + `EPIC-` sequence, nullable `card.epic_id` FK) | — |
@@ -29,7 +29,7 @@ detail matches the code** — check the source.
 | V1 | Epic as a first-class entity (`epic` table + `EPIC-`, `card.epic_id`) + Epics view / story tags (ADR 0009) | **Built** |
 | V2 | API versioning: all routers under `/api/v1` (the temporary `/api` compat alias has been dropped; `/api/health` stays unversioned) | **Built** |
 | V3 | Query API on `GET /api/v1/cards` (`column`/`epic_id`/`updated_since`/`limit`/`cursor`; keyset pagination via `X-Next-Cursor`; `app/pagination.py`) | **Built** |
-| V4 | Agent token auth on writes (`API_TOKENS`) | Not yet built |
+| V4 | Agent token auth on writes — `require_token` dep (`app/auth.py`) on all mutating card+epic routes; tokens from `API_TOKENS`; unset → open (ADR 0010) | **Built** |
 | V5 | MCP server (`/mcp`, stdio) + Claude Code wiring | Not yet built |
 
 When extending the app, follow the plan already written in [docs/SHAPING.md](docs/SHAPING.md)
@@ -130,6 +130,12 @@ psycopg **v3** driver — keep it. Both the app ([backend/app/db.py](backend/app
 ([backend/alembic/env.py](backend/alembic/env.py)) read the same `DATABASE_URL`, so migrations
 always target the app's database.
 
+`API_TOKENS` is optional (V4, ADR 0010): a comma-separated list of bearer tokens. **Unset (the
+default) → writes are open**, so local dev, the SPA, and the test suite need no token. When set,
+mutating routes require `Authorization: Bearer <token>` (else `401`); reads stay open. It's read
+from the environment per request (rotatable, and tests toggle it via `monkeypatch.setenv`). Prod
+enables auth by setting it as a Fly secret.
+
 ## Architecture (the big picture)
 
 **Single deployable artifact, one origin.** In production FastAPI serves the built Svelte SPA as
@@ -185,7 +191,9 @@ Preserve this pattern (it is a deliberate Shape A decision, [docs/BREADBOARD.md]
 - **Move vs. edit split:** column/position changes go through the dedicated `POST /api/v1/cards/{id}/move`
   (append to target column, clamp to a requested index, and `renumber_column()` the source); `PATCH`
   is for field edits only (title/description/story_points/assignee).
-- **No auth, last-write-wins, no real-time** by design (ADR 0007) — don't add locking or websockets.
+- **Last-write-wins, no real-time** by design (ADR 0007) — don't add locking or websockets. Auth
+  was originally "none" (ADR 0007); V4 added **optional** bearer-token auth on writes only (ADR
+  0010) — off unless `API_TOKENS` is set, reads always open. Don't add per-user accounts/sessions.
 - **Neon free tier scales to zero**, so the first request after idle is slow (~1s) — that's a
   documented cold start, not a bug.
 
@@ -198,8 +206,9 @@ spec for intended behavior:
 `SHAPING.md` (selects Shape A) → `BREADBOARD.md` (UI places & wiring) → build in slices.
 
 - **[docs/CONTEXT.md](docs/CONTEXT.md)** — canonical glossary and domain model. Use these terms exactly.
-- **[docs/adr/](docs/adr/)** (0001–0009, all Accepted) — the *why* behind each decision: monorepo &
+- **[docs/adr/](docs/adr/)** (0001–0010, all Accepted) — the *why* behind each decision: monorepo &
   stack (0001), Postgres+Alembic from day one (0002), single-artifact serving (0003), Fly.io+Neon
   CI/CD (0004), API-first/MCP-ready (0005), data model (0006), no-auth/LWW/no-realtime (0007),
   sync-SQLAlchemy + psycopg v3 + varchar-CHECK column + Vite dev-proxy (0008), epic as a first-class
-  entity — separate `epic` table + `EPIC-` sequence, evolving 0006's one-table stance (0009).
+  entity — separate `epic` table + `EPIC-` sequence, evolving 0006's one-table stance (0009),
+  optional bearer-token auth on writes (`API_TOKENS`), evolving 0007's no-auth stance (0010).
