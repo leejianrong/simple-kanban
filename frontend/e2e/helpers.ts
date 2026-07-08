@@ -45,6 +45,40 @@ export async function createCard(
   await expect(cardInColumn(page, columnLabel, title)).toBeVisible();
 }
 
+// Create an epic; returns its assigned ticket number (e.g. "KAN-3"), read off
+// the card face so callers can assert a child story's parent ref.
+export async function createEpic(
+  page: Page,
+  columnLabel: string,
+  title: string,
+): Promise<string> {
+  const col = column(page, columnLabel);
+  await col.getByRole("button", { name: "+ Add card" }).click();
+  await col.getByPlaceholder("Title (required)").fill(title);
+  await col.getByLabel("Kind").selectOption("epic");
+  await col.getByRole("button", { name: "Create" }).click();
+  const face = cardInColumn(page, columnLabel, title);
+  await expect(face).toBeVisible();
+  return (await face.locator(".ticket").innerText()).trim();
+}
+
+// Create a story parented under an existing epic (identified by its ticket + title).
+export async function createStoryUnder(
+  page: Page,
+  columnLabel: string,
+  title: string,
+  parentTicket: string,
+  parentTitle: string,
+): Promise<void> {
+  const col = column(page, columnLabel);
+  await col.getByRole("button", { name: "+ Add card" }).click();
+  await col.getByPlaceholder("Title (required)").fill(title);
+  // Kind defaults to Story; pick the parent epic by its option label.
+  await col.getByLabel("Parent epic").selectOption({ label: `${parentTicket} · ${parentTitle}` });
+  await col.getByRole("button", { name: "Create" }).click();
+  await expect(cardInColumn(page, columnLabel, title)).toBeVisible();
+}
+
 // svelte-dnd-action drives on pointer/mouse move with a movement threshold, so
 // a coarse dragTo() won't trigger it — we drive low-level mouse steps instead.
 export async function dragTo(

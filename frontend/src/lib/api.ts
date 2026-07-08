@@ -2,6 +2,7 @@
 // The UI performs no action the API can't (R4.1). Throws on non-2xx.
 
 export type Column = "todo" | "in_progress" | "done";
+export type Kind = "epic" | "story";
 
 export interface Card {
   id: number;
@@ -12,6 +13,8 @@ export interface Card {
   position: number;
   story_points: number | null;
   assignee: string | null;
+  kind: Kind;
+  parent_id: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -22,14 +25,18 @@ export interface CardCreate {
   column?: Column;
   story_points?: number | null;
   assignee?: string | null;
+  kind?: Kind;
+  parent_id?: number | null;
 }
 
-// Field edits only — no column (moving is done via /move, not PATCH).
+// Field edits only — no column (moving is done via /move, not PATCH). `kind` is
+// fixed at creation; only `parent_id` (re-parent a story) is editable here.
 export interface CardUpdate {
   title?: string;
   description?: string | null;
   story_points?: number | null;
   assignee?: string | null;
+  parent_id?: number | null;
 }
 
 export interface CardMove {

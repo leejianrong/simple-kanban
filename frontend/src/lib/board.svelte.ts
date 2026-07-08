@@ -38,6 +38,17 @@ export function cardsFor(column: Column): Card[] {
     .sort((a, b) => a.position - b.position);
 }
 
+// Epics available to parent a story under (used by the create form's selector).
+export function epics(): Card[] {
+  return board.cards.filter((c) => c.kind === "epic");
+}
+
+// A card's ticket number by id (used to render a story's `↳ KAN-n` parent ref),
+// or null if it isn't on the board.
+export function ticketFor(id: number): string | null {
+  return board.cards.find((c) => c.id === id)?.ticket_number ?? null;
+}
+
 export async function refetch(): Promise<void> {
   board.loading = true;
   board.error = null;

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Card } from "../api";
-  import { removeCard } from "../board.svelte";
+  import { removeCard, ticketFor } from "../board.svelte";
   import CardForm from "./CardForm.svelte";
 
   let { card }: { card: Card } = $props();
@@ -49,6 +49,12 @@
       <span class="ticket">{card.ticket_number}</span>
       {#if card.story_points != null}
         <span class="points">{card.story_points}</span>
+      {/if}
+    </div>
+    <div class="card-meta">
+      <span class="kind {card.kind}">{card.kind === "epic" ? "Epic" : "Story"}</span>
+      {#if card.kind === "story" && card.parent_id != null && ticketFor(card.parent_id)}
+        <span class="parent-ref">↳ {ticketFor(card.parent_id)}</span>
       {/if}
     </div>
     <p class="card-title">{card.title}</p>

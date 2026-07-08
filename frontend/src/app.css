@@ -120,6 +120,32 @@ main {
   border-radius: 10px;
   padding: 0.05rem 0.45rem;
 }
+.card-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.3rem;
+}
+.kind {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 3px;
+  padding: 0.05rem 0.4rem;
+}
+.kind.epic {
+  background: #eae6ff;
+  color: #5243aa;
+}
+.kind.story {
+  background: #e3fcef;
+  color: #006644;
+}
+.parent-ref {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
 .card-title {
   margin: 0;
   font-size: 0.9rem;
