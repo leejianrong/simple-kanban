@@ -17,6 +17,11 @@ class ColumnEnum(str, Enum):
     done = "done"
 
 
+class KindEnum(str, Enum):
+    epic = "epic"
+    story = "story"
+
+
 STORY_POINTS = {1, 2, 3, 5, 8, 13}
 
 
@@ -26,6 +31,11 @@ class CardCreate(BaseModel):
     column: ColumnEnum = ColumnEnum.todo
     story_points: int | None = None
     assignee: str | None = None
+    kind: KindEnum = KindEnum.story
+    # Parent epic for a story. Cross-entity rules (parent must exist and be an
+    # epic; an epic has no parent; no self-parent) need a DB lookup and are
+    # enforced in the router (routers/cards.py), which returns 422 on violation.
+    parent_id: int | None = None
 
     @field_validator("title")
     @classmethod
@@ -54,6 +64,9 @@ class CardUpdate(BaseModel):
     description: str | None = None
     story_points: int | None = None
     assignee: str | None = None
+    # Re-parent a story (or clear it with null). Same cross-entity rules as create,
+    # enforced in the router; kind itself is not editable via PATCH.
+    parent_id: int | None = None
 
     @field_validator("title")
     @classmethod
@@ -86,5 +99,7 @@ class CardRead(BaseModel):
     position: int
     story_points: int | None
     assignee: str | None
+    kind: KindEnum
+    parent_id: int | None
     created_at: datetime
     updated_at: datetime

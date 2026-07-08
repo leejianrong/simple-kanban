@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from app.schemas import CardCreate, CardUpdate, ColumnEnum
+from app.schemas import CardCreate, CardUpdate, ColumnEnum, KindEnum
 
 
 def test_create_minimal_defaults_to_todo():
@@ -17,6 +17,19 @@ def test_create_minimal_defaults_to_todo():
     assert card.column is ColumnEnum.todo
     assert card.description is None
     assert card.story_points is None
+    # A card is a story by default, with no parent (cross-entity parent rules are
+    # enforced in the router, not here).
+    assert card.kind is KindEnum.story
+    assert card.parent_id is None
+
+
+def test_create_accepts_epic_kind():
+    assert CardCreate(title="ok", kind="epic").kind is KindEnum.epic
+
+
+def test_create_rejects_unknown_kind():
+    with pytest.raises(ValidationError):
+        CardCreate(title="ok", kind="bug")
 
 
 @pytest.mark.parametrize("bad_title", ["", "   ", "\t\n"])
