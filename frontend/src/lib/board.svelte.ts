@@ -3,15 +3,20 @@
 // authoritative — no optimistic UI (BREADBOARD §7).
 
 import {
+  createBoard,
   createCard,
   createEpic,
+  deleteBoard,
   deleteCard,
   deleteEpic,
+  listBoards,
   listCards,
   listEpics,
   moveCard as apiMoveCard,
+  updateBoard,
   updateCard,
   updateEpic,
+  type Board,
   type Card,
   type CardCreate,
   type CardMove,
@@ -27,6 +32,82 @@ export const COLUMNS: { key: Column; label: string }[] = [
   { key: "in_progress", label: "In Progress" },
   { key: "done", label: "Done" },
 ];
+
+// Boards (M3 V7). The active board scopes the card/epic views + creates. Its id is
+// persisted per-browser so a reload keeps you on the same board.
+export const boardStore = $state<{
+  boards: Board[];
+  activeBoardId: number | null;
+  loading: boolean;
+  error: string | null;
+}>({ boards: [], activeBoardId: null, loading: false, error: null });
+
+const ACTIVE_BOARD_KEY = "kanban.activeBoardId";
+
+function persistActiveBoard(id: number | null): void {
+  if (typeof localStorage === "undefined") return;
+  if (id == null) localStorage.removeItem(ACTIVE_BOARD_KEY);
+  else localStorage.setItem(ACTIVE_BOARD_KEY, String(id));
+}
+
+function readPersistedActiveBoard(): number | null {
+  if (typeof localStorage === "undefined") return null;
+  const raw = localStorage.getItem(ACTIVE_BOARD_KEY);
+  return raw ? Number(raw) : null;
+}
+
+export function activeBoard(): Board | null {
+  return boardStore.boards.find((b) => b.id === boardStore.activeBoardId) ?? null;
+}
+
+// Load the board list and resolve which one is active: keep the current selection
+// if it still exists, else the persisted one, else the first board. Does NOT load
+// cards/epics — callers pair this with refetch()/refetchEpics() (or setActiveBoard).
+export async function refetchBoards(): Promise<void> {
+  boardStore.loading = true;
+  boardStore.error = null;
+  try {
+    const boards = await listBoards();
+    boardStore.boards = boards;
+    const ids = new Set(boards.map((b) => b.id));
+    let active = boardStore.activeBoardId;
+    if (active == null || !ids.has(active)) active = readPersistedActiveBoard();
+    if (active == null || !ids.has(active)) active = boards[0]?.id ?? null;
+    boardStore.activeBoardId = active;
+    persistActiveBoard(active);
+  } catch (e) {
+    boardStore.error = e instanceof Error ? e.message : "Failed to load boards";
+  } finally {
+    boardStore.loading = false;
+  }
+}
+
+// Switch the active board and load its cards + epics.
+export async function setActiveBoard(id: number): Promise<void> {
+  boardStore.activeBoardId = id;
+  persistActiveBoard(id);
+  await Promise.all([refetch(), refetchEpics()]);
+}
+
+export async function addBoard(name: string): Promise<void> {
+  const created = await createBoard({ name });
+  await refetchBoards();
+  await setActiveBoard(created.id); // creating a board switches to it
+}
+
+export async function editBoard(id: number, name: string): Promise<void> {
+  await updateBoard(id, { name });
+  await refetchBoards();
+}
+
+export async function removeBoard(id: number): Promise<void> {
+  await deleteBoard(id);
+  // If the active board was deleted, drop the selection so refetchBoards picks a
+  // new one (its cards/epics were cascade-deleted server-side).
+  if (boardStore.activeBoardId === id) boardStore.activeBoardId = null;
+  await refetchBoards();
+  await Promise.all([refetch(), refetchEpics()]);
+}
 
 // A single reactive object; we mutate its properties (never reassign the export).
 export const board = $state<{
@@ -73,7 +154,9 @@ export async function refetch(): Promise<void> {
   board.loading = true;
   board.error = null;
   try {
-    board.cards = await listCards();
+    // Scope to the active board; with none selected there's nothing to show.
+    board.cards =
+      boardStore.activeBoardId == null ? [] : await listCards(boardStore.activeBoardId);
   } catch (e) {
     board.error = e instanceof Error ? e.message : "Failed to load cards";
   } finally {
@@ -82,7 +165,7 @@ export async function refetch(): Promise<void> {
 }
 
 export async function addCard(payload: CardCreate): Promise<void> {
-  await createCard(payload);
+  await createCard({ ...payload, board_id: boardStore.activeBoardId ?? undefined });
   await refetch();
 }
 
@@ -114,7 +197,8 @@ export async function refetchEpics(): Promise<void> {
   epicStore.loading = true;
   epicStore.error = null;
   try {
-    epicStore.epics = await listEpics();
+    epicStore.epics =
+      boardStore.activeBoardId == null ? [] : await listEpics(boardStore.activeBoardId);
   } catch (e) {
     epicStore.error = e instanceof Error ? e.message : "Failed to load epics";
   } finally {
@@ -123,7 +207,7 @@ export async function refetchEpics(): Promise<void> {
 }
 
 export async function addEpic(payload: EpicCreate): Promise<void> {
-  await createEpic(payload);
+  await createEpic({ ...payload, board_id: boardStore.activeBoardId ?? undefined });
   await refetchEpics();
 }
 

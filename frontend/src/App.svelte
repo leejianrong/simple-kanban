@@ -3,7 +3,8 @@
   import Board from "./lib/components/Board.svelte";
   import Epics from "./lib/components/Epics.svelte";
   import Landing from "./lib/components/Landing.svelte";
-  import { refetch, refetchEpics } from "./lib/board.svelte";
+  import BoardSwitcher from "./lib/components/BoardSwitcher.svelte";
+  import { refetch, refetchBoards, refetchEpics } from "./lib/board.svelte";
   import { getCurrentUser, logout, type CurrentUser } from "./lib/api";
 
   // The board shows stories; epics are managed in a separate view (ADR 0009).
@@ -23,8 +24,9 @@
       // rather than getting stuck on a blank screen.
       user = null;
     }
-    // The board needs both cards and epics (each story shows its epic tag).
+    // Load boards first (picks the active board), then that board's cards + epics.
     if (user) {
+      await refetchBoards();
       refetch();
       refetchEpics();
     }
@@ -47,6 +49,7 @@
       <button class:active={view === "board"} onclick={() => (view = "board")}>Board</button>
       <button class:active={view === "epics"} onclick={() => (view = "epics")}>Epics</button>
     </nav>
+    <BoardSwitcher />
     <div class="topbar-user">
       <span class="user-email" title={user.email}>{user.email}</span>
       <button class="link" onclick={handleLogout}>Log out</button>
