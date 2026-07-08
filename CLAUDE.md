@@ -16,7 +16,7 @@ detail matches the code** — check the source.
 
 | Area | Built now | Documented but NOT yet built |
 |------|-----------|------------------------------|
-| API | Canonical `/api/v1` (+ hidden `/api` compat alias, V2): `GET/POST /api/v1/cards`, `GET/PATCH/DELETE /api/v1/cards/{id}`, `POST /api/v1/cards/{id}/move`; `GET/POST /api/v1/epics`, `GET/PATCH/DELETE /api/v1/epics/{id}`; unversioned `GET /api/health` | — |
+| API | Canonical `/api/v1` (V2): `GET/POST /api/v1/cards`, `GET/PATCH/DELETE /api/v1/cards/{id}`, `POST /api/v1/cards/{id}/move`; `GET/POST /api/v1/epics`, `GET/PATCH/DELETE /api/v1/epics/{id}`; unversioned `GET /api/health` | — |
 | Ordering | `next_position()` (append to end), `renumber_column()` (re-sequence on move/reorder) | — |
 | Frontend | `Board \| Epics` top-bar toggle. Board: list + create + edit + delete + drag-and-drop (`svelte-dnd-action`); each story shows its epic-name tag; epic selector in the story form. Epics view: create / list / edit / delete epics with a child-story rollup | — |
 | Data | initial migration + demo seed-data migration (R0.4, `app/seed.py`, guarded to empty DBs); epic-entity migration `0003` (`epic` table + `EPIC-` sequence, nullable `card.epic_id` FK) | — |
@@ -27,7 +27,7 @@ detail matches the code** — check the source.
 | Slice | What | Status |
 |-------|------|--------|
 | V1 | Epic as a first-class entity (`epic` table + `EPIC-`, `card.epic_id`) + Epics view / story tags (ADR 0009) | **Built** |
-| V2 | API versioning (`/api/v1` + hidden `/api` compat alias; SPA + e2e ride `/api/v1`) | **Built** |
+| V2 | API versioning: all routers under `/api/v1` (the temporary `/api` compat alias has been dropped; `/api/health` stays unversioned) | **Built** |
 | V3 | Query API (filter / pagination / changed-since) | Not yet built |
 | V4 | Agent token auth on writes (`API_TOKENS`) | Not yet built |
 | V5 | MCP server (`/mcp`, stdio) + Claude Code wiring | Not yet built |

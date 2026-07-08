@@ -12,7 +12,7 @@ V1 is foundational + immediately visible.
 | Slice | Parts | Ends in (demo) |
 |-------|-------|----------------|
 | **V1 · Epic entity + story links** | P1, P1-v, UI | Create an epic in the Epics view (gets `EPIC-n`), link a story to it on the board; the story's epic-name tag + the epic's story rollup render and survive reload |
-| **V2 · API versioning** | P3 | `/docs` shows `/api/v1/*`; SPA still works; `curl` both `/api/v1/cards` and the `/api/cards` alias |
+| **V2 · API versioning** | P3 | `/docs` shows `/api/v1/*`; SPA still works; `curl /api/v1/cards` (the temporary `/api` alias has since been dropped) |
 | **V3 · Query API** | P4 | `curl "/api/v1/cards?kind=epic"`, `?updated_since=…`, `?limit=2` (+ `X-Next-Cursor` header) return the right filtered/paged results |
 | **V4 · Agent token auth** | P2 | With `API_TOKENS` set: write without token → `401`, with token → `201`; reads open. Unset → open (unchanged) |
 | **V5 · MCP server + Claude Code** | A5, A6 | Claude Code, via MCP, creates an epic + stories and moves one — the cards appear on the board. **The milestone demo.** |
@@ -38,23 +38,27 @@ V1 is foundational + immediately visible.
   reload.
 - **Acceptance:** the demo above works; full suite green.
 
-## V2 · API versioning (`/api/v1` + alias) — **Built**
+## V2 · API versioning (`/api/v1`) — **Built**
 
 > **Built as shaped, extended to cover epics (V1 landed after this was written).** Both the
 > `cards` **and** `epics` routers were re-prefixed and dual-mounted, and the `epics` refs in
 > `api.ts` / e2e moved to `/api/v1` alongside the card ones. Reference counts differed from the
 > pre-V1 spike: `api.ts` had **8** `fetch` calls (5 card + 3 epic), e2e had **5** refs
 > (helpers.ts ×4 for cards+epics cleanup, smoke.spec.ts route glob ×1).
+>
+> **Follow-up (done):** the temporary `/api` compat alias has since been dropped — the ~87
+> backend-test literals were swept to `/api/v1` and the second `include_router` mount removed,
+> so `/api/v1` is now the only prefix.
 
-- **Build:** re-prefix both routers to `/cards` / `/epics`; in `main.py` include each twice
-  (`/api/v1` canonical, `/api` alias `include_in_schema=False`); migrate `api.ts` (8 refs, via an
-  `API = "/api/v1"` base) + e2e (5 refs) to `/api/v1`. `/api/health` unchanged. (Per
+- **Build:** re-prefix both routers to `/cards` / `/epics`; in `main.py` mount each under
+  `/api/v1`. (V2 also carried a temporary `/api` alias, since removed.) Migrate `api.ts` (8 refs,
+  via an `API = "/api/v1"` base) + e2e (5 refs) to `/api/v1`. `/api/health` unchanged. (Per
   `spike-p3-versioning.md`.)
-- **Tests:** new `test_versioning.py` — `/api/v1/{cards,epics}` work **and** the `/api/*` aliases
-  work (same handler), OpenAPI shows only `/api/v1/*` (+ health), `/api/health` stays unversioned;
-  existing suites stay green (they ride the alias).
+- **Tests:** `test_versioning.py` — `/api/v1/{cards,epics}` work, OpenAPI shows only `/api/v1/*`
+  (the dropped alias is absent), `/api/health` stays unversioned. The rest of the suite runs
+  against `/api/v1`.
 - **Acceptance:** met — `/docs` lists only `/api/v1/*` (+ health); SPA + e2e green on `/api/v1`;
-  `curl` confirms both mounts for cards and epics.
+  `curl` confirms `/api/v1` for cards and epics.
 
 ## V3 · Query API (filter / pagination / changed-since)
 
@@ -94,7 +98,9 @@ V1 is foundational + immediately visible.
   the SPA `listCards(): Card[]` is untouched — back-compat over a cleaner envelope.
 - **Auth off when `API_TOKENS` unset** (P2): preserves MVP/dev behaviour and avoids churning
   ~40 existing write tests; prod opts in via a Fly secret.
-- **`/api` alias kept temporarily** (P3): SPA + e2e move to `/api/v1`; the ~61 backend-test
-  literals stay on the alias for now; sweep + drop alias is a later chore.
+- **`/api` alias kept temporarily, then dropped** (P3): V2 shipped a hidden `/api` compat alias so
+  the ~87 backend-test literals could move in a follow-up rather than in the same PR. That
+  follow-up has since landed — the tests were swept to `/api/v1` and the alias removed, so `/api/v1`
+  is now the sole prefix.
 - **CI:** V5 adds an `/mcp` package — extend CI with an mcp unit-test job (mirrors the
   backend jobs); e2e/backend jobs unchanged.
