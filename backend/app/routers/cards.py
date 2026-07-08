@@ -1,9 +1,8 @@
-"""Cards endpoints (BREADBOARD §6).
+"""Cards endpoints (BREADBOARD §6, P4).
 
-Mounted by ``main.py`` under ``/api/v1`` (canonical) and ``/api`` (compat alias),
-so the paths below are relative to those prefixes (e.g. ``/api/v1/cards``):
+Mounted by ``main.py`` under ``/api/v1`` (e.g. ``/api/v1/cards``):
 
-- GET    /cards         — list all cards (client groups by column, sorts by position)
+- GET    /cards         — list/query cards (filter + keyset pagination; see list_cards)
 - POST   /cards         — create a card (appended to the end of its column)
 - GET    /cards/{id}    — read one card
 - PATCH  /cards/{id}    — edit fields (title/description/story_points/assignee)
@@ -12,14 +11,17 @@ so the paths below are relative to those prefixes (e.g. ``/api/v1/cards``):
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import select
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..models import Card, Epic
 from ..ordering import next_position, renumber_column
-from ..schemas import CardCreate, CardMove, CardRead, CardUpdate
+from ..pagination import NEXT_CURSOR_HEADER, decode_cursor, encode_cursor
+from ..schemas import CardCreate, CardMove, CardRead, CardUpdate, ColumnEnum
 
 router = APIRouter(prefix="/cards", tags=["cards"])
 
@@ -44,10 +46,62 @@ def _validate_epic(db: Session, epic_id: int | None) -> None:
 
 
 @router.get("", response_model=list[CardRead])
-def list_cards(db: Session = Depends(get_db)) -> list[Card]:
-    return list(
-        db.scalars(select(Card).order_by(Card.column, Card.position, Card.id)).all()
-    )
+def list_cards(
+    response: Response,
+    db: Session = Depends(get_db),
+    column: ColumnEnum | None = None,
+    epic_id: int | None = None,
+    updated_since: datetime | None = None,
+    limit: int | None = Query(default=None, ge=1, le=200),
+    cursor: str | None = None,
+) -> list[Card]:
+    """List cards, optionally filtered and keyset-paginated (P4).
+
+    Filters (all optional, AND-ed): ``column``; ``epic_id`` (stories linked to
+    that epic); ``updated_since`` (an ISO-8601 timestamp — cards whose
+    ``updated_at`` is at or after it, **inclusive**, the "changed since" feed for
+    polling agents). With no params the response is the full list, unchanged.
+
+    Pagination is keyset over ``(updated_at, id)``: pass ``limit`` to cap the
+    page; when a full page is returned the next page's opaque cursor rides the
+    ``X-Next-Cursor`` response header (absent on the last page). Echo it back as
+    ``cursor`` for the next request. The body stays a bare ``CardRead[]`` so the
+    SPA is unaffected; it re-sorts by ``position`` within each column client-side.
+
+    Requesting unassigned stories (``epic_id IS NULL``) is intentionally out of
+    scope for V3 — add it here if a client needs it.
+    """
+    query = select(Card).order_by(Card.updated_at, Card.id)
+
+    if column is not None:
+        query = query.where(Card.column == column.value)
+    if epic_id is not None:
+        query = query.where(Card.epic_id == epic_id)
+    if updated_since is not None:
+        query = query.where(Card.updated_at >= updated_since)
+    if cursor is not None:
+        try:
+            cursor_updated_at, cursor_id = decode_cursor(cursor)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="invalid cursor",
+            ) from exc
+        query = query.where(
+            tuple_(Card.updated_at, Card.id) > (cursor_updated_at, cursor_id)
+        )
+    if limit is not None:
+        query = query.limit(limit)
+
+    cards = list(db.scalars(query).all())
+
+    # A full page implies there may be more — hand back the next cursor. A short
+    # (or empty) page is the last one, so no header.
+    if limit is not None and len(cards) == limit:
+        last = cards[-1]
+        response.headers[NEXT_CURSOR_HEADER] = encode_cursor(last.updated_at, last.id)
+
+    return cards
 
 
 @router.post("", response_model=CardRead, status_code=status.HTTP_201_CREATED)
