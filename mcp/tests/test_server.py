@@ -21,6 +21,10 @@ EXPECTED_TOOLS = {
     "update_card",
     "move_card",
     "delete_card",
+    "update_epic",
+    "delete_epic",
+    "update_board",
+    "delete_board",
 }
 
 

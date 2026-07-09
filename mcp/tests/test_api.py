@@ -53,6 +53,25 @@ def test_create_board_posts_name():
     assert out == {"id": 2, "name": "New"}
 
 
+def test_update_board_patches_name():
+    import json
+
+    handler, seen = capture(httpx.Response(200, json={"id": 2, "name": "Renamed"}))
+    out = make_client(handler).update_board(2, name="Renamed")
+    assert seen["method"] == "PATCH"
+    assert seen["path"] == "/api/v1/boards/2"
+    assert json.loads(seen["content"]) == {"name": "Renamed"}
+    assert out == {"id": 2, "name": "Renamed"}
+
+
+def test_delete_board_sends_delete_and_returns_ack_without_parsing_body():
+    handler, seen = capture(httpx.Response(204))  # no JSON body
+    out = make_client(handler).delete_board(4)
+    assert seen["method"] == "DELETE"
+    assert seen["path"] == "/api/v1/boards/4"
+    assert out == {"deleted": 4}
+
+
 # --- reads -----------------------------------------------------------------
 
 
@@ -150,6 +169,25 @@ def test_update_card_patches_provided_fields():
     assert seen["method"] == "PATCH"
     assert seen["path"] == "/api/v1/cards/3"
     assert json.loads(seen["content"]) == {"title": "new"}
+
+
+def test_update_epic_patches_only_provided_fields():
+    import json
+
+    handler, seen = capture(httpx.Response(200, json={"id": 3, "name": "E"}))
+    make_client(handler).update_epic(3, name="E")
+    assert seen["method"] == "PATCH"
+    assert seen["path"] == "/api/v1/epics/3"
+    # None fields (description) are dropped, not sent as null.
+    assert json.loads(seen["content"]) == {"name": "E"}
+
+
+def test_delete_epic_sends_delete_and_returns_ack_without_parsing_body():
+    handler, seen = capture(httpx.Response(204))  # no JSON body
+    out = make_client(handler).delete_epic(8)
+    assert seen["method"] == "DELETE"
+    assert seen["path"] == "/api/v1/epics/8"
+    assert out == {"deleted": 8}
 
 
 def test_move_card_posts_to_move_with_column_and_position():

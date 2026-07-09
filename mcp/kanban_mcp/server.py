@@ -66,6 +66,20 @@ def create_board(name: str) -> dict[str, Any]:
     return _client_instance().create_board(name)
 
 
+@mcp.tool()
+def update_board(board_id: int, name: str | None = None) -> dict[str, Any]:
+    """Rename a board (only the arguments you pass are changed). Authorized via
+    the board's own id — you must own it."""
+    return _client_instance().update_board(board_id, name=name)
+
+
+@mcp.tool()
+def delete_board(board_id: int) -> dict[str, Any]:
+    """Delete a board by id; its cards + epics cascade away. Authorized via the
+    board's own id — you must own it."""
+    return _client_instance().delete_board(board_id)
+
+
 # --- cards + epics (board-scoped) ------------------------------------------
 
 
@@ -183,6 +197,24 @@ def move_card(card_id: int, column: Column, position: int | None = None) -> dict
 def delete_card(card_id: int) -> dict[str, Any]:
     """Delete a story by id. Authorized via the card's own board."""
     return _client_instance().delete_card(card_id)
+
+
+@mcp.tool()
+def update_epic(
+    epic_id: int, name: str | None = None, description: str | None = None
+) -> dict[str, Any]:
+    """Edit an epic's fields (only the arguments you pass are changed). Authorized
+    via the epic's own board — no ``board_id`` needed.
+    """
+    return _client_instance().update_epic(epic_id, name=name, description=description)
+
+
+@mcp.tool()
+def delete_epic(epic_id: int) -> dict[str, Any]:
+    """Delete an epic by id; its child stories are detached (their epic_id is
+    cleared), not deleted. Authorized via the epic's own board.
+    """
+    return _client_instance().delete_epic(epic_id)
 
 
 def main() -> None:
