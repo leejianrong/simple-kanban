@@ -27,6 +27,9 @@ EXPECTED_TOOLS = {
     "delete_epic",
     "update_board",
     "delete_board",
+    "warmup",
+    "claim_card",
+    "create_cards",
 }
 
 

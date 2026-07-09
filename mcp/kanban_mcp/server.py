@@ -50,6 +50,21 @@ def _board(board_id: int | None) -> int | None:
     return board_id if board_id is not None else _default_board_id
 
 
+# --- ops: warmup ------------------------------------------------------------
+
+
+@mcp.tool()
+def warmup() -> dict[str, Any]:
+    """Wake the API if it has scaled to zero (Fly free tier). Pings the health
+    endpoint using the shared cold-start retry/timeout and returns a status
+    without throwing: ``{"status": "ok", ...}`` once healthy, ``{"status":
+    "waking", ...}`` if it's still coming up (call again shortly), or ``{"status":
+    "error", ...}``. Call this before a burst of work to absorb the cold start in
+    one place instead of on your first real tool call.
+    """
+    return _client_instance().warmup()
+
+
 # --- boards: discover + create (V10) ---------------------------------------
 
 
@@ -163,6 +178,28 @@ def create_card(
 
 
 @mcp.tool()
+def create_cards(cards: list[dict[str, Any]]) -> dict[str, Any]:
+    """Batch-create several stories in one call — hand it a list of card objects,
+    each with the same fields as ``create_card`` (``title`` required; optional
+    ``board_id``/``description``/``column``/``story_points``/``assignee``/
+    ``epic_id``). Ideal for filing a whole epic's worth of stories at once: one
+    tool call over a warm connection instead of N. A card that omits ``board_id``
+    falls back to KANBAN_BOARD_ID (then the API default), same as ``create_card``.
+    Returns ``{"created": [<card>, ...]}`` in the order given.
+
+    **Fail-fast, not atomic:** if one card is rejected (e.g. a bad ``story_points``)
+    the call errors and the cards created *before* it stay created — resubmit only
+    the remainder.
+    """
+    resolved = []
+    for card in cards:
+        merged = dict(card)
+        merged["board_id"] = _board(merged.get("board_id"))
+        resolved.append(merged)
+    return _client_instance().create_cards(resolved)
+
+
+@mcp.tool()
 def create_epic(
     name: str, board_id: int | None = None, description: str | None = None
 ) -> dict[str, Any]:
@@ -205,6 +242,16 @@ def move_card(card_id: int, column: Column, position: int | None = None) -> dict
     ``board_id`` needed.
     """
     return _client_instance().move_card(card_id, column, position=position)
+
+
+@mcp.tool()
+def claim_card(card_id: int, assignee: str) -> dict[str, Any]:
+    """Claim a story in one step: move it to ``in_progress`` **and** set its
+    ``assignee`` together. A convenience over calling move_card then update_card
+    yourself. Returns the updated card. Authorized via the card's own board — no
+    ``board_id`` needed.
+    """
+    return _client_instance().claim_card(card_id, assignee)
 
 
 @mcp.tool()

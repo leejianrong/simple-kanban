@@ -10,6 +10,7 @@ source of truth (API-first, ADR 0005). Milestone 2 slice **V5**; board-scoped in
 
 | Tool | Endpoint | Board target |
 |------|----------|--------------|
+| `warmup()` | `GET /api/health` (unversioned) | — (wakes a scaled-to-zero server; soft status) |
 | `list_boards()` | `GET /boards` | — (lists boards you own) |
 | `create_board(name)` | `POST /boards` | — (creates one you own) |
 | `get_board(board_id)` | `GET /boards/{id}` | — (by id) |
@@ -20,11 +21,13 @@ source of truth (API-first, ADR 0005). Milestone 2 slice **V5**; board-scoped in
 | `get_card(card_id)` | `GET /cards/{id}` | — (by card id) |
 | `get_epic(epic_id)` | `GET /epics/{id}` | — (by id) |
 | `create_card(title, board_id?, description?, column?, story_points?, assignee?, epic_id?)` | `POST /cards` | `board_id` |
+| `create_cards(cards)` | `POST /cards` × N (client-side loop) | per-card `board_id` |
 | `create_epic(name, board_id?, description?)` | `POST /epics` | `board_id` |
 | `update_epic(epic_id, name?, description?)` | `PATCH /epics/{id}` | via the entity's own board |
 | `delete_epic(epic_id)` | `DELETE /epics/{id}` | via the entity's own board |
 | `update_card(card_id, title?, description?, story_points?, assignee?, epic_id?)` | `PATCH /cards/{id}` | — (by card id) |
 | `move_card(card_id, column, position?)` | `POST /cards/{id}/move` | — (by card id) |
+| `claim_card(card_id, assignee)` | `POST /cards/{id}/move` + `PATCH /cards/{id}` | — (by card id) |
 | `delete_card(card_id)` | `DELETE /cards/{id}` | — (by card id) |
 
 **Board scoping (V10, ADR 0015).** Call `list_boards` to discover the boards you

@@ -228,6 +228,123 @@ def test_delete_card_sends_delete_and_returns_ack_without_parsing_body():
     assert out == {"deleted": 9}
 
 
+# --- health / warmup (KAN-39) ----------------------------------------------
+
+
+def test_health_hits_unversioned_api_health_not_v1():
+    handler, seen = capture(httpx.Response(200, json={"status": "ok"}))
+    out = make_client(handler).health()
+    assert seen["method"] == "GET"
+    # /api/health, NOT /api/v1/api/health — the /api/v1 prefix is bypassed.
+    assert seen["path"] == "/api/health"
+    assert out == {"status": "ok"}
+
+
+def test_warmup_returns_ok_when_healthy():
+    handler, _ = capture(httpx.Response(200, json={"status": "ok"}))
+    out = make_client(handler).warmup()
+    assert out == {"status": "ok", "health": {"status": "ok"}}
+
+
+def test_warmup_returns_waking_on_transport_error_without_raising():
+    # Two connection failures: the GET retries once then gives up; warmup swallows
+    # it into a soft "waking" status rather than raising (a cold, still-waking box).
+    handler, calls = flaky(
+        [httpx.ConnectError("still waking"), httpx.ConnectError("still waking")],
+        httpx.Response(200, json={"status": "ok"}),
+    )
+    out = retry_client(handler).warmup()
+    assert out["status"] == "waking"
+    assert calls["count"] == 2  # original + one retry, then soft-return
+
+
+def test_warmup_returns_error_on_http_error_response():
+    handler, _ = capture(httpx.Response(503, json={"detail": "unavailable"}))
+    out = make_client(handler).warmup()
+    assert out["status"] == "error"
+    assert "503" in out["detail"]
+
+
+# --- claim_card (KAN-38) ---------------------------------------------------
+
+
+def record_requests(response):
+    """A handler that records *every* request it sees (claim/batch issue several)."""
+    seen = {"requests": []}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        content = request.content
+        seen["requests"].append(
+            {
+                "method": request.method,
+                "path": request.url.path,
+                "body": _json.loads(content) if content else None,
+            }
+        )
+        return response
+
+    return handler, seen
+
+
+def test_claim_card_moves_to_in_progress_then_patches_assignee():
+    handler, seen = record_requests(httpx.Response(200, json={"id": 5, "assignee": "me"}))
+    out = make_client(handler).claim_card(5, "me")
+    reqs = seen["requests"]
+    assert len(reqs) == 2
+    # First a move to in_progress ...
+    assert reqs[0]["method"] == "POST"
+    assert reqs[0]["path"] == "/api/v1/cards/5/move"
+    assert reqs[0]["body"] == {"column": "in_progress"}
+    # ... then a PATCH of the assignee.
+    assert reqs[1]["method"] == "PATCH"
+    assert reqs[1]["path"] == "/api/v1/cards/5"
+    assert reqs[1]["body"] == {"assignee": "me"}
+    # Returns the PATCH response (final state).
+    assert out == {"id": 5, "assignee": "me"}
+
+
+# --- create_cards (KAN-40) -------------------------------------------------
+
+
+def test_create_cards_issues_one_post_per_card_and_returns_created_list():
+    handler, seen = record_requests(httpx.Response(201, json={"id": 1}))
+    out = make_client(handler).create_cards(
+        [{"title": "A"}, {"title": "B", "column": "done"}]
+    )
+    reqs = seen["requests"]
+    assert len(reqs) == 2
+    assert all(r["method"] == "POST" and r["path"] == "/api/v1/cards" for r in reqs)
+    assert reqs[0]["body"] == {"title": "A"}
+    assert reqs[1]["body"] == {"title": "B", "column": "done"}
+    assert out == {"created": [{"id": 1}, {"id": 1}]}
+
+
+def test_create_cards_empty_list_makes_no_requests():
+    handler, seen = record_requests(httpx.Response(201, json={"id": 1}))
+    out = make_client(handler).create_cards([])
+    assert seen["requests"] == []
+    assert out == {"created": []}
+
+
+def test_create_cards_fail_fast_leaves_earlier_creates_applied():
+    # Second card is rejected (422). The loop stops there and the error propagates;
+    # the first POST already happened (documented non-atomic behaviour).
+    calls = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return httpx.Response(201, json={"id": 1})
+        return httpx.Response(422, json={"detail": "bad story_points"})
+
+    with pytest.raises(KanbanApiError) as excinfo:
+        make_client(handler).create_cards([{"title": "A"}, {"title": "B", "story_points": 4}])
+    assert excinfo.value.status_code == 422
+    assert calls["count"] == 2  # first created, second rejected — no third attempt
+
+
 # --- auth + error mapping --------------------------------------------------
 
 
