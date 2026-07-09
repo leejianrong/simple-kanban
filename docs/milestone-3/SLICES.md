@@ -17,7 +17,7 @@ needs boards + tokens.
 | **V6 · Human login + landing** ✅ **Built** | A1, A2, A3, A9 | Logged out → the landing page; "Sign in with GitHub" → OAuth → your board; reload stays in; log out → landing |
 | **V7 · Boards** ✅ **Built** | A4, A8 | Create a second board and switch between them; existing cards/epics live in a migrated default board |
 | **V8 · Board authorization** ✅ **Built** | A5 | User A gets `403` on user B's board (API + UI); your own boards work; lists show only your boards |
-| **V9 · Agent tokens** | A6 | Create a named token in the UI (shown once), write to your board via `curl` with it, revoke it → `401` |
+| **V9 · Agent tokens** ✅ **Built** | A6 | Create a named token in the UI (shown once), write to your board via `curl` with it, revoke it → `401` |
 | **V10 · MCP board-scoping** | A7 | Claude, via MCP with a PAT, creates/moves cards on a chosen board — and can't touch another user's board |
 
 ---
@@ -90,7 +90,18 @@ needs boards + tokens.
   omit others' data; unauthenticated → 401. e2e — a second logged-in user cannot see the first's board.
 - **Acceptance:** the isolation demo (A can't touch B) holds across API + UI.
 
-## V9 · Agent tokens
+## V9 · Agent tokens ✅ Built
+
+> **Built** (ADR 0014). `personal_access_token` table (migration `0006`); `/api/v1/tokens` CRUD
+> (create → secret revealed **once**; list metadata; revoke = delete). Secrets **hashed at rest** —
+> HMAC-SHA256 peppered with `AUTH_SECRET`, indexed for an O(1) lookup (not bcrypt: a 256-bit random
+> token needs no slow hashing and must stay look-up-able). A PAT is the **third branch of the one
+> principal resolver** (`app/authz.py`): a valid PAT bearer → its owning `User`, then the *same*
+> `authorize_board` check humans use — so an agent is owner-gated identically to its owner. Fully
+> **sync** (ADR 0008); only humans touch the async engine. Token management is per-user
+> (`require_user`; the SERVICE bypass gets 403). SPA gains a top-bar **Tokens** view (create /
+> reveal-once / revoke). **Supersedes `API_TOKENS` as the agent mechanism** (ADR 0010), but the
+> transitional SERVICE bypass is **kept until V10** rewires MCP onto PATs and removes it.
 
 - **Build:** `personal_access_token` table (`user_id`, `name`, `token_hash`, `created_at`,
   `last_used_at`, nullable `expires_at`); `/api/v1/tokens` (create → returns the secret **once**;
