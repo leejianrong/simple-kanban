@@ -12,7 +12,7 @@ import {
 // the other is unaffected — across a reload. Everything hits the real backend under
 // a real session; both boards are owned by the e2e user and cleaned up afterwards
 // (their cards cascade away with them).
-test.afterAll(cleanupE2eBoards);
+test.afterAll(() => cleanupE2eBoards());
 
 test("a card on one board does not appear on another, across reload", async ({ page }) => {
   await login(page);

@@ -12,7 +12,7 @@ import {
 // /api/v1 is now owner-gated (M3 V8), so each test opens a REAL session and lands
 // on a fresh owned board (openFreshBoard). Deleting the boards afterwards cascades
 // away their cards.
-test.afterAll(cleanupE2eBoards);
+test.afterAll(() => cleanupE2eBoards());
 
 test("load → create → drag-move persists across reload", async ({ page }) => {
   await openFreshBoard(page);

@@ -10,7 +10,7 @@ import {
 } from "./helpers";
 
 // /api/v1 is owner-gated (M3 V8): open a real session on a fresh board.
-test.afterAll(cleanupE2eBoards);
+test.afterAll(() => cleanupE2eBoards());
 
 // Milestone 2 V1 demo (ADR 0009): epics live in their own view with an EPIC-
 // ticket; the board shows stories, each tagged with its epic's name. One board

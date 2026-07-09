@@ -19,13 +19,19 @@ EPICS = "/api/v1/epics"
 # --- the default board (migration/backfill) ---------------------------------
 
 
-def test_default_board_exists_and_is_unclaimed(service_client):
-    # Observed via the SERVICE principal (no human has logged in, so the default
-    # board is still unclaimed). The fresh testcontainer migration itself proves
-    # the backfill (0005's NOT NULL would fail if the seeded cards weren't attached).
-    boards = service_client.get(BOARDS).json()
-    assert [b["name"] for b in boards] == ["Default Board"]
-    assert boards[0]["owner_id"] is None  # unclaimed until a human logs in
+def test_default_board_exists_and_is_unclaimed():
+    # Observed directly in the DB (no human has logged in, so the default board is
+    # still unclaimed; V10 removed the SERVICE principal that used to observe it via
+    # the API). The fresh testcontainer migration itself proves the backfill (0005's
+    # NOT NULL would fail if the seeded cards weren't attached).
+    from sqlalchemy import text
+
+    from app.db import engine
+
+    with engine.connect() as conn:
+        rows = conn.execute(text("SELECT name, owner_id FROM board ORDER BY id")).all()
+    assert [name for name, _ in rows] == ["Default Board"]
+    assert rows[0][1] is None  # unclaimed until a human logs in
 
 
 def test_card_without_board_id_lands_on_default_board(logged_in_client):

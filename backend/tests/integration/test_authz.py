@@ -108,8 +108,7 @@ def test_lists_are_scoped_per_user(login_as):
 # --- unauthenticated is rejected outright ------------------------------------
 
 
-def test_unauthenticated_is_401(client, monkeypatch):
-    monkeypatch.delenv("API_TOKENS", raising=False)
+def test_unauthenticated_is_401(client):
     assert client.get(BOARDS).status_code == 401
     assert client.get(CARDS).status_code == 401
     assert client.get(EPICS).status_code == 401

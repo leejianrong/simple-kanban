@@ -11,12 +11,6 @@ import {
 export const E2E_PREFIX = "e2e-";
 const API_ORIGIN = "http://localhost:8000";
 
-// The transitional SERVICE token (V8, ADR 0013) the backend runs with under e2e
-// (set in playwright.config's webServer env). Used only by the cleanup helpers so
-// they can read/delete across users on the now-owner-gated API.
-const SERVICE_TOKEN = "e2e-service-token";
-const SERVICE_HEADERS = { Authorization: `Bearer ${SERVICE_TOKEN}` };
-
 export function uniqueTitle(label = "card"): string {
   return `${E2E_PREFIX}${label}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 }
@@ -160,53 +154,31 @@ export async function dragTo(
   await page.waitForTimeout(300); // let flip animation + refetch settle
 }
 
-// Delete every board these tests created, via the API. Deleting a board cascades
-// away its cards + epics, so this also cleans up anything created on that board.
-// Runs as the SERVICE principal (bearer) since /api/v1 is now owner-gated and the
-// boards span multiple e2e users.
-export async function cleanupE2eBoards(): Promise<void> {
-  const ctx: APIRequestContext = await request.newContext({
-    baseURL: API_ORIGIN,
-    extraHTTPHeaders: SERVICE_HEADERS,
-  });
-  try {
-    const boards = await ctx.get("/api/v1/boards");
-    if (boards.ok()) {
-      for (const board of await boards.json()) {
-        if (typeof board.name === "string" && board.name.startsWith(E2E_PREFIX)) {
-          await ctx.delete(`/api/v1/boards/${board.id}`);
+// Delete every e2e-prefixed board owned by the given user(s), via the API.
+// Deleting a board cascades away its cards + epics, so this also cleans up
+// anything created on that board. Since V10 (ADR 0015) /api/v1 is owner-gated
+// with no SERVICE bypass, cleanup runs *as each owning user*: the E2E_AUTH_BYPASS
+// test-login seam mints a real session per email in a throwaway request context.
+// Defaults to the standard e2e user (the one openFreshBoard/login use).
+export async function cleanupE2eBoards(
+  emails: string[] = [E2E_USER.email],
+): Promise<void> {
+  for (const email of emails) {
+    const ctx: APIRequestContext = await request.newContext({ baseURL: API_ORIGIN });
+    try {
+      // Mint a session for this user; the Set-Cookie on the 302 lands in the
+      // context's cookie jar (maxRedirects:0 keeps the redirect from being chased).
+      await ctx.post("/auth/test-login", { data: { email }, maxRedirects: 0 });
+      const boards = await ctx.get("/api/v1/boards");
+      if (boards.ok()) {
+        for (const board of await boards.json()) {
+          if (typeof board.name === "string" && board.name.startsWith(E2E_PREFIX)) {
+            await ctx.delete(`/api/v1/boards/${board.id}`);
+          }
         }
       }
+    } finally {
+      await ctx.dispose();
     }
-  } finally {
-    await ctx.dispose();
-  }
-}
-
-// Delete every card and epic these tests created, via the API (as SERVICE).
-export async function cleanupE2eCards(): Promise<void> {
-  const ctx: APIRequestContext = await request.newContext({
-    baseURL: API_ORIGIN,
-    extraHTTPHeaders: SERVICE_HEADERS,
-  });
-  try {
-    const cards = await ctx.get("/api/v1/cards");
-    if (cards.ok()) {
-      for (const card of await cards.json()) {
-        if (typeof card.title === "string" && card.title.startsWith(E2E_PREFIX)) {
-          await ctx.delete(`/api/v1/cards/${card.id}`);
-        }
-      }
-    }
-    const epics = await ctx.get("/api/v1/epics");
-    if (epics.ok()) {
-      for (const epic of await epics.json()) {
-        if (typeof epic.name === "string" && epic.name.startsWith(E2E_PREFIX)) {
-          await ctx.delete(`/api/v1/epics/${epic.id}`);
-        }
-      }
-    }
-  } finally {
-    await ctx.dispose();
   }
 }
