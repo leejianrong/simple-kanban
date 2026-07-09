@@ -9,7 +9,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from kanban_mcp.api import KanbanApiError, KanbanClient
+from kanban_client import KanbanApiError, KanbanClient
 
 
 def make_client(handler, token=None):

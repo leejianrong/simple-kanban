@@ -6,7 +6,14 @@ requires-python = ">=3.12"
 dependencies = [
     "mcp>=1.2",
     "httpx>=0.28",
+    "kanban-client",
 ]
+
+# The shared API client lives in a sibling package; depend on it by path (not a
+# repo-root uv workspace) so backend/, mcp/, and kanban-client/ each stay
+# independently locked (KAN-21).
+[tool.uv.sources]
+kanban-client = { path = "../kanban-client", editable = true }
 
 [dependency-groups]
 dev = [

@@ -296,6 +296,23 @@ wheels = [
 ]
 
 [[package]]
+name = "kanban-client"
+version = "0.1.0"
+source = { editable = "../kanban-client" }
+dependencies = [
+    { name = "httpx" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "httpx", specifier = ">=0.28" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.3" },
+    { name = "ruff", specifier = ">=0.8" },
+]
+
+[[package]]
 name = "mcp"
 version = "1.28.1"
 source = { registry = "https://pypi.org/simple" }
@@ -668,6 +685,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
+    { name = "kanban-client" },
     { name = "mcp" },
 ]
 
@@ -680,6 +698,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "httpx", specifier = ">=0.28" },
+    { name = "kanban-client", editable = "../kanban-client" },
     { name = "mcp", specifier = ">=1.2" },
 ]
 

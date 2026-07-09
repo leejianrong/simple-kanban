@@ -5,9 +5,9 @@ import asyncio
 import json
 
 import httpx
+from kanban_client import KanbanClient
 
 from kanban_mcp import server
-from kanban_mcp.api import KanbanClient
 from kanban_mcp.server import mcp
 
 EXPECTED_TOOLS = {

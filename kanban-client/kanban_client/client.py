@@ -1,9 +1,15 @@
 """Thin synchronous httpx client over the Simple Kanban REST API (`/api/v1`).
 
-One method per MCP tool. Keeps the transport injectable so unit tests can drive
-every method against an ``httpx.MockTransport`` with no real server. Non-2xx
-responses become a ``KanbanApiError`` carrying the API's own ``detail`` string,
-so the agent sees a useful message (e.g. a 401 when a token is required).
+Shared single source of truth for talking to the API: the MCP server and the
+CLI both import ``KanbanClient`` from here so the two thin adapters never drift
+(DRY; API-first, ADR 0005). One method per API endpoint. The transport is
+injectable so unit tests can drive every method against an ``httpx.MockTransport``
+with no real server. Non-2xx responses become a ``KanbanApiError`` carrying the
+API's own ``detail`` string, so the caller sees a useful message (e.g. a 401 when
+a token is required).
+
+Config (base_url / token / timeout) is passed in by the caller — this module
+reads no environment, so each adapter (MCP, CLI) owns its own env parsing.
 """
 from __future__ import annotations
 

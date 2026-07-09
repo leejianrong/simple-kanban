@@ -1,11 +1,11 @@
 name: CI
 
-# Validate every PR and every push to main (ADR 0004). Six independent jobs:
+# Validate every PR and every push to main (ADR 0004). Seven independent jobs:
 # lint, fast unit tests (no Docker), integration tests (real Postgres via
 # testcontainers), the frontend build/type-check, Playwright e2e smoke tests
-# (real Postgres via a service container), and the MCP server's lint + tests
-# (mocked httpx, no DB). The Deploy workflow only runs after this whole workflow
-# succeeds on main.
+# (real Postgres via a service container), the shared kanban-client's lint +
+# tests, and the MCP server's lint + tests (both mocked httpx, no DB). The
+# Deploy workflow only runs after this whole workflow succeeds on main.
 on:
   pull_request:
   push:
@@ -53,6 +53,24 @@ jobs:
       - name: Pytest (integration)
         working-directory: backend
         run: uv run --frozen --group dev pytest tests/integration -q
+
+  client:
+    name: Kanban client (lint + tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      # Shared httpx wrapper (KAN-21) — every method is exercised against a
+      # mocked httpx transport, so no backend or database is needed.
+      - name: Ruff lint
+        working-directory: kanban-client
+        run: uv run --frozen --group dev ruff check .
+      - name: Pytest
+        working-directory: kanban-client
+        run: uv run --frozen --group dev pytest -q
 
   mcp:
     name: MCP server (lint + tests)

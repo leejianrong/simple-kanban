@@ -21,9 +21,9 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+from kanban_client import KanbanClient
 from mcp.server.fastmcp import FastMCP
 
-from .api import KanbanClient
 from .config import load_config
 
 Column = Literal["todo", "in_progress", "done"]
