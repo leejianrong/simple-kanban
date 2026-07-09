@@ -46,7 +46,7 @@ export async function login(page: Page, email = E2E_USER.email): Promise<void> {
 // the board view to settle. Returns the name used.
 export async function createBoardViaSwitcher(page: Page, name: string): Promise<string> {
   const switcher = page.locator(".board-switcher");
-  await switcher.getByRole("button", { name: "+ New board" }).click();
+  await switcher.getByRole("button", { name: "New board" }).click();
   await page.getByLabel("Board name").fill(name);
   await switcher.getByRole("button", { name: "Create", exact: true }).click();
   await expect(page.getByLabel("Board", { exact: true })).toBeVisible();
@@ -88,7 +88,7 @@ export async function createCard(
   title: string,
 ): Promise<void> {
   const col = column(page, columnLabel);
-  await col.getByRole("button", { name: "+ Add card" }).click();
+  await col.getByRole("button", { name: "Add card" }).click();
   await col.getByPlaceholder("Title (required)").fill(title);
   await col.getByRole("button", { name: "Create" }).click();
   await expect(cardInColumn(page, columnLabel, title)).toBeVisible();
@@ -121,7 +121,7 @@ export async function createStoryUnder(
 ): Promise<void> {
   await page.getByRole("button", { name: "Board", exact: true }).click();
   const col = column(page, columnLabel);
-  await col.getByRole("button", { name: "+ Add card" }).click();
+  await col.getByRole("button", { name: "Add card" }).click();
   await col.getByPlaceholder("Title (required)").fill(title);
   await col.getByLabel("Epic", { exact: true }).selectOption({ label: `${epicTicket} · ${epicName}` });
   await col.getByRole("button", { name: "Create" }).click();

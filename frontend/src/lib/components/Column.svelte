@@ -1,5 +1,6 @@
 <script lang="ts">
   import { flip } from "svelte/animate";
+  import { Plus } from "lucide-svelte";
   import { dndzone, TRIGGERS, type DndEvent } from "svelte-dnd-action";
   import type { Card as CardType, Column } from "../api";
   import { moveCard } from "../board.svelte";
@@ -51,18 +52,19 @@
 </script>
 
 <section
-  class="column"
+  class="column column-{column}"
   onmousedowncapture={guardFormPress}
   ontouchstartcapture={guardFormPress}
 >
   <header class="column-head">
+    <span class="status-dot" aria-hidden="true"></span>
     <h2>{label}</h2>
     <span class="count">{items.length}</span>
   </header>
 
   <div
     class="cards"
-    use:dndzone={{ items, flipDurationMs: 150, dropTargetStyle: { outline: "2px dashed #4c9aff" } }}
+    use:dndzone={{ items, flipDurationMs: 150, dropTargetStyle: { outline: "2px dashed var(--accent)" } }}
     onconsider={handleConsider}
     onfinalize={handleFinalize}
   >
@@ -80,6 +82,8 @@
   {#if adding}
     <CardForm {column} onclose={() => (adding = false)} />
   {:else}
-    <button class="add" onclick={() => (adding = true)}>+ Add card</button>
+    <button class="add" onclick={() => (adding = true)}>
+      <Plus size={15} /> Add card
+    </button>
   {/if}
 </section>

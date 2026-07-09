@@ -1,0 +1,248 @@
+<title>Board Redesign — Directions</title>
+<style>
+  :root {
+    --ground: #f4f5f7;
+    --surface: #ffffff;
+    --surface-2: #ebecf0;
+    --line: #dfe1e6;
+    --ink: #172b4d;
+    --muted: #5e6c84;
+    --accent: #0052cc;
+    --accent-soft: #e9f2ff;
+    --agent: #5243aa;
+    --agent-soft: #eae6ff;
+    --danger: #de350b;
+    --danger-soft: #ffebe6;
+    --shadow-sm: 0 1px 0 rgba(9, 30, 66, 0.08);
+    --shadow-md: 0 1px 1px rgba(9,30,66,.1), 0 6px 16px -10px rgba(9, 30, 66, 0.3);
+    --radius: 8px;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0d1524; --surface: #1a2740; --surface-2: #141f36; --line: #2a3a5c;
+      --ink: #e6edf9; --muted: #9fb0cc; --accent: #4c9aff; --accent-soft: #12294d;
+      --agent: #b3a4ff; --agent-soft: #241f45; --danger: #ff7452; --danger-soft: #3d1a12;
+      --shadow-sm: 0 1px 0 rgba(0,0,0,.4); --shadow-md: 0 8px 24px -12px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="light"] {
+    --ground: #f4f5f7; --surface: #ffffff; --surface-2: #ebecf0; --line: #dfe1e6;
+    --ink: #172b4d; --muted: #5e6c84; --accent: #0052cc; --accent-soft: #e9f2ff;
+    --agent: #5243aa; --agent-soft: #eae6ff; --danger: #de350b; --danger-soft: #ffebe6;
+    --shadow-sm: 0 1px 0 rgba(9,30,66,.08); --shadow-md: 0 1px 1px rgba(9,30,66,.1), 0 6px 16px -10px rgba(9,30,66,.3);
+  }
+  :root[data-theme="dark"] {
+    --ground: #0d1524; --surface: #1a2740; --surface-2: #141f36; --line: #2a3a5c;
+    --ink: #e6edf9; --muted: #9fb0cc; --accent: #4c9aff; --accent-soft: #12294d;
+    --agent: #b3a4ff; --agent-soft: #241f45; --danger: #ff7452; --danger-soft: #3d1a12;
+    --shadow-sm: 0 1px 0 rgba(0,0,0,.4); --shadow-md: 0 8px 24px -12px rgba(0,0,0,.7);
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ground); color: var(--ink); font-family: var(--sans); line-height: 1.45; -webkit-font-smoothing: antialiased; }
+
+  /* ---- mockup control strip (not part of the app) ---- */
+  .controls {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+    padding: .7rem 1.25rem; background: var(--surface); border-bottom: 1px solid var(--line);
+  }
+  .controls .who { font-size: .78rem; color: var(--muted); }
+  .controls .who b { color: var(--ink); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: none; background: transparent; color: var(--muted); font: inherit; font-size: .82rem; padding: .35rem .8rem; cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .controls .spacer { margin-left: auto; }
+  .note { max-width: 900px; margin: 1.25rem auto 0; padding: 0 1.25rem; color: var(--muted); font-size: .85rem; }
+  .note b { color: var(--ink); }
+
+  .stage { padding: 1.25rem; }
+
+  /* icons */
+  .ic { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; display: block; }
+  .ic-sm { width: 14px; height: 14px; }
+
+  /* ============ shared app-topbar redesign ============ */
+  .app { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--ground); box-shadow: var(--shadow-md); }
+  .topbar { display: flex; align-items: center; gap: 1rem; padding: .6rem 1rem; background: var(--surface); border-bottom: 1px solid var(--line); }
+  .brand { display: flex; align-items: center; gap: .5rem; font-weight: 700; letter-spacing: -.01em; }
+  .brand .glyph { width: 18px; height: 22px; display: grid; grid-template-columns: 6px 6px; gap: 2px; }
+  .brand .glyph i { display: block; border-radius: 2px; background: var(--accent); }
+  .brand .glyph i:nth-child(2) { align-self: end; height: 60%; background: var(--agent); }
+  .brand .glyph i:nth-child(3) { height: 60%; }
+  .tabs { display: flex; gap: .15rem; }
+  .tabs button { border: none; background: none; color: var(--muted); font: inherit; font-size: .85rem; padding: .35rem .7rem; border-radius: 6px; cursor: pointer; }
+  .tabs button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .boardpick { display: flex; align-items: center; gap: .4rem; margin-left: .5rem; }
+  .boardpick select { font: inherit; font-size: .85rem; padding: .35rem 1.6rem .35rem .6rem; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--ink); appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+    background-position: right 12px center, right 7px center; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
+  .iconbtn { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid transparent; background: none; color: var(--muted); border-radius: 7px; cursor: pointer; }
+  .iconbtn:hover { background: var(--surface-2); color: var(--ink); }
+  .iconbtn.danger:hover { background: var(--danger-soft); color: var(--danger); }
+  .right { margin-left: auto; display: flex; align-items: center; gap: .6rem; }
+  .avatar { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: .72rem; font-weight: 700; color: #fff; background: var(--accent); }
+  .avatar.agent { background: var(--agent); }
+  .email { font-size: .78rem; color: var(--muted); }
+
+  /* ============ board grid ============ */
+  .board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; padding: 1rem; align-items: start; }
+  .col { display: flex; flex-direction: column; gap: .6rem; }
+  .col-head { display: flex; align-items: center; gap: .5rem; padding: 0 .15rem; }
+  .col-head h3 { margin: 0; font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; }
+  .col-head .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .col-todo .dot { background: #97a0af; } .col-prog .dot { background: var(--accent); } .col-done .dot { background: #36b37e; }
+  .count { font-size: .72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .add { margin-top: .1rem; display: flex; align-items: center; gap: .4rem; border: 1px dashed var(--line); background: none; color: var(--muted); font: inherit; font-size: .82rem; padding: .5rem; border-radius: 8px; cursor: pointer; }
+  .add:hover { color: var(--ink); border-color: var(--muted); }
+
+  /* ============ CARD — base ============ */
+  .card { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: .65rem .75rem; box-shadow: var(--shadow-sm); cursor: grab; transition: box-shadow .12s, transform .12s; }
+  .card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+  .card .rail { display: none; }
+  .c-top { display: flex; align-items: center; gap: .5rem; margin-bottom: .35rem; }
+  .ticket { font-family: var(--mono); font-size: .68rem; font-weight: 600; color: var(--muted); letter-spacing: -.02em; }
+  .epic { font-size: .64rem; font-weight: 600; color: var(--agent); background: var(--agent-soft); padding: .08rem .4rem; border-radius: 4px; max-width: 12ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pts { margin-left: auto; font-size: .68rem; font-weight: 700; color: var(--accent); background: var(--accent-soft); border-radius: 20px; min-width: 20px; height: 18px; padding: 0 .35rem; display: grid; place-items: center; font-variant-numeric: tabular-nums; }
+  .title { margin: 0; font-size: .875rem; font-weight: 500; }
+  .c-foot { display: flex; align-items: center; gap: .5rem; margin-top: .6rem; }
+  .who-chip { display: flex; align-items: center; gap: .35rem; font-size: .7rem; color: var(--muted); }
+  .who-av { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: .62rem; font-weight: 700; color: #fff; background: var(--accent); flex: none; }
+  .who-av.agent { background: var(--agent); }
+  .actions { margin-left: auto; display: flex; gap: .1rem; opacity: 0; transition: opacity .12s; }
+  .card:hover .actions, .card:focus-within .actions { opacity: 1; }
+  .a-btn { display: grid; place-items: center; width: 26px; height: 26px; border: none; background: none; color: var(--muted); border-radius: 6px; cursor: pointer; }
+  .a-btn:hover { background: var(--surface-2); color: var(--ink); }
+  .a-btn.danger:hover { background: var(--danger-soft); color: var(--danger); }
+
+  /* ============ DIRECTION B — "Console": actor rail + mono, squared ============ */
+  [data-variant="B"] .card { border-radius: 5px; padding-left: .9rem; }
+  [data-variant="B"] .card .rail { display: block; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--accent); border-radius: 5px 0 0 5px; }
+  [data-variant="B"] .card.by-agent .rail { background: var(--agent); }
+  [data-variant="B"] .title { font-weight: 600; }
+  [data-variant="B"] .who-chip { font-family: var(--mono); font-size: .66rem; }
+  [data-variant="B"] .col-head { padding: .35rem .55rem; background: var(--surface-2); border-radius: 6px; }
+  [data-variant="B"] .add { border-style: solid; }
+
+  /* ============ DIRECTION C — "Calm": airy, tinted lanes, footer actor ============ */
+  [data-variant="C"] .board { gap: 1.25rem; }
+  [data-variant="C"] .col { background: var(--surface-2); border-radius: 14px; padding: .85rem; gap: .7rem; }
+  [data-variant="C"] .col-head { padding: .1rem .25rem .3rem; }
+  [data-variant="C"] .card { border-radius: 12px; padding: .8rem .9rem; border-color: transparent; box-shadow: var(--shadow-md); }
+  [data-variant="C"] .title { font-size: .92rem; }
+  [data-variant="C"] .c-foot { border-top: 1px solid var(--line); padding-top: .55rem; }
+  [data-variant="C"] .pts { background: transparent; color: var(--muted); }
+  [data-variant="C"] .add { border: none; background: var(--surface); }
+
+  /* Direction A keeps base styles. */
+
+  @media (max-width: 720px) { .board { grid-template-columns: 1fr; } .email { display: none; } }
+  button:focus-visible, .a-btn:focus-visible, .iconbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="controls">
+  <span class="who">Board redesign — <b>3 directions</b>, same data, live in your theme.</span>
+  <div class="seg" id="variant" role="group" aria-label="Direction">
+    <button data-v="A" aria-pressed="true">A · Refined</button>
+    <button data-v="B" aria-pressed="false">B · Console</button>
+    <button data-v="C" aria-pressed="false">C · Calm</button>
+  </div>
+  <div class="spacer"></div>
+  <div class="seg" id="theme" role="group" aria-label="Theme">
+    <button data-t="light" aria-pressed="false">Light</button>
+    <button data-t="dark" aria-pressed="false">Dark</button>
+  </div>
+</div>
+
+<p class="note" id="blurb"></p>
+
+<div class="stage">
+  <div class="app" data-variant="A" id="app">
+    <div class="topbar">
+      <div class="brand"><span class="glyph"><i></i><i></i><i></i><i></i></span> Simple Kanban</div>
+      <div class="tabs">
+        <button class="active">Board</button><button>Epics</button><button>Tokens</button>
+      </div>
+      <div class="boardpick">
+        <select aria-label="Board"><option>Design Revamp</option><option>Accounts &amp; Auth</option></select>
+        <button class="iconbtn" title="New board" aria-label="New board"><svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+        <button class="iconbtn" title="Board settings" aria-label="Board settings"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></button>
+      </div>
+      <div class="right">
+        <div class="avatar" title="you@example.com">Y</div>
+        <span class="email">you@example.com</span>
+        <button class="iconbtn" title="Log out" aria-label="Log out"><svg class="ic" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg></button>
+      </div>
+    </div>
+    <div class="board" id="board"></div>
+  </div>
+</div>
+
+<script>
+  const ICON = {
+    edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+    trash: '<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18"/>'
+  };
+  const COLS = [
+    { key:'todo', label:'Todo', cls:'col-todo', cards:[
+      { t:'KAN-26', title:'Wire up OAuth callback route', pts:3, who:'Alice', agent:false, epic:'Accounts & Auth', when:'2h' },
+      { t:'KAN-27', title:'Add rate limiting to the API', pts:5, who:'Bob', agent:false, epic:null, when:'yesterday' },
+    ]},
+    { key:'prog', label:'In Progress', cls:'col-prog', cards:[
+      { t:'KAN-28', title:'Board switcher persistence bug', pts:2, who:'Alice', agent:false, epic:null, when:'1h' },
+      { t:'KAN-29', title:'Refactor principal resolver', pts:8, who:'Claude', agent:true, epic:'Board authz', when:'4m' },
+    ]},
+    { key:'done', label:'Done', cls:'col-done', cards:[
+      { t:'KAN-30', title:'Ship PAT revoke endpoint', pts:3, who:'Bob', agent:false, epic:null, when:'3h' },
+    ]},
+  ];
+  const svg = (p, extra='') => `<svg class="ic ${extra}" viewBox="0 0 24 24">${p}</svg>`;
+  function cardHTML(c) {
+    const initials = c.who.slice(0,1).toUpperCase();
+    const avCls = c.agent ? 'agent' : '';
+    const face = c.agent ? svg(ICON.spark,'ic-sm') : initials;
+    return `<article class="card ${c.agent?'by-agent':''}" tabindex="0">
+      <span class="rail"></span>
+      <div class="c-top">
+        <span class="ticket">${c.t}</span>
+        ${c.epic ? `<span class="epic" title="${c.epic}">${c.epic}</span>` : ''}
+        <span class="pts" title="Story points">${c.pts}</span>
+      </div>
+      <p class="title">${c.title}</p>
+      <div class="c-foot">
+        <span class="who-chip"><span class="who-av ${avCls}">${face}</span>${c.agent?`${c.who} · ${c.when}`:c.who}</span>
+        <div class="actions">
+          <button class="a-btn" title="Edit" aria-label="Edit ${c.t}">${svg(ICON.edit)}</button>
+          <button class="a-btn danger" title="Delete" aria-label="Delete ${c.t}">${svg(ICON.trash)}</button>
+        </div>
+      </div>
+    </article>`;
+  }
+  function render() {
+    document.getElementById('board').innerHTML = COLS.map(col => `
+      <div class="col ${col.cls}">
+        <div class="col-head"><span class="dot"></span><h3>${col.label}</h3><span class="count">${col.cards.length}</span></div>
+        ${col.cards.map(cardHTML).join('')}
+        <button class="add">${svg(ICON.plus,'ic-sm')} Add card</button>
+      </div>`).join('');
+  }
+  const BLURB = {
+    A: '<b>A · Refined</b> — the familiar three-lane layout, cleaned up. Actions become hover-only pencil/trash icons; a story-points pill and an assignee avatar replace stacked text. Lowest risk, closest to today.',
+    B: '<b>B · Console</b> — an ops-console read. A left rail colours each card by who last touched it (blue = human, purple = agent), metadata sets in mono, cards squared off. Leans into the "humans + agents share this board" thesis.',
+    C: '<b>C · Calm</b> — airier lanes on tinted surfaces, larger cards, and a footer line naming who moved the card and when. Minimal, generous whitespace; personality comes from restraint.'
+  };
+  const app = document.getElementById('app'), blurb = document.getElementById('blurb');
+  function setVariant(v){ app.dataset.variant = v; blurb.innerHTML = BLURB[v];
+    document.querySelectorAll('#variant button').forEach(b=>b.setAttribute('aria-pressed', b.dataset.v===v)); }
+  function setTheme(t){ document.documentElement.dataset.theme = t;
+    document.querySelectorAll('#theme button').forEach(b=>b.setAttribute('aria-pressed', b.dataset.t===t)); }
+  document.getElementById('variant').onclick = e => { const b=e.target.closest('button'); if(b) setVariant(b.dataset.v); };
+  document.getElementById('theme').onclick = e => { const b=e.target.closest('button'); if(b) setTheme(b.dataset.t); };
+  render(); setVariant('A'); blurb.innerHTML = BLURB.A;
+</script>

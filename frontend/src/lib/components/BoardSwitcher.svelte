@@ -2,6 +2,7 @@
   // Board switcher in the top bar (M3 V7): select the active board, and
   // create / rename / delete boards. Selecting a board reloads the board view
   // for it (board.svelte.ts owns the state + server calls).
+  import { Plus, MoreHorizontal, Pencil, Trash2 } from "lucide-svelte";
   import {
     addBoard,
     boardStore,
@@ -16,6 +17,25 @@
   let name = $state("");
   let busy = $state(false);
 
+  // The Rename/Delete actions live in a "⋯" menu to keep destructive actions
+  // out of the always-visible top bar. Close it on any outside click / Escape.
+  let menuOpen = $state(false);
+  $effect(() => {
+    if (!menuOpen) return;
+    const close = (e: Event) => {
+      if (!(e.target as HTMLElement).closest(".board-menu")) menuOpen = false;
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") menuOpen = false;
+    };
+    document.addEventListener("click", close, true);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("click", close, true);
+      document.removeEventListener("keydown", onKey);
+    };
+  });
+
   function onSelect(e: Event) {
     const id = Number((e.currentTarget as HTMLSelectElement).value);
     if (id && id !== boardStore.activeBoardId) setActiveBoard(id);
@@ -28,6 +48,7 @@
   function startRename() {
     name = activeBoard()?.name ?? "";
     mode = "renaming";
+    menuOpen = false;
   }
   function cancel() {
     mode = "idle";
@@ -100,10 +121,39 @@
         <option value={b.id}>{b.name}</option>
       {/each}
     </select>
-    <button class="link" onclick={startCreate}>+ New board</button>
+    <button class="icon-btn" title="New board" aria-label="New board" onclick={startCreate}>
+      <Plus size={16} />
+    </button>
     {#if activeBoard()}
-      <button class="link" onclick={startRename}>Rename</button>
-      <button class="link danger" onclick={() => (mode = "confirmDelete")}>Delete</button>
+      <div class="board-menu">
+        <button
+          class="icon-btn"
+          title="Board actions"
+          aria-label="Board actions"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          onclick={() => (menuOpen = !menuOpen)}
+        >
+          <MoreHorizontal size={16} />
+        </button>
+        {#if menuOpen}
+          <div class="menu-pop" role="menu">
+            <button role="menuitem" onclick={startRename}>
+              <Pencil size={14} /> Rename board
+            </button>
+            <button
+              role="menuitem"
+              class="danger"
+              onclick={() => {
+                mode = "confirmDelete";
+                menuOpen = false;
+              }}
+            >
+              <Trash2 size={14} /> Delete board
+            </button>
+          </div>
+        {/if}
+      </div>
     {/if}
   {/if}
 </div>
