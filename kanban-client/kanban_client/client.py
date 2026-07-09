@@ -171,6 +171,41 @@ class KanbanClient:
         self._request("DELETE", f"/boards/{board_id}")
         return {"deleted": board_id}
 
+    # --- health / warmup ----------------------------------------------------
+
+    def health(self) -> dict[str, Any]:
+        """GET the **unversioned** ``/api/health`` (it lives at the origin, not
+        under ``/api/v1``). Rides a cold start via the shared retry/timeout and
+        raises ``KanbanApiError`` on a non-2xx response; returns the parsed body
+        (``{"status": "ok"}``)."""
+        # base_url is ``<origin>/api/v1/``; joining an absolute path swaps the
+        # whole path (RFC 3986) so we reach ``<origin>/api/health`` without the
+        # ``/api/v1`` prefix and without hard-coding the origin. The result is a
+        # fully-qualified URL, so httpx sends it as-is (no base_url merge).
+        url = self._client.base_url.join("/api/health")
+        return self._request("GET", str(url)).json()
+
+    def warmup(self) -> dict[str, Any]:
+        """Wake a scaled-to-zero server by pinging ``/api/health``.
+
+        Rides the cold start via the shared retry/timeout (an idempotent GET is
+        retried once), but **does not throw** on a slow wake: a still-waking
+        server (transport error/timeout) returns ``{"status": "waking", ...}`` and
+        any other API error returns ``{"status": "error", ...}``, so an agent gets
+        a clear result to act on rather than an exception. A healthy server returns
+        ``{"status": "ok", "health": {...}}``.
+        """
+        try:
+            body = self.health()
+        except httpx.TransportError as exc:
+            return {
+                "status": "waking",
+                "detail": f"server not ready yet ({exc.__class__.__name__}); retry shortly",
+            }
+        except KanbanApiError as exc:
+            return {"status": "error", "detail": str(exc)}
+        return {"status": "ok", "health": body}
+
     # --- reads --------------------------------------------------------------
 
     def list_cards(
@@ -237,6 +272,21 @@ class KanbanClient:
         )
         return self._request("POST", "/cards", json=payload).json()
 
+    def create_cards(self, cards: list[dict[str, Any]]) -> dict[str, Any]:
+        """Batch-create stories: loop ``create_card`` for each dict in ``cards``
+        (a warm-connection convenience for filing a whole epic's worth of stories
+        in one call — the shared client's cold-start retry only bites the first
+        request). Each dict takes the same fields as ``create_card`` (``title``
+        required; optional ``board_id``/``description``/``column``/``story_points``/
+        ``assignee``/``epic_id``). Returns ``{"created": [<card>, ...]}``.
+
+        **Fail-fast, not atomic:** on the first error the exception propagates and
+        cards created before it **stay created** (no rollback — there is no batch
+        endpoint; ADR 0007 last-write-wins). Order is preserved.
+        """
+        created = [self.create_card(**card) for card in cards]
+        return {"created": created}
+
     def create_epic(
         self, name: str, *, board_id: int | None = None, description: str | None = None
     ) -> dict[str, Any]:
@@ -282,6 +332,17 @@ class KanbanClient:
         if position is not None:
             payload["position"] = position
         return self._request("POST", f"/cards/{card_id}/move", json=payload).json()
+
+    def claim_card(self, card_id: int, assignee: str) -> dict[str, Any]:
+        """Atomically 'pull' a card: move it to ``in_progress`` **and** set its
+        ``assignee`` in one call. Composes the two existing endpoints — first
+        ``move_card`` (column change), then ``update_card`` (field edit), since the
+        move/edit split is deliberate (ADR 0005). Returns the resulting card (the
+        PATCH response, reflecting both changes). Not transactional: if the PATCH
+        fails after the move, the card stays moved but unassigned.
+        """
+        self.move_card(card_id, "in_progress")
+        return self.update_card(card_id, assignee=assignee)
 
     def delete_card(self, card_id: int) -> dict[str, Any]:
         # 204 No Content — no body to parse.
