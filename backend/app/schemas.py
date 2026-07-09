@@ -105,6 +105,11 @@ class CardRead(BaseModel):
     # one, and ids of cards this one blocks. Empty when there are none.
     blocked_by: list[int] = []
     blocks: list[int] = []
+    # Derived ready/blocked signal (KAN-29): True when this card has >=1 blocker
+    # that is not yet in the ``done`` column — i.e. it is *not* actionable. A card
+    # with no blockers, or whose every blocker is done, is ``blocked = False``
+    # (ready). Computed by the router, not an ORM column; see ``GET /api/v1/cards``.
+    blocked: bool = False
     created_at: datetime
     updated_at: datetime
 
