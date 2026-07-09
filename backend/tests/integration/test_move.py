@@ -1,6 +1,16 @@
 """API tests for POST /api/v1/cards/{id}/move (move & reorder, R2)."""
 from __future__ import annotations
 
+import pytest
+
+
+@pytest.fixture
+def client(logged_in_client):
+    """V8 (ADR 0013): /api/v1 is owner-gated, so these board tests run as the
+    board-owning session user, shadowing conftest's unauthenticated ``client``.
+    Claim-on-login makes this user own the reset fixture's default board."""
+    return logged_in_client
+
 
 def _create(client, title, column="todo"):
     return client.post("/api/v1/cards", json={"title": title, "column": column}).json()

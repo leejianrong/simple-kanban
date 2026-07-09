@@ -34,6 +34,7 @@ from fastapi_users.authentication.strategy.db import (
 from fastapi_users_db_sqlalchemy import SQLAlchemyUserDatabase
 from fastapi_users_db_sqlalchemy.access_token import SQLAlchemyAccessTokenDatabase
 from httpx_oauth.clients.github import GitHubOAuth2
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import RedirectResponse, Response
 
@@ -67,6 +68,30 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
     reset_password_token_secret = AUTH_SECRET
     verification_token_secret = AUTH_SECRET
+
+    async def on_after_login(self, user, request=None, response=None):
+        """Claim any unclaimed boards for the logging-in user (M3 V8, ADR 0013).
+
+        V8 makes boards owner-gated, which would otherwise strand every board with
+        ``owner_id IS NULL`` — including the migrated default board holding all
+        pre-V7 production data. So on each successful login we adopt every unclaimed
+        board for this user: the first human to ever log in rescues the migrated
+        data, and no user is ever left with an empty board list. Idempotent — once
+        a board is owned it no longer matches, so repeat logins are no-ops.
+
+        Runs on the **async** auth session (the board table shares one ``Base`` /
+        one database, ADR 0011), committed here so the subsequent sync board
+        requests see the ownership.
+        """
+        from sqlalchemy import update
+
+        from .models import Board
+
+        session = self.user_db.session
+        await session.execute(
+            update(Board).where(Board.owner_id.is_(None)).values(owner_id=user.id)
+        )
+        await session.commit()
 
 
 async def get_user_db(
@@ -155,6 +180,18 @@ class UserUpdate(schemas.BaseUserUpdate):
     pass
 
 
+class UserCreate(schemas.BaseUserCreate):
+    pass
+
+
+# E2E-only auth bypass (M3 V8). V8 makes /api/v1 auth-required, so the Playwright
+# board specs need a *real* backend session (a page.route stub of /users/me can't
+# mint the httpOnly cookie the API now checks). When this is set, a POST
+# /auth/test-login mints a session for an arbitrary email — a test seam, gated so
+# it never exists in prod. The Playwright webServer sets it; nothing else does.
+E2E_AUTH_BYPASS = os.environ.get("E2E_AUTH_BYPASS", "").lower() in {"1", "true", "yes"}
+
+
 def register_auth_routes(app: FastAPI) -> None:
     """Mount the auth + users routers on ``app``.
 
@@ -190,3 +227,37 @@ def register_auth_routes(app: FastAPI) -> None:
             prefix="/auth/github",
             tags=["auth"],
         )
+    if E2E_AUTH_BYPASS:
+        _register_test_login(app)
+
+
+class _TestLoginBody(BaseModel):
+    """Body for the e2e-only test-login seam. Module-level so its annotation
+    resolves under ``from __future__ import annotations``."""
+
+    email: str
+
+
+def _register_test_login(app: FastAPI) -> None:
+    """Mount ``POST /auth/test-login`` — an **e2e-only** session seam (see
+    ``E2E_AUTH_BYPASS``). Gets-or-creates a user by email and issues the same
+    revocable cookie session the GitHub flow does, so Playwright can exercise the
+    now-auth-required ``/api/v1`` against a real backend. Never registered in prod."""
+    from fastapi import Body
+    from fastapi_users import exceptions
+
+    @app.post("/auth/test-login", tags=["auth"], include_in_schema=False)
+    async def test_login(  # pyright: ignore[reportUnusedFunction]
+        payload: _TestLoginBody = Body(...),
+        user_manager: UserManager = Depends(get_user_manager),
+        strategy: DatabaseStrategy = Depends(get_database_strategy),
+    ) -> Response:
+        try:
+            user = await user_manager.get_by_email(payload.email)
+        except exceptions.UserNotExists:
+            user = await user_manager.create(
+                UserCreate(email=payload.email, password="e2e-not-a-real-secret")
+            )
+        response = await auth_backend.login(strategy, user)
+        await user_manager.on_after_login(user)
+        return response

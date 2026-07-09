@@ -1,24 +1,23 @@
 import { expect, test } from "@playwright/test";
 import {
   cardInColumn,
-  cleanupE2eCards,
+  cleanupE2eBoards,
   createEpic,
   createStoryUnder,
   epicItem,
-  loginStub,
+  openFreshBoard,
   uniqueTitle,
 } from "./helpers";
 
-// The board is now behind an auth check (M3 V6) — stub a signed-in user.
-test.beforeEach(({ page }) => loginStub(page));
-test.afterAll(cleanupE2eCards);
+// /api/v1 is owner-gated (M3 V8): open a real session on a fresh board.
+test.afterAll(cleanupE2eBoards);
 
 // Milestone 2 V1 demo (ADR 0009): epics live in their own view with an EPIC-
-// ticket; the board shows stories, each tagged with its epic's name. Create an
+// ticket; the board shows stories, each tagged with its epic's name. One board
+// owns many epics, one epic groups many stories (all on that board). Create an
 // epic, link a story to it, and assert the tag + rollup render and survive reload.
 test("create an epic (own view), link a story, tag + rollup persist", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Todo", exact: true })).toBeVisible();
+  await openFreshBoard(page);
 
   const epicName = uniqueTitle("epic");
   const storyTitle = uniqueTitle("story");

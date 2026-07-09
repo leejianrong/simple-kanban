@@ -17,15 +17,22 @@ source of truth (API-first, ADR 0005). Milestone 2 slice **V5**.
 | `move_card(card_id, column, position?)` | `POST /cards/{id}/move` | yes* |
 | `delete_card(card_id)` | `DELETE /cards/{id}` | yes* |
 
-\* A token is required **only if** the target server has `API_TOKENS` set (ADR
-0010). Against a tokenless local backend, writes work with no token.
+\* A token was originally required **only** for writes, and only if the target
+server had `API_TOKENS` set (ADR 0010). **Since M3 V8 (ADR 0013) the whole
+`/api/v1` surface is auth-required** — reads *and* writes need a principal. The MCP
+server has no cookie session, so it authenticates with the `API_TOKENS` bearer,
+which resolves to a **SERVICE** principal that bypasses per-board ownership
+(transitional). So: set `KANBAN_TOKEN` to one of the server's `API_TOKENS` and set
+`API_TOKENS` on the server; a fully tokenless server now rejects the MCP with
+`401`. **V9/V10** replace this with a per-user personal-access-token and board
+scoping (ADR 0010 superseded).
 
 ## Configuration (env)
 
 | Var | Default | Meaning |
 |-----|---------|---------|
 | `KANBAN_API_URL` | `http://localhost:8000` | API origin (the `/api/v1` prefix is added for you) |
-| `KANBAN_TOKEN` | *(unset)* | Bearer token for writes; leave empty for a tokenless backend |
+| `KANBAN_TOKEN` | *(unset)* | Bearer token. Since V8 (ADR 0013) `/api/v1` is auth-required, so this must be one of the server's `API_TOKENS` (SERVICE bypass) — an empty token now yields `401` |
 
 ## Run it
 

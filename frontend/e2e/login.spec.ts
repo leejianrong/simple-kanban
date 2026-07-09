@@ -36,6 +36,11 @@ test("logged out → sign in → board (survives reload) → log out → landing
     loggedIn = false;
     route.fulfill({ status: 204, body: "" });
   });
+  // This spec is a pure frontend gating test (no real session), so stub the now
+  // auth-required /api/v1 lists to empty — the board still renders its columns.
+  await page.route("**/api/v1/**", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: "[]" }),
+  );
 
   // Logged out → the landing, no board.
   await page.goto("/");

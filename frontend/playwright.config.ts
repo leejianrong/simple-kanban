@@ -31,6 +31,14 @@ export default defineConfig({
       port: 8000,
       reuseExistingServer: !CI,
       timeout: 120_000,
+      // M3 V8: /api/v1 is owner-gated, so e2e needs a real session. E2E_AUTH_BYPASS
+      // mounts POST /auth/test-login (session-mint seam, never in prod); API_TOKENS
+      // gives the cleanup helpers a SERVICE bearer to delete across users. Merged
+      // over process.env, so the CI job's DATABASE_URL is preserved.
+      env: {
+        E2E_AUTH_BYPASS: "1",
+        API_TOKENS: "e2e-service-token",
+      },
     },
     {
       command: "npm run dev",

@@ -1,4 +1,4 @@
-"""Cards endpoints (BREADBOARD §6, P4).
+"""Cards endpoints (BREADBOARD §6, P4; **owner-gated in V8, ADR 0013**).
 
 Mounted by ``main.py`` under ``/api/v1`` (e.g. ``/api/v1/cards``):
 
@@ -8,6 +8,10 @@ Mounted by ``main.py`` under ``/api/v1`` (e.g. ``/api/v1/cards``):
 - PATCH  /cards/{id}    — edit fields (title/description/story_points/assignee)
 - DELETE /cards/{id}    — hard-delete
 - POST   /cards/{id}/move — move/reorder a card (column change + reorder within column)
+
+**Authorization (V8):** every route requires a principal (`401` otherwise) and
+that the principal own the card's board (`403`); the list is scoped to the caller's
+boards. See :mod:`app.authz`.
 """
 from __future__ import annotations
 
@@ -17,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session
 
-from ..auth import require_token
+from ..authz import Principal, authorize_board, get_principal, visible_board_ids
 from ..db import get_db
 from ..models import Card, Epic
 from ..ordering import next_position, renumber_column
@@ -35,15 +39,22 @@ def _get_or_404(db: Session, card_id: int) -> Card:
     return card
 
 
-def _validate_epic(db: Session, epic_id: int | None) -> None:
-    """A story's ``epic_id`` (if set) must reference an existing epic (ADR 0009);
-    422 otherwise."""
+def _validate_epic(db: Session, epic_id: int | None, board_id: int) -> None:
+    """A story's ``epic_id`` (if set) must reference an existing epic (ADR 0009)
+    **on the same board** as the story (M3 V8 — one board owns its epics + stories;
+    no cross-board links); 422 otherwise."""
     if epic_id is None:
         return
-    if db.get(Epic, epic_id) is None:
+    epic = db.get(Epic, epic_id)
+    if epic is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="epic_id must reference an existing epic",
+        )
+    if epic.board_id != board_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="epic must belong to the same board as the story",
         )
 
 
@@ -51,6 +62,7 @@ def _validate_epic(db: Session, epic_id: int | None) -> None:
 def list_cards(
     response: Response,
     db: Session = Depends(get_db),
+    principal: Principal = Depends(get_principal),
     board_id: int | None = None,
     column: ColumnEnum | None = None,
     epic_id: int | None = None,
@@ -60,26 +72,33 @@ def list_cards(
 ) -> list[Card]:
     """List cards, optionally filtered and keyset-paginated (P4).
 
+    **Owner-scoped (V8):** results are limited to boards the caller owns (the
+    SERVICE principal sees all). A ``board_id`` naming a board you don't own is a
+    ``403`` (not a silently-empty list).
+
     Filters (all optional, AND-ed): ``board_id`` (cards on that board — the SPA
-    always sends it to scope the view; omitted → all boards, for back-compat);
-    ``column``; ``epic_id`` (stories linked to that epic); ``updated_since`` (an
-    ISO-8601 timestamp — cards whose ``updated_at`` is at or after it,
-    **inclusive**, the "changed since" feed for polling agents). With no params
-    the response is the full list, unchanged.
+    always sends it to scope the view; omitted → all *your* boards); ``column``;
+    ``epic_id`` (stories linked to that epic); ``updated_since`` (an ISO-8601
+    timestamp — cards whose ``updated_at`` is at or after it, **inclusive**, the
+    "changed since" feed for polling agents).
 
     Pagination is keyset over ``(updated_at, id)``: pass ``limit`` to cap the
     page; when a full page is returned the next page's opaque cursor rides the
     ``X-Next-Cursor`` response header (absent on the last page). Echo it back as
     ``cursor`` for the next request. The body stays a bare ``CardRead[]`` so the
     SPA is unaffected; it re-sorts by ``position`` within each column client-side.
-
-    Requesting unassigned stories (``epic_id IS NULL``) is intentionally out of
-    scope for V3 — add it here if a client needs it.
     """
     query = select(Card).order_by(Card.updated_at, Card.id)
 
     if board_id is not None:
+        # Naming a board authorizes against it directly (403 if not yours).
+        authorize_board(db, principal, board_id)
         query = query.where(Card.board_id == board_id)
+    else:
+        # No board named → scope to every board the caller may see.
+        scope = visible_board_ids(principal)
+        if scope is not None:
+            query = query.where(Card.board_id.in_(scope))
     if column is not None:
         query = query.where(Card.column == column.value)
     if epic_id is not None:
@@ -111,15 +130,15 @@ def list_cards(
     return cards
 
 
-@router.post(
-    "",
-    response_model=CardRead,
-    status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_token)],
-)
-def create_card(payload: CardCreate, db: Session = Depends(get_db)) -> Card:
-    _validate_epic(db, payload.epic_id)
+@router.post("", response_model=CardRead, status_code=status.HTTP_201_CREATED)
+def create_card(
+    payload: CardCreate,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(get_principal),
+) -> Card:
     board_id = resolve_board_id(db, payload.board_id)
+    authorize_board(db, principal, board_id)
+    _validate_epic(db, payload.epic_id, board_id)
     card = Card(
         board_id=board_id,
         title=payload.title,
@@ -138,19 +157,25 @@ def create_card(payload: CardCreate, db: Session = Depends(get_db)) -> Card:
 
 
 @router.get("/{card_id}", response_model=CardRead)
-def get_card(card_id: int, db: Session = Depends(get_db)) -> Card:
-    return _get_or_404(db, card_id)
-
-
-@router.patch(
-    "/{card_id}",
-    response_model=CardRead,
-    dependencies=[Depends(require_token)],
-)
-def update_card(
-    card_id: int, payload: CardUpdate, db: Session = Depends(get_db)
+def get_card(
+    card_id: int,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(get_principal),
 ) -> Card:
     card = _get_or_404(db, card_id)
+    authorize_board(db, principal, card.board_id)
+    return card
+
+
+@router.patch("/{card_id}", response_model=CardRead)
+def update_card(
+    card_id: int,
+    payload: CardUpdate,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(get_principal),
+) -> Card:
+    card = _get_or_404(db, card_id)
+    authorize_board(db, principal, card.board_id)
     # Only fields the client actually sent; distinguishes "omitted" from "set null".
     data = payload.model_dump(exclude_unset=True)
     if "title" in data and (data["title"] is None or not str(data["title"]).strip()):
@@ -159,7 +184,7 @@ def update_card(
             detail="title must not be empty",
         )
     if "epic_id" in data:
-        _validate_epic(db, data["epic_id"])
+        _validate_epic(db, data["epic_id"], card.board_id)
     for field, value in data.items():
         setattr(card, field, value)
     db.commit()  # updated_at is bumped server-side via onupdate
@@ -167,28 +192,29 @@ def update_card(
     return card
 
 
-@router.delete(
-    "/{card_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_token)],
-)
-def delete_card(card_id: int, db: Session = Depends(get_db)) -> Response:
+@router.delete("/{card_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_card(
+    card_id: int,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(get_principal),
+) -> Response:
     card = _get_or_404(db, card_id)
+    authorize_board(db, principal, card.board_id)
     db.delete(card)
     db.commit()
     # Hard delete; the vacated position leaves an intentional gap (ADR 0006).
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post(
-    "/{card_id}/move",
-    response_model=CardRead,
-    dependencies=[Depends(require_token)],
-)
+@router.post("/{card_id}/move", response_model=CardRead)
 def move_card(
-    card_id: int, payload: CardMove, db: Session = Depends(get_db)
+    card_id: int,
+    payload: CardMove,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(get_principal),
 ) -> Card:
     card = _get_or_404(db, card_id)
+    authorize_board(db, principal, card.board_id)
 
     source_column = card.column
     target_column = payload.column.value

@@ -1,54 +1,38 @@
-"""Optional bearer-token auth on writes (Milestone 2 V4, P2 / R3.1).
+"""Bearer-token plumbing for the transitional **service** principal (M2 V4 → M3 V8).
 
-Lets non-interactive agents (the coming MCP server) authenticate on mutating
-requests without changing anything for the SPA or local dev:
+Originally (V4, ADR 0010) this module guarded *writes* with an optional
+``API_TOKENS`` bearer: unset → writes open. **V8 (ADR 0013) changes that** — the
+whole ``/api/v1`` surface is now authorization-required (owner-gated), so the
+old "open when unset" write-guard is gone. What survives here is just the token
+*parsing*: a valid ``API_TOKENS`` bearer resolves to a **SERVICE** principal that
+bypasses the per-board owner check (see :mod:`app.authz`).
 
-- Valid tokens come from the ``API_TOKENS`` env var (comma-separated).
-- **If ``API_TOKENS`` is unset/empty → writes stay open** — the MVP/dev default
-  (ADR 0007's no-auth stance) and what keeps the existing write tests green.
-- If it is set → mutating routes require ``Authorization: Bearer <token>`` with a
-  listed token, else ``401``. **Reads are always open** (the SPA never sends a
-  token). Scoped read/write tokens + revocation are explicitly Later (R3.4).
+This is a deliberate, documented **transitional** bypass so the MCP server (which
+still authenticates with the shared ``API_TOKENS`` bearer, not a per-user token)
+keeps working during the V8→V9 window. **V9 retires ``API_TOKENS``** in favour of
+per-user hashed personal access tokens that resolve to a real ``User`` principal.
 
 The token set is read from the environment per request (not cached), so a
-deployment can rotate ``API_TOKENS`` and tests can toggle it without rebuilding
-the app.
+deployment can rotate ``API_TOKENS`` without a rebuild and tests can toggle it.
 """
 from __future__ import annotations
 
 import os
 
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import HTTPBearer
 
-# auto_error=False: we implement the "open when unset" branch ourselves rather
-# than let HTTPBearer reject every tokenless request.
-_bearer = HTTPBearer(
+# auto_error=False: the presence of a token is optional at the scheme level; the
+# principal resolver (app.authz) decides whether the *request* is authorized
+# (cookie session OR a valid service token), returning 401 itself otherwise.
+bearer_scheme = HTTPBearer(
     auto_error=False,
-    description="Agent API token (set only when API_TOKENS is configured).",
+    description="Agent service token (from API_TOKENS) — transitional, retired in V9.",
 )
 
 
-def _configured_tokens() -> set[str]:
-    """The set of currently-valid tokens, parsed from ``API_TOKENS`` (comma-sep).
-
-    Empty (the default) means auth is disabled and writes are open.
-    """
+def configured_tokens() -> set[str]:
+    """The set of currently-valid service tokens, parsed from ``API_TOKENS``
+    (comma-separated). Empty (the default) means no service bypass is available —
+    every request must then carry a valid human cookie session."""
     raw = os.environ.get("API_TOKENS", "")
     return {token.strip() for token in raw.split(",") if token.strip()}
-
-
-def require_token(
-    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
-) -> None:
-    """FastAPI dependency for mutating routes: enforce a bearer token iff one or
-    more are configured. A no-op when ``API_TOKENS`` is unset."""
-    tokens = _configured_tokens()
-    if not tokens:
-        return  # auth disabled — writes open
-    if credentials is None or credentials.credentials not in tokens:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="missing or invalid API token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
