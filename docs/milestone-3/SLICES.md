@@ -18,7 +18,7 @@ needs boards + tokens.
 | **V7 · Boards** ✅ **Built** | A4, A8 | Create a second board and switch between them; existing cards/epics live in a migrated default board |
 | **V8 · Board authorization** ✅ **Built** | A5 | User A gets `403` on user B's board (API + UI); your own boards work; lists show only your boards |
 | **V9 · Agent tokens** ✅ **Built** | A6 | Create a named token in the UI (shown once), write to your board via `curl` with it, revoke it → `401` |
-| **V10 · MCP board-scoping** | A7 | Claude, via MCP with a PAT, creates/moves cards on a chosen board — and can't touch another user's board |
+| **V10 · MCP board-scoping** ✅ **Built** | A7 | Claude, via MCP with a PAT, creates/moves cards on a chosen board — and can't touch another user's board |
 
 ---
 
@@ -115,18 +115,31 @@ needs boards + tokens.
 - **Acceptance:** the token 201→revoke→401 demo works; secrets stored hashed. **Prod:** drop the
   `API_TOKENS` Fly secret once agents use PATs.
 
-## V10 · MCP board-scoping
+## V10 · MCP board-scoping ✅ Built
+
+> **Built** (ADR 0015). **Part A (feature):** MCP tools gained a **board target** — a per-call
+> `board_id` on `list_cards`/`list_epics`/`create_card`/`create_epic` (card-id-addressed tools need
+> none), a `KANBAN_BOARD_ID` config default, and `list_boards`/`create_board` discovery tools (R2.2).
+> The **no-board fallback is kept** (list = all your boards; create = earliest) with `list_boards` as
+> the obvious entry point. Errors surface `403` (wrong board) / `401` (bad token) with agent-facing
+> hints. **Part B (cleanup):** the transitional `API_TOKENS` **SERVICE bypass is removed** — every
+> principal is now a real `User` (cookie session or PAT), ADR 0010 fully retired. The MCP server
+> stays a thin `httpx` adapter, so this is client-side + a backend deletion. Two forks resolved with
+> the maintainer: **keep the fallback** and **per-user test cleanup** (no admin/`is_superuser`
+> capability). **Ops:** drop the `API_TOKENS` Fly secret.
 
 - **Build:** MCP tools gain a **board target** (a `KANBAN_BOARD_ID` config default and/or a per-call
   `board_id`) and send a user **PAT** (`KANBAN_TOKEN`, now a real hashed PAT). `list_cards`/writes
   operate within that board; `create_board`/`list_boards` tools added so an agent can manage boards
   (R2.2). `.mcp.json.example` + README updated (board + token). Errors surface `403` (wrong board) /
-  `401` (bad token) clearly.
+  `401` (bad token) clearly. Backend: remove the `API_TOKENS` SERVICE bypass (`app/authz.py` +
+  `app/auth.py`); rework the SERVICE-dependent tests to cookie/PAT + per-user cleanup.
 - **Tests:** unit — each tool sends the board scope + bearer token (mocked httpx); error mapping for
-  401/403. Smoke — the tool list includes the board tools. (Optional: end-to-end against a live API
-  with a real PAT + board.)
+  401/403; smoke — the tool list includes the board tools. Backend — unauthenticated `401`, owner
+  `200`, non-owner `403` with cookie + PAT only (no SERVICE). e2e — cleanup works per-user.
 - **Acceptance:** Claude, via MCP, creates/moves cards on a chosen board and is blocked from another
-  user's board. **Milestone demo:** dogfood — an agent keeps this repo's own board current.
+  user's board (verified live with a PAT). **Milestone demo:** dogfood — an agent keeps this repo's
+  own board current.
 
 ---
 

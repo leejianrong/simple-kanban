@@ -3,43 +3,51 @@
 An [MCP](https://modelcontextprotocol.io) server that exposes the Simple Kanban
 REST API (`/api/v1`) as tools an agent (e.g. Claude Code) can call. It is a thin
 `httpx` wrapper — every tool maps to one endpoint — so the API stays the single
-source of truth (API-first, ADR 0005). Milestone 2 slice **V5**.
+source of truth (API-first, ADR 0005). Milestone 2 slice **V5**; board-scoped in
+**V10** (ADR 0015).
 
 ## Tools
 
-| Tool | Endpoint | Needs a write token? |
-|------|----------|----------------------|
-| `list_cards(column?, epic_id?, updated_since?, limit?, cursor?)` | `GET /cards` (V3 query API) | no |
-| `get_card(card_id)` | `GET /cards/{id}` | no |
-| `create_card(title, description?, column?, story_points?, assignee?, epic_id?)` | `POST /cards` | yes* |
-| `create_epic(name, description?)` | `POST /epics` | yes* |
-| `update_card(card_id, title?, description?, story_points?, assignee?, epic_id?)` | `PATCH /cards/{id}` | yes* |
-| `move_card(card_id, column, position?)` | `POST /cards/{id}/move` | yes* |
-| `delete_card(card_id)` | `DELETE /cards/{id}` | yes* |
+| Tool | Endpoint | Board target |
+|------|----------|--------------|
+| `list_boards()` | `GET /boards` | — (lists boards you own) |
+| `create_board(name)` | `POST /boards` | — (creates one you own) |
+| `list_cards(board_id?, column?, epic_id?, updated_since?, limit?, cursor?)` | `GET /cards` (V3 query API) | `board_id` |
+| `list_epics(board_id?)` | `GET /epics` | `board_id` |
+| `get_card(card_id)` | `GET /cards/{id}` | — (by card id) |
+| `create_card(title, board_id?, description?, column?, story_points?, assignee?, epic_id?)` | `POST /cards` | `board_id` |
+| `create_epic(name, board_id?, description?)` | `POST /epics` | `board_id` |
+| `update_card(card_id, title?, description?, story_points?, assignee?, epic_id?)` | `PATCH /cards/{id}` | — (by card id) |
+| `move_card(card_id, column, position?)` | `POST /cards/{id}/move` | — (by card id) |
+| `delete_card(card_id)` | `DELETE /cards/{id}` | — (by card id) |
 
-\* A token was originally required **only** for writes, and only if the target
-server had `API_TOKENS` set (ADR 0010). **Since M3 V8 (ADR 0013) the whole
-`/api/v1` surface is auth-required** — reads *and* writes need a principal, so
-`KANBAN_TOKEN` is now mandatory. **Two token options during the V8→V10 window:**
+**Board scoping (V10, ADR 0015).** Call `list_boards` to discover the boards you
+own, then target any of them per call:
 
-1. **A personal access token (recommended, V9 / ADR 0014).** Create one in the SPA
-   (top-bar **Tokens** → *New token*), copy the `kanban_pat_…` secret shown once,
-   and set it as `KANBAN_TOKEN`. It authenticates **as your user** and is
-   **owner-gated** — the agent can only touch boards you own. No server config
-   needed. This is the path V10 wires up fully (board targeting + create/list-board
-   tools).
-2. **A shared `API_TOKENS` service token (transitional).** Set `API_TOKENS` on the
-   server and use one of its values as `KANBAN_TOKEN`; it resolves to an unscoped
-   **SERVICE** principal that bypasses ownership. Removed in **V10** — prefer a PAT.
+- The board-scoped tools take an optional **`board_id`**. Omit it and the server
+  uses **`KANBAN_BOARD_ID`** if set, else the API's own fallback (`list_*` = all
+  your boards; `create_*` = your earliest board).
+- Card-id-addressed tools (`get_card`/`update_card`/`move_card`/`delete_card`) need
+  no `board_id` — the server authorizes via the card's own board.
+- Access is bounded to boards **you** own: a `board_id` you don't own returns `403`
+  ("that board isn't yours — call `list_boards`"). A bad/expired token returns
+  `401` ("set `KANBAN_TOKEN` to a valid PAT").
 
-A fully tokenless server rejects the MCP with `401`.
+**Authentication — a personal access token is required.** Since M3 V8 (ADR 0013)
+the whole `/api/v1` surface is auth-required, and V10 (ADR 0015) removed the old
+shared-`API_TOKENS` bypass. Create a **PAT** in the SPA (top-bar **Tokens** →
+*New token*), copy the `kanban_pat_…` secret shown once, and set it as
+`KANBAN_TOKEN`. It authenticates **as your user** and is **owner-gated** — the
+agent can only touch boards you own. A tokenless (or bad-token) server rejects the
+MCP with `401`.
 
 ## Configuration (env)
 
 | Var | Default | Meaning |
 |-----|---------|---------|
 | `KANBAN_API_URL` | `http://localhost:8000` | API origin (the `/api/v1` prefix is added for you) |
-| `KANBAN_TOKEN` | *(unset)* | Bearer token (required since V8 — `/api/v1` is auth-required). Prefer a per-user **PAT** (`kanban_pat_…`, created in the Tokens UI, V9); an `API_TOKENS` value also works transitionally. Empty → `401` |
+| `KANBAN_TOKEN` | *(unset)* | **Required.** A per-user **PAT** (`kanban_pat_…`, created in the Tokens UI, V9/ADR 0014). Empty → `401` |
+| `KANBAN_BOARD_ID` | *(unset)* | Optional default board id for board-scoped tools when a call omits `board_id`. Unset → the API's fallback (list = all your boards; create = earliest) |
 
 ## Run it
 
@@ -62,9 +70,10 @@ uv run pytest -q          # unit tests (mocked httpx) + a tool-list smoke test
 
 Copy [`.mcp.json.example`](../.mcp.json.example) to `.mcp.json` at the repo root
 and adjust the env. Claude Code discovers project-scoped servers there and will
-ask you to approve it.
+ask you to approve it. In both cases set `KANBAN_TOKEN` to a `kanban_pat_…` you
+created in the SPA Tokens tab.
 
-**Local dev** (tokenless backend on :8000):
+**Local dev** (backend on :8000):
 
 ```json
 {
@@ -72,14 +81,16 @@ ask you to approve it.
     "kanban": {
       "command": "uv",
       "args": ["run", "--directory", "./mcp", "python", "-m", "kanban_mcp"],
-      "env": { "KANBAN_API_URL": "http://localhost:8000", "KANBAN_TOKEN": "" }
+      "env": {
+        "KANBAN_API_URL": "http://localhost:8000",
+        "KANBAN_TOKEN": "kanban_pat_…"
+      }
     }
   }
 }
 ```
 
-**Production** (auth enabled — set the token to one listed in the server's
-`API_TOKENS` Fly secret):
+**Production:**
 
 ```json
 {
@@ -89,14 +100,16 @@ ask you to approve it.
       "args": ["run", "--directory", "./mcp", "python", "-m", "kanban_mcp"],
       "env": {
         "KANBAN_API_URL": "https://simple-kanban-jian.fly.dev",
-        "KANBAN_TOKEN": "<one-of-your-API_TOKENS>"
+        "KANBAN_TOKEN": "kanban_pat_…"
       }
     }
   }
 }
 ```
 
-`--directory ./mcp` is relative to the repo root (where Claude Code launches it);
-use an absolute path if you run the client from elsewhere. Once connected, ask
-the agent to *"list the cards"* or *"create an epic and a couple of stories under
-it, then move one to In Progress"* and watch them appear on the board.
+Add `"KANBAN_BOARD_ID": "<id>"` to either to pin a default board for calls that
+omit `board_id`. `--directory ./mcp` is relative to the repo root (where Claude
+Code launches it); use an absolute path if you run the client from elsewhere. Once
+connected, ask the agent to *"list my boards"*, then *"create an epic and a couple
+of stories under it on board N, then move one to In Progress"* and watch them
+appear on the board.
