@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Plus } from "lucide-svelte";
   import { epicStore, refetchEpics } from "../board.svelte";
   import EpicForm from "./EpicForm.svelte";
   import EpicItem from "./EpicItem.svelte";
@@ -17,7 +18,9 @@
   <div class="epics-head">
     <h2>Epics</h2>
     {#if !adding}
-      <button class="add" onclick={() => (adding = true)}>+ New epic</button>
+      <button class="btn-add" onclick={() => (adding = true)}>
+        <Plus size={15} /> New epic
+      </button>
     {/if}
   </div>
 

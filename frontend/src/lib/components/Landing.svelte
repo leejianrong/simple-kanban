@@ -96,18 +96,19 @@
   /* Palette scoped to the landing only — reuses the app's accent values, adds the
      surfaces/dark-mode the marketing page needs without touching the rest of the app. */
   .landing {
-    --ground: #f4f5f7;
+    /* Graphite (Zinc & Teal) — matches the app (see app.css). */
+    --ground: #f6f7f8;
     --surface: #ffffff;
-    --line: #dfe1e6;
-    --ink: #172b4d;
-    --muted: #5e6c84;
-    --accent: #0052cc;
-    --accent-soft: #e9f2ff;
-    --accent-2: #5243aa;
-    --accent-2-soft: #eae6ff;
-    --btn-ink: #172b4d;
+    --line: #dcdfe4;
+    --ink: #1a1d21;
+    --muted: #616870;
+    --accent: #0d9488;
+    --accent-soft: #d5f1ec;
+    --accent-2: #7c3aed;
+    --accent-2-soft: #eee6fd;
+    --btn-ink: #1a1d21;
     --btn-on: #ffffff;
-    --shadow: 0 1px 0 rgba(9, 30, 66, 0.08), 0 4px 16px -8px rgba(9, 30, 66, 0.18);
+    --shadow: 0 1px 1px rgba(20, 25, 30, 0.08), 0 8px 20px -12px rgba(20, 25, 30, 0.28);
     --radius: 8px;
     --maxw: 1000px;
 
@@ -122,17 +123,17 @@
 
   @media (prefers-color-scheme: dark) {
     .landing {
-      --ground: #0d1524;
-      --surface: #1a2740;
-      --line: #2a3a5c;
-      --ink: #e6edf9;
-      --muted: #9fb0cc;
-      --accent: #4c9aff;
-      --accent-soft: #12294d;
-      --accent-2: #b3a4ff;
-      --accent-2-soft: #241f45;
-      --btn-ink: #ffffff;
-      --btn-on: #0d1524;
+      --ground: #101315;
+      --surface: #1a1f23;
+      --line: #2b3238;
+      --ink: #e8ebed;
+      --muted: #99a2ab;
+      --accent: #2dd4bf;
+      --accent-soft: #0f312d;
+      --accent-2: #b794f6;
+      --accent-2-soft: #241a3d;
+      --btn-ink: #e8ebed;
+      --btn-on: #101315;
       --shadow: 0 1px 0 rgba(0, 0, 0, 0.4), 0 10px 30px -14px rgba(0, 0, 0, 0.7);
     }
   }

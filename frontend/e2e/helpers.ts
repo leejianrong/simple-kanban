@@ -103,7 +103,7 @@ export function epicItem(page: Page, name: string): Locator {
 // so callers can assert a linked story's epic tag. Leaves the Epics view open.
 export async function createEpic(page: Page, name: string): Promise<string> {
   await page.getByRole("button", { name: "Epics", exact: true }).click();
-  await page.getByRole("button", { name: "+ New epic" }).click();
+  await page.getByRole("button", { name: "New epic" }).click();
   await page.getByPlaceholder("Epic name (required)").fill(name);
   await page.getByRole("button", { name: "Create" }).click();
   const item = epicItem(page, name);
