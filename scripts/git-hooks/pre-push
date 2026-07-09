@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
-# Fast local gate before pushing. Mirrors the CI lint / unit / frontend jobs so a
-# push never lands red on GitHub. Integration tests need a Docker daemon, so they
-# stay CI-only (run them yourself with `uv run pytest tests/integration`).
+# Fast local gate before pushing. Mirrors the CI lint / unit / frontend / mcp jobs
+# so a push never lands red on GitHub. Integration tests need a Docker daemon, so
+# they stay CI-only (run them yourself with `uv run pytest tests/integration`).
+#
+# Path-scoped (KAN-36): only the checks for areas touched by the commits being
+# pushed run. A backend/mcp/client-only worktree (no frontend toolchain) no longer
+# fails on svelte-check for a change that never touched frontend/, so scoped slices
+# get real signal instead of a blanket `--no-verify`.
 #
 # Install (from repo root):
 #   ln -sf ../../scripts/git-hooks/pre-push .git/hooks/pre-push
@@ -9,24 +14,101 @@
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
+zero="0000000000000000000000000000000000000000"
 
-echo "pre-push ▸ backend: ruff + unit tests"
-( cd "$repo_root/backend" && uv run ruff check . && uv run pytest tests/unit -q )
+# Resolve a stable base ref for new branches / stdin-less fallbacks.
+if git rev-parse --verify -q origin/main >/dev/null; then
+  base_ref="origin/main"
+else
+  base_ref="main"
+fi
 
-# Integration tests themselves need Docker (CI-only), but *collecting* them does
-# not — and collection fires a guard (tests/integration/conftest.py
-# pytest_collection_finish) that catches app modules imported at top level, which
-# would otherwise bind the DB engines to the wrong URL and pass locally / fail CI
-# (the PR #17 trap). This is a fast, Docker-free import-hygiene check.
-echo "pre-push ▸ backend: integration import hygiene (collect-only, no Docker)"
-( cd "$repo_root/backend" && uv run pytest tests/integration --collect-only -q >/dev/null )
+# Compute the set of files changed by the push. A pre-push hook gets
+# `<local-ref> <local-sha> <remote-ref> <remote-sha>` lines on stdin.
+changed=""
+have_stdin=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  have_stdin=1
+  # Branch deletion (nothing to push) — skip.
+  [ "$local_sha" = "$zero" ] && continue
+  if [ "$remote_sha" = "$zero" ]; then
+    # New branch on the remote: diff against the base (merge-base if reachable).
+    range_base="$base_ref"
+    if mb="$(git merge-base "$base_ref" "$local_sha" 2>/dev/null)"; then
+      range_base="$mb"
+    fi
+    files="$(git diff --name-only "$range_base" "$local_sha" 2>/dev/null || true)"
+  else
+    files="$(git diff --name-only "$remote_sha" "$local_sha" 2>/dev/null || true)"
+  fi
+  changed="$changed
+$files"
+done
 
-echo "pre-push ▸ frontend: svelte-check"
-( cd "$repo_root/frontend" && npm run check )
+if [ "$have_stdin" -eq 0 ]; then
+  # No stdin (e.g. invoked by hand): fall back to upstream, else the base ref.
+  if changed="$(git diff --name-only '@{upstream}...HEAD' 2>/dev/null)"; then
+    :
+  else
+    changed="$(git diff --name-only "$base_ref...HEAD" 2>/dev/null || true)"
+  fi
+fi
 
-if [ -d "$repo_root/mcp" ]; then
+# Normalise to a sorted, de-duped, non-empty list.
+changed="$(printf '%s\n' "$changed" | sed '/^$/d' | sort -u)"
+
+if [ -z "$changed" ]; then
+  echo "pre-push ▸ no changed files detected — nothing to check"
+  echo "pre-push ▸ OK"
+  exit 0
+fi
+
+# Does the changed set contain a path under the given prefix?
+touched() { printf '%s\n' "$changed" | grep -q "^$1"; }
+
+ran_any=0
+
+if touched "backend/"; then
+  ran_any=1
+  echo "pre-push ▸ backend: ruff + unit tests"
+  ( cd "$repo_root/backend" && uv run ruff check . && uv run pytest tests/unit -q )
+  # Integration tests themselves need Docker (CI-only), but *collecting* them does
+  # not — and collection fires a guard (tests/integration/conftest.py
+  # pytest_collection_finish) that catches app modules imported at top level, which
+  # would otherwise bind the DB engines to the wrong URL and pass locally / fail CI
+  # (the PR #17 trap). This is a fast, Docker-free import-hygiene check.
+  echo "pre-push ▸ backend: integration import hygiene (collect-only, no Docker)"
+  ( cd "$repo_root/backend" && uv run pytest tests/integration --collect-only -q >/dev/null )
+else
+  echo "pre-push ▸ backend: skipped (no backend/ changes)"
+fi
+
+if touched "frontend/"; then
+  ran_any=1
+  echo "pre-push ▸ frontend: svelte-check"
+  ( cd "$repo_root/frontend" && npm run check )
+else
+  echo "pre-push ▸ frontend: skipped (no frontend/ changes)"
+fi
+
+if touched "mcp/"; then
+  ran_any=1
   echo "pre-push ▸ mcp: ruff + tests"
   ( cd "$repo_root/mcp" && uv run ruff check . && uv run pytest -q )
+else
+  echo "pre-push ▸ mcp: skipped (no mcp/ changes)"
+fi
+
+if touched "kanban-client/"; then
+  ran_any=1
+  echo "pre-push ▸ kanban-client: ruff + tests"
+  ( cd "$repo_root/kanban-client" && uv run ruff check . && uv run pytest -q )
+else
+  echo "pre-push ▸ kanban-client: skipped (no kanban-client/ changes)"
+fi
+
+if [ "$ran_any" -eq 0 ]; then
+  echo "pre-push ▸ only non-package files changed (docs / .github / .claude / root) — no package checks needed"
 fi
 
 echo "pre-push ▸ OK"
