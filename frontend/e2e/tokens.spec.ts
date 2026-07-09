@@ -10,7 +10,7 @@ test("create a token (revealed once), then revoke it", async ({ page }) => {
   await page.getByRole("button", { name: "Tokens", exact: true }).click();
 
   const name = uniqueTitle("token");
-  await page.getByRole("button", { name: "+ New token" }).click();
+  await page.getByRole("button", { name: "New token" }).click();
   await page.getByLabel("Token name").fill(name);
   await page.getByRole("button", { name: "Create", exact: true }).click();
 

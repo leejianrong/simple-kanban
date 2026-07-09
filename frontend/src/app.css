@@ -450,6 +450,13 @@ main {
   background: var(--hover);
   color: var(--text);
 }
+/* Reset the solid `button.danger` fill (higher element+class specificity) so the
+   danger icon button stays a quiet muted glyph, tinting red only on hover. */
+.icon-btn.danger {
+  background: none;
+  color: var(--muted);
+  border-color: transparent;
+}
 .icon-btn.danger:hover {
   background: var(--danger-soft);
   color: var(--danger);
@@ -566,10 +573,41 @@ button.primary:disabled {
 }
 .epics-head h2 {
   margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+/* Compact header action (New epic / New token). */
+.btn-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--card-bg);
+  color: var(--text);
+}
+.btn-add:hover {
+  background: var(--hover);
+  border-color: var(--muted);
+}
+/* Inline labelled danger action (token Revoke) — always visible in list rows. */
+.btn-inline-danger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--danger);
   font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
+  padding: 0.3rem 0.5rem;
+  border-radius: 6px;
+}
+.btn-inline-danger:hover {
+  background: var(--danger-soft);
 }
 .epics-list {
   display: flex;
@@ -605,21 +643,23 @@ button.primary:disabled {
 .tokens-view {
   max-width: 640px;
 }
-.reveal {
-  background: var(--card-bg);
+/* Token "shown once" box. NOT ".reveal" — that name collides with the landing's
+   entrance-animation class and leaks this border/background onto its hero. */
+.token-reveal {
+  background: var(--accent-soft);
   border: 1px solid var(--accent);
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 0.75rem;
   margin: 0.75rem 0;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
 }
-.reveal-title {
+.token-reveal-title {
   margin: 0;
   font-size: 0.85rem;
 }
-.reveal-row {
+.token-reveal-row {
   display: flex;
   gap: 0.5rem;
   align-items: center;

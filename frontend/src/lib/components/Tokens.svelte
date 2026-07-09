@@ -1,6 +1,7 @@
 <script lang="ts">
   // Agent personal-access-token management (M3 V9, ADR 0014): create a named
   // token (secret revealed once), see your tokens' metadata, and revoke them.
+  import { Plus, Trash2 } from "lucide-svelte";
   import {
     addToken,
     dismissRevealed,
@@ -70,7 +71,9 @@
   <div class="epics-head">
     <h2>Agent tokens</h2>
     {#if !adding}
-      <button class="add" onclick={() => (adding = true)}>+ New token</button>
+      <button class="btn-add" onclick={() => (adding = true)}>
+        <Plus size={15} /> New token
+      </button>
     {/if}
   </div>
 
@@ -100,11 +103,11 @@
   {/if}
 
   {#if tokenStore.revealed}
-    <div class="reveal" role="alert">
-      <p class="reveal-title">
+    <div class="token-reveal" role="alert">
+      <p class="token-reveal-title">
         Copy your new token <strong>{tokenStore.revealed.name}</strong> now — it won't be shown again.
       </p>
-      <div class="reveal-row">
+      <div class="token-reveal-row">
         <code class="secret">{tokenStore.revealed.token}</code>
         <button class="primary" onclick={() => copySecret(tokenStore.revealed!.token)}>
           {copied ? "Copied" : "Copy"}
@@ -140,7 +143,13 @@
           </div>
         {:else}
           <div class="token-actions">
-            <button class="link danger" onclick={() => (confirmingId = token.id)}>Revoke</button>
+            <button
+              class="btn-inline-danger"
+              aria-label="Revoke"
+              onclick={() => (confirmingId = token.id)}
+            >
+              <Trash2 size={14} /> Revoke
+            </button>
           </div>
         {/if}
       </div>

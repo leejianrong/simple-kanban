@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Pencil, Trash2 } from "lucide-svelte";
   import type { Epic } from "../api";
   import { cardsForEpic, removeEpic } from "../board.svelte";
   import EpicForm from "./EpicForm.svelte";
@@ -61,8 +62,17 @@
       </ul>
     {/if}
     <div class="card-actions">
-      <button class="link" onclick={() => (mode = "edit")}>Edit</button>
-      <button class="link danger" onclick={() => (mode = "confirmDelete")}>Delete</button>
+      <button class="icon-btn" title="Edit" aria-label="Edit" onclick={() => (mode = "edit")}>
+        <Pencil size={15} />
+      </button>
+      <button
+        class="icon-btn danger"
+        title="Delete"
+        aria-label="Delete"
+        onclick={() => (mode = "confirmDelete")}
+      >
+        <Trash2 size={15} />
+      </button>
     </div>
   </article>
 {/if}
