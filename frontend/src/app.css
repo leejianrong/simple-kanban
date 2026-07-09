@@ -197,14 +197,35 @@ main {
 .column-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 0.15rem;
 }
 .column-head h2 {
   margin: 0;
-  font-size: 0.8rem;
+  font-size: 0.72rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   color: var(--muted);
+}
+.status-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.column-todo .status-dot {
+  background: #97a0af;
+}
+.column-in_progress .status-dot {
+  background: var(--accent);
+}
+.column-done .status-dot {
+  background: var(--success);
+}
+.column-head .count {
+  margin-left: auto;
 }
 .count {
   font-size: 0.75rem;
@@ -383,17 +404,21 @@ button.danger {
 }
 
 .add {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   background: transparent;
-  border: none;
+  border: 1px dashed var(--border);
   color: var(--muted);
   text-align: left;
-  padding: 0.4rem 0.2rem;
+  padding: 0.45rem 0.6rem;
   cursor: pointer;
-  border-radius: 4px;
-  font-size: 0.85rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
 }
 .add:hover {
   background: var(--hover);
+  border-color: var(--muted);
   color: var(--text);
 }
 
