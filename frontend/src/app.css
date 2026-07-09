@@ -1,14 +1,71 @@
 :root {
-  --bg: #f4f5f7;
-  --col-bg: #ebecf0;
+  /* Board redesign palette — Graphite (Zinc & Teal), light theme.
+     Teal primary; violet reserved for epics + agents; green/red stay semantic. */
+  --bg: #f6f7f8;
+  --col-bg: #eceef1;
   --card-bg: #ffffff;
-  --border: #dfe1e6;
-  --text: #172b4d;
-  --muted: #5e6c84;
-  --accent: #0052cc;
-  --danger: #de350b;
+  --surface-2: #eceef1;
+  --border: #dcdfe4;
+  --text: #1a1d21;
+  --muted: #616870;
+  --accent: #0d9488;
+  --accent-soft: #d5f1ec;
+  --agent: #7c3aed;
+  --agent-soft: #eee6fd;
+  --success: #16a34a;
+  --danger: #dc2626;
+  --danger-soft: #fde4e4;
+  --hover: rgba(20, 25, 30, 0.06);
+  --shadow-sm: 0 1px 0 rgba(20, 25, 30, 0.06);
+  --shadow-md: 0 1px 1px rgba(20, 25, 30, 0.08), 0 8px 20px -12px rgba(20, 25, 30, 0.28);
+  --radius: 8px;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color: var(--text);
+}
+
+/* Dark theme — follows the OS by default (matching the landing). The
+   [data-theme] overrides let a future manual toggle force either theme. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #101315;
+    --col-bg: #15191c;
+    --card-bg: #1a1f23;
+    --surface-2: #15191c;
+    --border: #2b3238;
+    --text: #e8ebed;
+    --muted: #99a2ab;
+    --accent: #2dd4bf;
+    --accent-soft: #0f312d;
+    --agent: #b794f6;
+    --agent-soft: #241a3d;
+    --success: #4ade80;
+    --danger: #f87171;
+    --danger-soft: #3a1717;
+    --hover: rgba(255, 255, 255, 0.06);
+    --shadow-sm: 0 1px 0 rgba(0, 0, 0, 0.5);
+    --shadow-md: 0 10px 28px -14px rgba(0, 0, 0, 0.8);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #101315;
+  --col-bg: #15191c;
+  --card-bg: #1a1f23;
+  --surface-2: #15191c;
+  --border: #2b3238;
+  --text: #e8ebed;
+  --muted: #99a2ab;
+  --accent: #2dd4bf;
+  --accent-soft: #0f312d;
+  --agent: #b794f6;
+  --agent-soft: #241a3d;
+  --success: #4ade80;
+  --danger: #f87171;
+  --danger-soft: #3a1717;
+  --hover: rgba(255, 255, 255, 0.06);
+  --shadow-sm: 0 1px 0 rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 10px 28px -14px rgba(0, 0, 0, 0.8);
 }
 
 * {
@@ -49,7 +106,7 @@ body {
   color: var(--text);
 }
 .topbar-nav button.active {
-  background: #e9f2ff;
+  background: var(--accent-soft);
   border-color: var(--border);
   color: var(--accent);
   font-weight: 600;
@@ -67,7 +124,7 @@ body {
   padding: 0.3rem 0.5rem;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: #fff;
+  background: var(--card-bg);
   color: var(--text);
 }
 .board-switcher form {
@@ -114,7 +171,7 @@ main {
   margin-bottom: 1rem;
 }
 .banner.error {
-  background: #ffebe6;
+  background: var(--danger-soft);
   color: var(--danger);
 }
 .hint {
@@ -152,7 +209,7 @@ main {
 .count {
   font-size: 0.75rem;
   color: var(--muted);
-  background: #fff;
+  background: var(--card-bg);
   border-radius: 10px;
   padding: 0.05rem 0.5rem;
 }
@@ -169,7 +226,7 @@ main {
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 0.6rem 0.7rem;
-  box-shadow: 0 1px 0 rgba(9, 30, 66, 0.08);
+  box-shadow: var(--shadow-sm);
 }
 .card-top {
   display: flex;
@@ -185,7 +242,7 @@ main {
 .points {
   font-size: 0.7rem;
   font-weight: 600;
-  background: #e9f2ff;
+  background: var(--accent-soft);
   color: var(--accent);
   border-radius: 10px;
   padding: 0.05rem 0.45rem;
@@ -204,8 +261,8 @@ main {
   white-space: nowrap;
   font-size: 0.65rem;
   font-weight: 600;
-  background: #eae6ff;
-  color: #5243aa;
+  background: var(--agent-soft);
+  color: var(--agent);
   border-radius: 3px;
   padding: 0.05rem 0.4rem;
 }
@@ -270,7 +327,7 @@ button.danger {
   font-size: 0.85rem;
 }
 .add:hover {
-  background: rgba(9, 30, 66, 0.06);
+  background: var(--hover);
   color: var(--text);
 }
 
@@ -313,7 +370,8 @@ button {
   cursor: pointer;
   border-radius: 4px;
   border: 1px solid var(--border);
-  background: #fff;
+  background: var(--card-bg);
+  color: var(--text);
   padding: 0.4rem 0.8rem;
 }
 button.primary {
@@ -398,9 +456,9 @@ button.primary:disabled {
 }
 .secret {
   flex: 1;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--mono);
   font-size: 0.8rem;
-  background: rgba(9, 30, 66, 0.06);
+  background: var(--hover);
   padding: 0.4rem 0.5rem;
   border-radius: 4px;
   overflow-x: auto;
