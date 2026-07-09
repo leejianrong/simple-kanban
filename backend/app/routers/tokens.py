@@ -9,8 +9,9 @@ scoping is R4.2 / Later). Mounted under ``/api/v1``:
 - POST   /tokens       — create a token; response includes the secret **once**
 - DELETE /tokens/{id}  — revoke (hard-delete) one of the caller's tokens
 
-Every route is **per-user**: it requires a real ``User`` principal (cookie session
-or a PAT), never the SERVICE bypass — see :func:`app.authz.require_user`.
+Every route is **per-user**: it requires an authenticated ``User`` principal
+(cookie session or a PAT) — see :func:`app.authz.require_user`. Since V10 (ADR
+0015) every principal is a real user, so ``require_user`` is just ``get_principal``.
 """
 from __future__ import annotations
 

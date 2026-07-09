@@ -4,8 +4,8 @@ A board is a first-class entity owning a set of cards + epics. Full CRUD, mirror
 the flat structure of the cards/epics routers (API-first, ADR 0005). Mounted by
 ``main.py`` under ``/api/v1`` (e.g. ``/api/v1/boards``):
 
-- GET    /boards       — list the caller's boards (SERVICE sees all)
-- POST   /boards       — create a board (owner = the session user; SERVICE → unclaimed)
+- GET    /boards       — list the caller's boards
+- POST   /boards       — create a board (owner = the calling user)
 - GET    /boards/{id}  — read one board (owner only)
 - PATCH  /boards/{id}  — rename (owner only)
 - DELETE /boards/{id}  — hard-delete; its cards + epics cascade away (owner only)
@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..auth_models import User
-from ..authz import Principal, authorize_board, get_principal, visible_board_ids
+from ..authz import authorize_board, get_principal, visible_board_ids
 from ..db import get_db
 from ..models import Board
 from ..schemas import BoardCreate, BoardRead, BoardUpdate
@@ -56,12 +56,9 @@ def resolve_board_id(db: Session, board_id: int | None) -> int:
 @router.get("", response_model=list[BoardRead])
 def list_boards(
     db: Session = Depends(get_db),
-    principal: Principal = Depends(get_principal),
+    principal: User = Depends(get_principal),
 ) -> list[Board]:
-    query = select(Board).order_by(Board.id)
-    scope = visible_board_ids(principal)
-    if scope is not None:
-        query = query.where(Board.id.in_(scope))
+    query = select(Board).order_by(Board.id).where(Board.id.in_(visible_board_ids(principal)))
     return list(db.scalars(query).all())
 
 
@@ -69,13 +66,10 @@ def list_boards(
 def create_board(
     payload: BoardCreate,
     db: Session = Depends(get_db),
-    principal: Principal = Depends(get_principal),
+    principal: User = Depends(get_principal),
 ) -> Board:
-    # Owner comes from the session principal, never the request body. A SERVICE
-    # (API_TOKENS) caller creates an unclaimed board (owner_id NULL) — a human
-    # then adopts it on their next login (ADR 0013 claim-on-login).
-    owner_id = principal.id if isinstance(principal, User) else None
-    board = Board(name=payload.name, owner_id=owner_id)
+    # Owner comes from the calling user, never the request body.
+    board = Board(name=payload.name, owner_id=principal.id)
     db.add(board)
     db.commit()
     db.refresh(board)
@@ -86,7 +80,7 @@ def create_board(
 def get_board(
     board_id: int,
     db: Session = Depends(get_db),
-    principal: Principal = Depends(get_principal),
+    principal: User = Depends(get_principal),
 ) -> Board:
     return authorize_board(db, principal, board_id)
 
@@ -96,7 +90,7 @@ def update_board(
     board_id: int,
     payload: BoardUpdate,
     db: Session = Depends(get_db),
-    principal: Principal = Depends(get_principal),
+    principal: User = Depends(get_principal),
 ) -> Board:
     board = authorize_board(db, principal, board_id)
     data = payload.model_dump(exclude_unset=True)
@@ -116,7 +110,7 @@ def update_board(
 def delete_board(
     board_id: int,
     db: Session = Depends(get_db),
-    principal: Principal = Depends(get_principal),
+    principal: User = Depends(get_principal),
 ) -> Response:
     board = authorize_board(db, principal, board_id)
     db.delete(board)
