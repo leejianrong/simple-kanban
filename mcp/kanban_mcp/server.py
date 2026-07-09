@@ -278,6 +278,41 @@ def delete_epic(epic_id: int) -> dict[str, Any]:
     return _client_instance().delete_epic(epic_id)
 
 
+# --- card-to-card dependencies (KAN-28 API / KAN-31 tools) -----------------
+
+
+@mcp.tool()
+def add_dependency(card_id: int, blocker_id: int) -> dict[str, Any]:
+    """Mark story ``card_id`` as **blocked-by** story ``blocker_id`` (blocker_id
+    must finish first). Both must be on the same board (which you own). Returns the
+    now-blocked card with its refreshed ``blocked_by`` / ``blocks`` arrays.
+    Authorized via the card's own board — no ``board_id`` needed. Rejected (422) on
+    a self-link, a duplicate edge, or one that would create a cycle.
+    """
+    return _client_instance().add_dependency(card_id, blocker_id)
+
+
+@mcp.tool()
+def remove_dependency(card_id: int, blocker_id: int) -> dict[str, Any]:
+    """Remove the blocked-by link so story ``card_id`` is no longer blocked-by
+    story ``blocker_id``. Returns the card with refreshed dependency arrays.
+    Authorized via the card's own board — no ``board_id`` needed. 404 if that link
+    doesn't exist.
+    """
+    return _client_instance().remove_dependency(card_id, blocker_id)
+
+
+@mcp.tool()
+def list_dependencies(card_id: int) -> dict[str, Any]:
+    """List a story's dependencies: ``{"card_id": id, "blocked_by": [...],
+    "blocks": [...]}``. ``blocked_by`` = ids of stories that block this one (must
+    finish first); ``blocks`` = ids it blocks. Reads the card itself (the API
+    surfaces these arrays on the card, so ``get_card``/``list_cards`` already
+    include them too). Authorized via the card's own board.
+    """
+    return _client_instance().list_dependencies(card_id)
+
+
 def main() -> None:
     """Entry point — run the server over stdio."""
     mcp.run()

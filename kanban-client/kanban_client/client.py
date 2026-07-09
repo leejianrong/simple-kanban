@@ -348,3 +348,34 @@ class KanbanClient:
         # 204 No Content — no body to parse.
         self._request("DELETE", f"/cards/{card_id}")
         return {"deleted": card_id}
+
+    # --- card-to-card dependencies (KAN-28 API / KAN-31 adapter) ------------
+
+    def add_dependency(self, card_id: int, blocker_id: int) -> dict[str, Any]:
+        """Record that card ``card_id`` is **blocked-by** ``blocker_id`` (insert the
+        edge ``blocker_id → card_id``). Returns the now-blocked card with its
+        refreshed ``blocked_by`` / ``blocks`` arrays."""
+        return self._request(
+            "POST", f"/cards/{card_id}/dependencies", json={"blocker_id": blocker_id}
+        ).json()
+
+    def remove_dependency(self, card_id: int, blocker_id: int) -> dict[str, Any]:
+        """Remove the ``blocker_id → card_id`` edge (card ``card_id`` is no longer
+        blocked-by ``blocker_id``). Returns the card with refreshed dependency
+        arrays (the DELETE responds with the card body, not 204)."""
+        return self._request(
+            "DELETE", f"/cards/{card_id}/dependencies/{blocker_id}"
+        ).json()
+
+    def list_dependencies(self, card_id: int) -> dict[str, Any]:
+        """List a card's dependency edges. There is no dedicated endpoint — the
+        API surfaces ``blocked_by`` / ``blocks`` on the card itself — so this reads
+        the card (``GET /cards/{id}``) and shapes just its dependency arrays:
+        ``{"card_id": id, "blocked_by": [...], "blocks": [...]}``.
+        ``blocked_by`` = ids that block this card; ``blocks`` = ids it blocks."""
+        card = self.get_card(card_id)
+        return {
+            "card_id": card_id,
+            "blocked_by": card.get("blocked_by", []),
+            "blocks": card.get("blocks", []),
+        }
