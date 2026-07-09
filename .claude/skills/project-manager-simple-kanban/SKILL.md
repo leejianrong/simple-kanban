@@ -98,7 +98,10 @@ the "verify against the code, don't trust the docs" rule. This is a thin slice â
 incremental style; do not refactor beyond the ticket.
 
 Workflow:
-1. `git switch main && git pull --ff-only`, then `git switch -c feat/<slice>`.
+1. You are in an isolated worktree. Do NOT `git switch main` (it exits 128 when `main` is already
+   checked out at the primary checkout). Base off latest main directly:
+   `git fetch origin && git switch -c feat/<slice> origin/main`. Run all git against THIS worktree
+   only â€” never `cd` into the parent/primary checkout (Bash is not sandboxed to the worktree).
 2. Implement the slice. Keep it minimal and consistent with surrounding code.
 3. Run the local checks for every package you touched (mirror of the pre-push hook):
    - backend (from backend/): `uv run ruff check .` + `uv run pytest tests/unit -q`
