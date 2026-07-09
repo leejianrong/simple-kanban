@@ -115,15 +115,20 @@ npm run e2e       # Playwright smoke (auto-starts backend+Vite; needs docker com
 
 **MCP server** (from `mcp/`) — the agent entry point (V5, board-scoped in V10), its own `uv` package:
 ```bash
-uv sync                                             # install (mcp SDK + httpx)
+uv sync                                             # install (mcp SDK + the shared kanban-client)
 uv run ruff check .                                 # lint (matches CI mcp job)
 uv run pytest -q                                    # unit (mocked httpx) + tool-list smoke; no DB
 KANBAN_API_URL=http://localhost:8000 KANBAN_TOKEN=kanban_pat_… uv run python -m kanban_mcp   # run the stdio server by hand
 ```
-> Thin `httpx` wrapper over `/api/v1` — 10 tools (`list_boards`/`create_board` discovery +
-> board-scoped card/epic tools), no DB of its own. Config via `KANBAN_API_URL` + `KANBAN_TOKEN` (a
-> **required** per-user PAT since `/api/v1` is auth-required) + optional `KANBAN_BOARD_ID` (default
-> board for calls that omit `board_id`; V10, ADR 0015). Wire into Claude Code by copying
+> A thin adapter over the shared **`kanban-client`** package (`kanban_client/client.py`, imports
+> `KanbanClient`; KAN-21 moved the `httpx` wrapper out of the old `mcp/kanban_mcp/api.py` into a
+> sibling package the MCP server depends on by path so both stay in sync) — one tool per `/api/v1`
+> endpoint, giving **full CRUD parity across boards, cards, and epics** (list / get / create /
+> update / delete + card `move`) plus `list_boards`/`create_board` discovery; no DB of its own.
+> Config via `KANBAN_API_URL` + `KANBAN_TOKEN` (a **required** per-user PAT since `/api/v1` is
+> auth-required) + optional `KANBAN_BOARD_ID` (the default board for calls that omit `board_id`;
+> unset → list spans all your boards / create lands on the earliest, so set it in `.mcp.json` to
+> avoid targeting the wrong board; V10, ADR 0015). Wire into Claude Code by copying
 > `.mcp.json.example` → `.mcp.json`; see [mcp/README.md](mcp/README.md). CI runs it as the `mcp` job.
 
 **Full local dev loop:** `docker compose up -d db` → backend `uv run alembic upgrade head` +
