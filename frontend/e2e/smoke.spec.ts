@@ -1,22 +1,21 @@
 import { expect, test } from "@playwright/test";
 import {
   cardInColumn,
-  cleanupE2eCards,
+  cleanupE2eBoards,
   createCard,
   dragTo,
   dropzone,
-  loginStub,
+  openFreshBoard,
   uniqueTitle,
 } from "./helpers";
 
-// The board is now behind an auth check (M3 V6) — stub a signed-in user so these
-// board specs reach the board.
-test.beforeEach(({ page }) => loginStub(page));
-test.afterAll(cleanupE2eCards);
+// /api/v1 is now owner-gated (M3 V8), so each test opens a REAL session and lands
+// on a fresh owned board (openFreshBoard). Deleting the boards afterwards cascades
+// away their cards.
+test.afterAll(cleanupE2eBoards);
 
 test("load → create → drag-move persists across reload", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Todo", exact: true })).toBeVisible();
+  await openFreshBoard(page);
 
   const title = uniqueTitle("move");
   await createCard(page, "Todo", title);
@@ -32,7 +31,7 @@ test("load → create → drag-move persists across reload", async ({ page }) =>
 });
 
 test("failed move reverts the board and surfaces an error", async ({ page }) => {
-  await page.goto("/");
+  await openFreshBoard(page);
 
   const title = uniqueTitle("moveerr");
   await createCard(page, "Todo", title);

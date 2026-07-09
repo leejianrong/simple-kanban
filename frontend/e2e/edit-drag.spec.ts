@@ -1,23 +1,22 @@
 import { expect, test } from "@playwright/test";
 import {
   cardInColumn,
-  cleanupE2eCards,
+  cleanupE2eBoards,
   createCard,
   dragTo,
   dropzone,
-  loginStub,
+  openFreshBoard,
   uniqueTitle,
 } from "./helpers";
 
-// The board is now behind an auth check (M3 V6) — stub a signed-in user.
-test.beforeEach(({ page }) => loginStub(page));
-test.afterAll(cleanupE2eCards);
+// /api/v1 is owner-gated (M3 V8): each test opens a real session on a fresh board.
+test.afterAll(cleanupE2eBoards);
 
 // Finding 2: a card in edit mode still sits inside the drag zone, so a pointer
 // drag that starts on a form field must NOT pick up and move the card — the user
 // is editing, not dragging.
 test("dragging from within a card's edit form must not move the card", async ({ page }) => {
-  await page.goto("/");
+  await openFreshBoard(page);
 
   const title = uniqueTitle("editdrag");
   await createCard(page, "Todo", title);
@@ -40,7 +39,7 @@ test("dragging from within a card's edit form must not move the card", async ({ 
 // Probe: the edit form also has non-interactive chrome (the read-only ticket
 // label). Dragging from there must not move the card either.
 test("dragging from a card's edit-form chrome must not move the card", async ({ page }) => {
-  await page.goto("/");
+  await openFreshBoard(page);
 
   const title = uniqueTitle("editchrome");
   await createCard(page, "Todo", title);

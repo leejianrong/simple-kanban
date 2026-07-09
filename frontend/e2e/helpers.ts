@@ -11,13 +11,19 @@ import {
 export const E2E_PREFIX = "e2e-";
 const API_ORIGIN = "http://localhost:8000";
 
+// The transitional SERVICE token (V8, ADR 0013) the backend runs with under e2e
+// (set in playwright.config's webServer env). Used only by the cleanup helpers so
+// they can read/delete across users on the now-owner-gated API.
+const SERVICE_TOKEN = "e2e-service-token";
+const SERVICE_HEADERS = { Authorization: `Bearer ${SERVICE_TOKEN}` };
+
 export function uniqueTitle(label = "card"): string {
   return `${E2E_PREFIX}${label}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 }
 
-// A fake signed-in user for the auth-gated shell (M3 V6). The board now sits
-// behind an auth check (`GET /users/me`); stubbing it as authenticated lets the
-// board specs reach the board without a real GitHub session. Call before goto().
+// A stubbed signed-in user, still used by login.spec (a pure frontend gating test
+// that never touches the real API). Its email matches the real e2e login below so
+// top-bar assertions are consistent.
 export const E2E_USER = {
   id: "00000000-0000-0000-0000-000000000001",
   email: "e2e@example.com",
@@ -26,14 +32,42 @@ export const E2E_USER = {
   is_verified: true,
 };
 
-export async function loginStub(page: Page): Promise<void> {
-  await page.route("**/users/me", (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify(E2E_USER),
-    }),
-  );
+// A REAL backend session (M3 V8): /api/v1 is now owner-gated, so a page.route stub
+// of /users/me is no longer enough — the API checks a real httpOnly cookie. The
+// e2e-only `POST /auth/test-login` (gated by E2E_AUTH_BYPASS, see playwright.config)
+// mints that session. maxRedirects:0 keeps the login's 302→"/" from being followed,
+// so the Set-Cookie on the 302 lands in the context's cookie jar directly. Call
+// before navigating; the cookie is then sent on the SPA's fetches.
+export async function login(page: Page, email = E2E_USER.email): Promise<void> {
+  const res = await page.request.post("/auth/test-login", {
+    data: { email },
+    maxRedirects: 0,
+  });
+  if (res.status() >= 400) {
+    throw new Error(`test-login failed (${res.status()}): ${await res.text()}`);
+  }
+}
+
+// Create a board via the top-bar switcher (creating switches to it) and wait for
+// the board view to settle. Returns the name used.
+export async function createBoardViaSwitcher(page: Page, name: string): Promise<string> {
+  const switcher = page.locator(".board-switcher");
+  await switcher.getByRole("button", { name: "+ New board" }).click();
+  await page.getByLabel("Board name").fill(name);
+  await switcher.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(page.getByLabel("Board", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Todo", exact: true })).toBeVisible();
+  return name;
+}
+
+// Log in (real session), open the SPA, and land on a fresh, empty, owned board —
+// the precondition the board specs need now that /api/v1 is owner-gated. A fresh
+// board per test also keeps them independent and tolerant of pre-existing data.
+export async function openFreshBoard(page: Page): Promise<string> {
+  await login(page);
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Todo", exact: true })).toBeVisible();
+  return createBoardViaSwitcher(page, uniqueTitle("board"));
 }
 
 export function column(page: Page, label: string): Locator {
@@ -128,8 +162,13 @@ export async function dragTo(
 
 // Delete every board these tests created, via the API. Deleting a board cascades
 // away its cards + epics, so this also cleans up anything created on that board.
+// Runs as the SERVICE principal (bearer) since /api/v1 is now owner-gated and the
+// boards span multiple e2e users.
 export async function cleanupE2eBoards(): Promise<void> {
-  const ctx: APIRequestContext = await request.newContext({ baseURL: API_ORIGIN });
+  const ctx: APIRequestContext = await request.newContext({
+    baseURL: API_ORIGIN,
+    extraHTTPHeaders: SERVICE_HEADERS,
+  });
   try {
     const boards = await ctx.get("/api/v1/boards");
     if (boards.ok()) {
@@ -144,9 +183,12 @@ export async function cleanupE2eBoards(): Promise<void> {
   }
 }
 
-// Delete every card and epic these tests created, via the API.
+// Delete every card and epic these tests created, via the API (as SERVICE).
 export async function cleanupE2eCards(): Promise<void> {
-  const ctx: APIRequestContext = await request.newContext({ baseURL: API_ORIGIN });
+  const ctx: APIRequestContext = await request.newContext({
+    baseURL: API_ORIGIN,
+    extraHTTPHeaders: SERVICE_HEADERS,
+  });
   try {
     const cards = await ctx.get("/api/v1/cards");
     if (cards.ok()) {
