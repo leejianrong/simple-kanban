@@ -6,116 +6,223 @@ name: CI
 # (real Postgres via a service container), the shared kanban-client's lint +
 # tests, and the MCP server's lint + tests (both mocked httpx, no DB). The
 # Deploy workflow only runs after this whole workflow succeeds on main.
+#
+# CI path filtering (KAN-37): a leading `changes` job computes which areas of
+# the repo a PR touched; each of the seven jobs then guards its *heavy steps*
+# on the relevant output. On a docs-only change (nothing under backend/,
+# frontend/, mcp/, kanban-client/ — e.g. this workflow file itself, docs/,
+# .claude/, root *.md) every job still RUNS and REPORTS SUCCESS under its
+# existing `name:`, but skips the expensive install/test work in seconds.
+#
+# This is a deliberately GATE-SAFE design: branch protection lists several of
+# these `name:`s as *required* status checks, and a required check that never
+# reports (the classic trap of a job-level `if:` skip, or a top-level
+# `paths:`/`paths-ignore:` filter on the trigger) leaves every PR stuck at
+# "Expected" and un-mergeable. Because each job still completes, each required
+# name still reports success — the gate is never left hanging. A more
+# aggressive variant that also cuts the *runner count* (job-level `if:` skips
+# behind a single `CI Success` aggregator made the sole required check) would
+# require a branch-protection settings change by a maintainer and is left as a
+# documented follow-up, not done here.
 on:
   pull_request:
   push:
     branches: [main]
 
 jobs:
+  # Lightweight gate: classify which areas of the repo changed. Every other
+  # job `needs:` this and reads its outputs to decide whether to do real work.
+  # Kept minimal and dependency-light so it is extremely unlikely to fail (a
+  # failure here would skip the dependents and could stall a required check).
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      mcp: ${{ steps.filter.outputs.mcp }}
+      client: ${{ steps.filter.outputs.client }}
+      app: ${{ steps.filter.outputs.app }}
+    steps:
+      # Needed so paths-filter can diff on `push` events (on `pull_request` it
+      # uses the GitHub API and doesn't strictly need the checkout).
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          # `app` is the union of all code areas — anything NOT matching it is
+          # a docs-only change (docs/, .claude/, .github/, root *.md, ...).
+          filters: |
+            backend:
+              - 'backend/**'
+            frontend:
+              - 'frontend/**'
+            mcp:
+              - 'mcp/**'
+            client:
+              - 'kanban-client/**'
+            app:
+              - 'backend/**'
+              - 'frontend/**'
+              - 'mcp/**'
+              - 'kanban-client/**'
+
   lint:
     name: Lint (ruff)
+    needs: changes
     runs-on: ubuntu-latest
     steps:
+      - name: Skip (no backend changes)
+        if: needs.changes.outputs.backend != 'true'
+        run: echo "No backend changes — skipping ruff lint."
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.backend == 'true'
       - name: Install uv
+        if: needs.changes.outputs.backend == 'true'
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
       - name: Ruff lint
+        if: needs.changes.outputs.backend == 'true'
         working-directory: backend
         run: uv run --frozen --group dev ruff check .
 
   unit:
     name: Unit tests
+    needs: changes
     runs-on: ubuntu-latest
     steps:
+      - name: Skip (no backend changes)
+        if: needs.changes.outputs.backend != 'true'
+        run: echo "No backend changes — skipping unit tests."
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.backend == 'true'
       - name: Install uv
+        if: needs.changes.outputs.backend == 'true'
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
       # Pure logic (Pydantic schema validation) — no database, no Docker.
       - name: Pytest (unit)
+        if: needs.changes.outputs.backend == 'true'
         working-directory: backend
         run: uv run --frozen --group dev pytest tests/unit -q
 
   integration:
     name: Integration tests
+    needs: changes
     runs-on: ubuntu-latest
     steps:
+      - name: Skip (no backend changes)
+        if: needs.changes.outputs.backend != 'true'
+        run: echo "No backend changes — skipping integration tests."
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.backend == 'true'
       - name: Install uv
+        if: needs.changes.outputs.backend == 'true'
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
       # Uses testcontainers to spin up real Postgres 17; the ubuntu-latest
       # runner has a running Docker daemon available.
       - name: Pytest (integration)
+        if: needs.changes.outputs.backend == 'true'
         working-directory: backend
         run: uv run --frozen --group dev pytest tests/integration -q
 
   client:
     name: Kanban client (lint + tests)
+    needs: changes
     runs-on: ubuntu-latest
     steps:
+      - name: Skip (no kanban-client changes)
+        if: needs.changes.outputs.client != 'true'
+        run: echo "No kanban-client changes — skipping client lint + tests."
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.client == 'true'
       - name: Install uv
+        if: needs.changes.outputs.client == 'true'
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
       # Shared httpx wrapper (KAN-21) — every method is exercised against a
       # mocked httpx transport, so no backend or database is needed.
       - name: Ruff lint
+        if: needs.changes.outputs.client == 'true'
         working-directory: kanban-client
         run: uv run --frozen --group dev ruff check .
       - name: Pytest
+        if: needs.changes.outputs.client == 'true'
         working-directory: kanban-client
         run: uv run --frozen --group dev pytest -q
 
   mcp:
     name: MCP server (lint + tests)
+    needs: changes
     runs-on: ubuntu-latest
     steps:
+      - name: Skip (no mcp changes)
+        if: needs.changes.outputs.mcp != 'true'
+        run: echo "No mcp changes — skipping MCP server lint + tests."
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.mcp == 'true'
       - name: Install uv
+        if: needs.changes.outputs.mcp == 'true'
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
       # Pure logic — the API client is exercised against a mocked httpx
       # transport, so no backend or database is needed.
       - name: Ruff lint
+        if: needs.changes.outputs.mcp == 'true'
         working-directory: mcp
         run: uv run --frozen --group dev ruff check .
       - name: Pytest
+        if: needs.changes.outputs.mcp == 'true'
         working-directory: mcp
         run: uv run --frozen --group dev pytest -q
 
   frontend:
     name: Frontend build & type-check
+    needs: changes
     runs-on: ubuntu-latest
     steps:
+      - name: Skip (no frontend changes)
+        if: needs.changes.outputs.frontend != 'true'
+        run: echo "No frontend changes — skipping frontend build & type-check."
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.frontend == 'true'
       - uses: actions/setup-node@v4
+        if: needs.changes.outputs.frontend == 'true'
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Install deps
+        if: needs.changes.outputs.frontend == 'true'
         working-directory: frontend
         run: npm ci
       - name: Type-check (svelte-check)
+        if: needs.changes.outputs.frontend == 'true'
         working-directory: frontend
         run: npm run check
       - name: Build
+        if: needs.changes.outputs.frontend == 'true'
         working-directory: frontend
         run: npm run build
 
   e2e:
     name: E2E (Playwright)
+    needs: changes
     runs-on: ubuntu-latest
     # A long-running Postgres the backend connects to. Unlike the integration
     # job (testcontainers, in-process), the e2e backend is a separate uvicorn
     # process, so it needs a standalone DB — a service container fits.
+    #
+    # e2e exercises the full stack, so its heavy steps run when EITHER the
+    # backend OR the frontend changed. Service containers are declared
+    # statically and can't be gated on a step `if:`, but an idle Postgres
+    # container on a docs-only run is cheap and the job still finishes fast.
     services:
       postgres:
         image: postgres:17
@@ -132,34 +239,45 @@ jobs:
       # The Playwright webServer boots `uv run uvicorn ...`, which inherits this.
       DATABASE_URL: postgresql+psycopg://kanban:kanban@localhost:5432/kanban
     steps:
+      - name: Skip (no backend/frontend changes)
+        if: needs.changes.outputs.backend != 'true' && needs.changes.outputs.frontend != 'true'
+        run: echo "No backend or frontend changes — skipping e2e."
+
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
 
       # Backend toolchain (Playwright's webServer runs migrations + uvicorn).
       - name: Install uv
+        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
       - name: Sync backend deps
+        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
         working-directory: backend
         run: uv sync --frozen
 
       # Frontend toolchain (Vite dev server + Playwright).
       - uses: actions/setup-node@v4
+        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend deps
+        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
         working-directory: frontend
         run: npm ci
 
       # Cache the downloaded browser (~120 MB) keyed on the Playwright version,
       # so it is only re-downloaded when @playwright/test is bumped.
       - name: Resolve Playwright version
+        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
         id: pw
         working-directory: frontend
         run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
       - name: Cache Playwright browsers
+        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
         id: pw-cache
         uses: actions/cache@v4
         with:
@@ -168,17 +286,18 @@ jobs:
       # On a cache miss install the browser + its OS libs; on a hit the browser
       # is restored, so only the (uncacheable, system-level) OS libs are needed.
       - name: Install Chromium + OS deps
-        if: steps.pw-cache.outputs.cache-hit != 'true'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true') && steps.pw-cache.outputs.cache-hit != 'true'
         working-directory: frontend
         run: npx playwright install --with-deps chromium
       - name: Install Chromium OS deps only
-        if: steps.pw-cache.outputs.cache-hit == 'true'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true') && steps.pw-cache.outputs.cache-hit == 'true'
         working-directory: frontend
         run: npx playwright install-deps chromium
 
       # Playwright boots the backend (:8000) + Vite (:5173) itself and drives
       # Chromium against them. reuseExistingServer is false under CI.
       - name: Run e2e
+        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
         working-directory: frontend
         run: npm run e2e
 
