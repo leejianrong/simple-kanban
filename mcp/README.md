@@ -29,6 +29,9 @@ source of truth (API-first, ADR 0005). Milestone 2 slice **V5**; board-scoped in
 | `move_card(card_id, column, position?)` | `POST /cards/{id}/move` | — (by card id) |
 | `claim_card(card_id, assignee)` | `POST /cards/{id}/move` + `PATCH /cards/{id}` | — (by card id) |
 | `delete_card(card_id)` | `DELETE /cards/{id}` | — (by card id) |
+| `add_dependency(card_id, blocker_id)` | `POST /cards/{id}/dependencies` | — (by card id) |
+| `remove_dependency(card_id, blocker_id)` | `DELETE /cards/{id}/dependencies/{blocker_id}` | — (by card id) |
+| `list_dependencies(card_id)` | `GET /cards/{id}` (shapes `blocked_by`/`blocks`) | — (by card id) |
 
 **Board scoping (V10, ADR 0015).** Call `list_boards` to discover the boards you
 own, then target any of them per call:

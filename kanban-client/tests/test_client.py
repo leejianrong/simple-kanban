@@ -228,6 +228,53 @@ def test_delete_card_sends_delete_and_returns_ack_without_parsing_body():
     assert out == {"deleted": 9}
 
 
+# --- card-to-card dependencies (KAN-28 API / KAN-31) -----------------------
+
+
+def test_add_dependency_posts_blocker_id_and_returns_card():
+    import json
+
+    handler, seen = capture(
+        httpx.Response(201, json={"id": 5, "blocked_by": [2], "blocks": []})
+    )
+    out = make_client(handler).add_dependency(5, 2)
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/api/v1/cards/5/dependencies"
+    assert json.loads(seen["content"]) == {"blocker_id": 2}
+    # The whole (now-blocked) card body is returned unchanged.
+    assert out == {"id": 5, "blocked_by": [2], "blocks": []}
+
+
+def test_remove_dependency_deletes_edge_and_returns_card_body():
+    # The DELETE responds with the refreshed card body (not 204), so it is parsed.
+    handler, seen = capture(
+        httpx.Response(200, json={"id": 5, "blocked_by": [], "blocks": []})
+    )
+    out = make_client(handler).remove_dependency(5, 2)
+    assert seen["method"] == "DELETE"
+    assert seen["path"] == "/api/v1/cards/5/dependencies/2"
+    assert out == {"id": 5, "blocked_by": [], "blocks": []}
+
+
+def test_list_dependencies_reads_card_and_shapes_arrays():
+    handler, seen = capture(
+        httpx.Response(200, json={"id": 5, "title": "T", "blocked_by": [2, 3], "blocks": [9]})
+    )
+    out = make_client(handler).list_dependencies(5)
+    # No dedicated endpoint — it reads the card itself.
+    assert seen["method"] == "GET"
+    assert seen["path"] == "/api/v1/cards/5"
+    assert out == {"card_id": 5, "blocked_by": [2, 3], "blocks": [9]}
+
+
+def test_list_dependencies_defaults_missing_arrays_to_empty():
+    # A card body without the arrays (e.g. before KAN-29/KAN-28 fields are present)
+    # yields empty lists rather than KeyErrors.
+    handler, _ = capture(httpx.Response(200, json={"id": 5, "title": "T"}))
+    out = make_client(handler).list_dependencies(5)
+    assert out == {"card_id": 5, "blocked_by": [], "blocks": []}
+
+
 # --- health / warmup (KAN-39) ----------------------------------------------
 
 

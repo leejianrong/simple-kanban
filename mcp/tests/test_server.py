@@ -30,6 +30,9 @@ EXPECTED_TOOLS = {
     "warmup",
     "claim_card",
     "create_cards",
+    "add_dependency",
+    "remove_dependency",
+    "list_dependencies",
 }
 
 
@@ -87,3 +90,56 @@ def test_no_board_id_and_no_default_sends_none(monkeypatch):
     seen = _stub_client(monkeypatch, default_board_id=None)
     server.list_cards()
     assert seen["params"] == {}
+
+
+# --- dependency tools (KAN-31) ---------------------------------------------
+
+
+def _capture_client(monkeypatch, response):
+    """Point the server's client at a MockTransport returning ``response`` and
+    capture the outgoing method/path/content."""
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        seen["content"] = request.content
+        return response
+
+    client = KanbanClient("http://test", transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(server, "_client", client)
+    monkeypatch.setattr(server, "_default_board_id", None)
+    return seen
+
+
+def test_add_dependency_posts_blocker_id(monkeypatch):
+    seen = _capture_client(
+        monkeypatch, httpx.Response(201, json={"id": 5, "blocked_by": [2], "blocks": []})
+    )
+    out = server.add_dependency(5, 2)
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/api/v1/cards/5/dependencies"
+    assert json.loads(seen["content"]) == {"blocker_id": 2}
+    assert out == {"id": 5, "blocked_by": [2], "blocks": []}
+
+
+def test_remove_dependency_deletes_edge_path(monkeypatch):
+    seen = _capture_client(
+        monkeypatch, httpx.Response(200, json={"id": 5, "blocked_by": [], "blocks": []})
+    )
+    out = server.remove_dependency(5, 2)
+    assert seen["method"] == "DELETE"
+    assert seen["path"] == "/api/v1/cards/5/dependencies/2"
+    assert out == {"id": 5, "blocked_by": [], "blocks": []}
+
+
+def test_list_dependencies_shapes_card_arrays(monkeypatch):
+    seen = _capture_client(
+        monkeypatch,
+        httpx.Response(200, json={"id": 5, "title": "T", "blocked_by": [2, 3], "blocks": [9]}),
+    )
+    out = server.list_dependencies(5)
+    # Reads the card itself — no dedicated endpoint.
+    assert seen["method"] == "GET"
+    assert seen["path"] == "/api/v1/cards/5"
+    assert out == {"card_id": 5, "blocked_by": [2, 3], "blocks": [9]}
