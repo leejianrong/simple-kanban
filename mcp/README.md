@@ -89,7 +89,8 @@ created in the SPA Tokens tab.
       "args": ["run", "--directory", "./mcp", "python", "-m", "kanban_mcp"],
       "env": {
         "KANBAN_API_URL": "http://localhost:8000",
-        "KANBAN_TOKEN": "kanban_pat_…"
+        "KANBAN_TOKEN": "kanban_pat_…",
+        "KANBAN_BOARD_ID": "1"
       }
     }
   }
@@ -106,16 +107,21 @@ created in the SPA Tokens tab.
       "args": ["run", "--directory", "./mcp", "python", "-m", "kanban_mcp"],
       "env": {
         "KANBAN_API_URL": "https://simple-kanban-jian.fly.dev",
-        "KANBAN_TOKEN": "kanban_pat_…"
+        "KANBAN_TOKEN": "kanban_pat_…",
+        "KANBAN_BOARD_ID": "1"
       }
     }
   }
 }
 ```
 
-Add `"KANBAN_BOARD_ID": "<id>"` to either to pin a default board for calls that
-omit `board_id`. `--directory ./mcp` is relative to the repo root (where Claude
-Code launches it); use an absolute path if you run the client from elsewhere. Once
+`KANBAN_BOARD_ID` pins the default board for calls that omit `board_id`; the
+snippets above (and [`.mcp.json.example`](../.mcp.json.example)) preset it to `1`,
+the seeded default board — **change it to your own board id** (from `list_boards`)
+so the agent doesn't target the wrong board, or leave it empty to fall back to the
+API default (list = all your boards, create = your earliest). `--directory ./mcp`
+is relative to the repo root (where Claude Code launches it); use an absolute path
+if you run the client from elsewhere. Once
 connected, ask the agent to *"list my boards"*, then *"create an epic and a couple
 of stories under it on board N, then move one to In Progress"* and watch them
 appear on the board.
