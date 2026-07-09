@@ -224,6 +224,39 @@ Dogfooding observations about driving this board as an agent PM. Seeded from the
   a non-zero exit, but the **merge itself still succeeds** (confirm with `gh pr view <n> --json state`
   → `MERGED`). The remote branch is deleted; the local one is cleaned when the harness reaps the
   worktree. Don't mistake that exit code for a failed merge.
+- **A superseded Deploy shows `cancelled`, not failed — and is still covered.** When two mergeable
+  PRs land seconds apart, the second merge's Deploy cancels the first's (deploy concurrency group).
+  But Deploy checks out current `main` HEAD, so the *later* deploy contains the earlier merge's code
+  too. Observed: #45 (backend, KAN-29) Deploy `cancelled` when #46 merged right after, but #46's
+  Deploy (`success`) shipped HEAD which included KAN-29 — prod-verified live. A `cancelled` Deploy
+  superseded by a newer merge is a non-event; verify prod reflects HEAD rather than re-running it.
+- **`kanban-cli/`-only merges still trigger a real (harmless) Deploy.** The Deploy skip-filter treats
+  docs/.claude/.github/mcp/client as non-deployable but did NOT exclude `kanban-cli/`, so #46 (cli-only)
+  ran a full ~46s Deploy though nothing in the Fly image changed. Harmless (no-op image), but an
+  avoidable rollout window — worth extending the Deploy skip-filter to cli/mcp/client (none are in the
+  deployed artifact). Separate from CI's `changes` filter (which KAN-24 did extend to `kanban-cli/**`).
+- **Right-side of the "MCP restart" nuance, reconfirmed at scale.** KAN-29's new `blocked` FIELD showed
+  up in `claim_card`/`list_cards` MCP output the same session, no restart (JSON passthrough). But
+  KAN-31's new TOOLS (`add_dependency`/`remove_dependency`/`list_dependencies`) are NOT callable until
+  the user restarts this session + re-`uv sync`s `mcp/`. So during the same session you *build* dep
+  tools in, you still can't set dependencies via MCP — use `curl` against the API if you must set one.
+- **3-wide measured parallel works cleanly when disjointness is verified against the CODE first.**
+  Extended the KAN-28+KAN-22 two-agent precedent to three concurrent Wave-1 agents (backend / mcp+client
+  / cli) with zero conflicts, then serialized landing. The enabler was checking file sets in the source,
+  not the plan: KAN-23 (cli) does NOT touch `kanban-client/` even though KAN-31 does — the client's
+  board/epic methods already existed — so cli-vs-client were genuinely disjoint. Don't trust a
+  "same-ish area" hunch; grep the actual imports/methods before declaring two cards parallel-safe.
+- **A monorepo path-source package installs cleanly over `git+…#subdirectory=`.** Contrary to the
+  assumption that the `../kanban-client` path dependency would break a git install,
+  `uv tool install "git+https://…/simple-kanban.git#subdirectory=kanban-cli"` resolves the sibling path
+  source from the same fetched clone. uv's monorepo resolution over git is more capable than expected —
+  relevant to the distribution cards (KAN-46 binary / KAN-47 OCI image).
+- **CI is now the `changes` gate + 8 work jobs = 9 checks** (added `cli` in KAN-24). Only Lint/Unit/
+  Integration/Frontend are branch-protection *required*; `cli`/`mcp`/`client`/`e2e` report green but
+  aren't individually required (per KAN-37). A gotcha this created: a `kanban-cli/`-only PR *before*
+  KAN-24 (e.g. KAN-23's #46) wasn't mapped, so its heavy jobs pass-*skipped* — green CI there meant
+  nothing; the sub-agent's local `ruff`+`pytest` was the real signal. KAN-24 closed that by mapping
+  `kanban-cli/**`, so its own #47 was the first PR where the `cli` job actually ran (8s, real work).
 
 ## Session log (what's been run through this playbook)
 
@@ -309,3 +342,30 @@ Dogfooding observations about driving this board as an agent PM. Seeded from the
 - **Suggested next pull:** KAN-29 (ready/blocked query filter — builds directly on KAN-28 and gives
   the PM a "next unblocked card" query), or KAN-23/24 to finish the CLI, or KAN-31 (dependencies in
   MCP so the agent PM can set blockers directly).
+- **EPIC-8 (deps) + EPIC-6 (CLI) batch — 4 cards via 3-wide measured parallel, all merged + done:**
+  Wave 1 ran three concurrent worktree agents on disjoint dirs, landed serially; Wave 2 was the one
+  overlapping card. All four are dependency-free of a DB migration (KAN-28 already shipped the table),
+  so the "migration lands alone + prod-verify" rule was NOT triggered.
+  - **KAN-29** (#45, EPIC-8) — `blocked` field + `blocked=true|false` filter on `GET /api/v1/cards`
+    (SQL `EXISTS` twin of the Python compute, applied before the cursor clause so keyset pagination
+    stays exact; no N+1). **Prod-verified** read-only: field present, filter partitions
+    (true=0 / false=38 / all=38). Backend → deployed.
+  - **KAN-31** (#44, EPIC-8) — `add_/remove_/list_dependencies` MCP tools + client methods (thin
+    adapter over KAN-28's endpoints; `list_dependencies` = `get_card` reshaped, since there's no list
+    endpoint). `EXPECTED_TOOLS` 19→22. mcp/+client, no deploy.
+  - **KAN-23** (#46, EPIC-6) — `kan board list/create` + `kan epic list/create/update/delete` as
+    nested subcommand groups (client methods already existed; cli-only, disjoint from KAN-31).
+  - **KAN-24** (#47, EPIC-6) — CLI README + `readme` pointer + `--help` polish + a CI `cli` job
+    mirroring `mcp`, and extended KAN-37's `changes` filter to map `kanban-cli/**`. CI now 9 checks.
+- **Two distribution cards filed** from a user design discussion (how to ship the CLI + MCP so end
+  users need no toolchain): **KAN-46** (EPIC-6) — ship `kan` as a standalone PyInstaller `--onefile`
+  binary via a per-OS CI release matrix → GitHub Releases (no Python needed); **KAN-47** (EPIC-5) —
+  publish the MCP server as an OCI image to **ghcr.io** (`docker run`, bundles `kanban-client` at build
+  time). Rationale worth keeping: **GitHub Packages has NO native pip index** (it hosts npm / Container
+  / Maven / Gradle / NuGet / RubyGems), so for our Python packages the GitHub-hosted options are a
+  container image (ghcr.io) or loose files on Releases — not a `pip install`-by-name index. PyPI would
+  be the real index but needs accounts + trusted-publishing CI + cross-package version management;
+  deferred, not part of this batch.
+- **Epic status after this batch:** EPIC-8 — KAN-28/29/31 done; **KAN-30 (deps in the board UI)**
+  remains (the only non-done EPIC-8 card besides the work-links/notes line KAN-32/33/34). EPIC-6 (kan
+  CLI) — KAN-21/22/23/24 done; **KAN-26 (`kan warmup`)** and **KAN-46 (binary)** remain.
