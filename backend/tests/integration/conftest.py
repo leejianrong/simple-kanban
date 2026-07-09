@@ -111,6 +111,20 @@ def client():
 FAKE_ACCOUNT_ID = "gh-12345"
 FAKE_EMAIL = "octocat@example.com"
 
+# The transitional service token (V4 API_TOKENS → V8 SERVICE bypass, ADR 0013).
+SERVICE_TOKEN = "svc-token-for-tests"
+
+
+@pytest.fixture
+def service_client(client, monkeypatch):
+    """A TestClient acting as the SERVICE principal: ``API_TOKENS`` set and a
+    matching bearer on every request. Bypasses board ownership (the transitional
+    MCP/agent path), and — because no human has logged in — observes boards in
+    their unclaimed post-migration state."""
+    monkeypatch.setenv("API_TOKENS", SERVICE_TOKEN)
+    client.headers.update({"Authorization": f"Bearer {SERVICE_TOKEN}"})
+    return client
+
 
 @pytest.fixture
 def mock_github(monkeypatch):
@@ -127,13 +141,8 @@ def mock_github(monkeypatch):
     monkeypatch.setattr(users.github_oauth_client, "get_id_email", fake_get_id_email)
 
 
-@pytest.fixture
-def logged_in_client(client, mock_github):
-    """A TestClient carrying a valid GitHub cookie session (authorize → callback).
-
-    The authorize step returns the state token and sets the CSRF cookie; the
-    callback validates both, creates/links the user, and sets the session cookie.
-    """
+def _drive_github_login(client) -> None:
+    """Drive authorize → callback so ``client`` ends up holding a session cookie."""
     from urllib.parse import parse_qs, urlparse
 
     authorize = client.get("/auth/github/authorize")
@@ -143,4 +152,52 @@ def logged_in_client(client, mock_github):
         params={"code": "fake-code", "state": state},
         follow_redirects=False,
     )
+
+
+@pytest.fixture
+def logged_in_client(client, mock_github):
+    """A TestClient carrying a valid GitHub cookie session (authorize → callback)
+    as the default identity (:data:`FAKE_EMAIL`).
+
+    Since V8 (ADR 0013) logging in also **claims all unclaimed boards** for the
+    user, so this client owns the reset fixture's default board (id=1) — which is
+    what lets the board-scoped tests reach the now-owner-gated ``/api/v1`` by simply
+    shadowing their ``client`` fixture with this one.
+    """
+    _drive_github_login(client)
     return client
+
+
+@pytest.fixture
+def login_as(monkeypatch):
+    """Factory → a fresh logged-in TestClient for an arbitrary GitHub identity.
+
+    Each call returns an independent client (its own cookie jar), so a single test
+    can hold two distinct users — the setup for the 403 / list-scoping tests where
+    one user must be denied another's board. Logging in claims unclaimed boards
+    (V8), so the *first* identity created in a test adopts the default board.
+    """
+    import contextlib
+
+    from fastapi.testclient import TestClient
+
+    from app import users
+    from app.main import app
+
+    stack = contextlib.ExitStack()
+
+    def _login(email: str, account_id: str):
+        async def fake_get_access_token(code, redirect_uri, code_verifier=None):
+            return {"access_token": "gh-access-token", "expires_at": None}
+
+        async def fake_get_id_email(access_token):
+            return account_id, email
+
+        monkeypatch.setattr(users.github_oauth_client, "get_access_token", fake_get_access_token)
+        monkeypatch.setattr(users.github_oauth_client, "get_id_email", fake_get_id_email)
+        c = stack.enter_context(TestClient(app))
+        _drive_github_login(c)
+        return c
+
+    yield _login
+    stack.close()

@@ -1,88 +1,107 @@
-"""API tests for optional bearer-token auth on writes (Milestone 2 V4, P2 / R3.1).
+"""Auth-required contract + the transitional SERVICE token (M3 V8, ADR 0013).
 
-When ``API_TOKENS`` is set, mutating routes require a valid ``Authorization:
-Bearer <token>``; reads stay open. When it is unset, writes are open (that
-default path is exercised by the rest of the suite, which sends no token — plus
-one explicit test here). Tokens are read from the environment per request, so
-``monkeypatch.setenv`` before a call takes effect and auto-reverts after.
+V8 makes the whole ``/api/v1`` surface **authorization-required** — a deliberate
+contract change from V4, where reads were open and writes were open unless
+``API_TOKENS`` was set. Now:
 
-Per the suite convention, any app-module imports go inside test bodies.
+- No principal (no cookie session, no valid token) → **401** on reads *and* writes.
+- A valid ``API_TOKENS`` bearer → the **SERVICE** principal: full access, bypassing
+  the per-board owner check (the transitional MCP/agent path, retired in V9).
+- A human cookie session → owner-gated access (covered in test_authz.py).
+
+Tokens are read from the environment per request, so ``monkeypatch.setenv`` before
+a call takes effect and auto-reverts. Per the suite convention, any app-module
+imports go inside test bodies.
 """
 from __future__ import annotations
 
 import pytest
 
+# Must match conftest.SERVICE_TOKEN (the tests/integration dir isn't a package, so
+# it can't be imported from conftest directly).
+SERVICE_TOKEN = "svc-token-for-tests"
+
 CARDS = "/api/v1/cards"
 EPICS = "/api/v1/epics"
+BOARDS = "/api/v1/boards"
 
-TOKEN = "s3cret-agent-token"
-AUTH = {"Authorization": f"Bearer {TOKEN}"}
+AUTH = {"Authorization": f"Bearer {SERVICE_TOKEN}"}
 
 
 @pytest.fixture
 def tokens_set(monkeypatch):
-    """Configure a single valid token for the duration of a test."""
-    monkeypatch.setenv("API_TOKENS", f"{TOKEN},another-valid")
+    """Configure valid service tokens for the duration of a test."""
+    monkeypatch.setenv("API_TOKENS", f"{SERVICE_TOKEN},another-valid")
 
 
-# --- auth enabled: writes require a valid token -----------------------------
+# --- unauthenticated: everything is 401 (the V8 contract change) --------------
 
 
-def test_create_without_token_is_401(client, tokens_set):
-    r = client.post(CARDS, json={"title": "no token"})
+def test_unauthenticated_reads_are_401(client, monkeypatch):
+    # Reads used to be open (V4); under V8 they require a principal.
+    monkeypatch.delenv("API_TOKENS", raising=False)
+    assert client.get(CARDS).status_code == 401
+    assert client.get(EPICS).status_code == 401
+    assert client.get(BOARDS).status_code == 401
+
+
+def test_unauthenticated_writes_are_401(client, monkeypatch):
+    monkeypatch.delenv("API_TOKENS", raising=False)
+    r = client.post(CARDS, json={"title": "no principal"})
     assert r.status_code == 401
     # RFC 7235: a 401 advertises the scheme.
     assert r.headers.get("WWW-Authenticate") == "Bearer"
 
 
-def test_create_with_bad_token_is_401(client, tokens_set):
-    r = client.post(CARDS, json={"title": "bad"}, headers={"Authorization": "Bearer nope"})
-    assert r.status_code == 401
+def test_bad_token_is_401(client, tokens_set):
+    assert client.get(CARDS, headers={"Authorization": "Bearer nope"}).status_code == 401
+    assert (
+        client.post(CARDS, json={"t": 1}, headers={"Authorization": "Bearer nope"}).status_code
+        == 401
+    )
 
 
-def test_create_with_valid_token_is_201(client, tokens_set):
-    r = client.post(CARDS, json={"title": "ok"}, headers=AUTH)
-    assert r.status_code == 201
-    assert r.json()["title"] == "ok"
+def test_token_ignored_when_api_tokens_unset(client, monkeypatch):
+    # A bearer that isn't configured grants nothing.
+    monkeypatch.delenv("API_TOKENS", raising=False)
+    assert client.get(CARDS, headers=AUTH).status_code == 401
+
+
+# --- SERVICE token: full access, ownership bypassed ---------------------------
+
+
+def test_service_token_reads_and_writes(client, tokens_set):
+    created = client.post(CARDS, json={"title": "ok"}, headers=AUTH)
+    assert created.status_code == 201
+    assert client.get(CARDS, headers=AUTH).status_code == 200
+    assert client.get(f"{CARDS}/{created.json()['id']}", headers=AUTH).status_code == 200
+
+
+def test_service_token_guards_all_mutating_card_routes(client, tokens_set):
+    cid = client.post(CARDS, json={"title": "seed"}, headers=AUTH).json()["id"]
+
+    # Every write without a principal → 401 ...
+    assert client.patch(f"{CARDS}/{cid}", json={"title": "x"}).status_code == 401
+    assert client.post(f"{CARDS}/{cid}/move", json={"column": "done"}).status_code == 401
+    assert client.delete(f"{CARDS}/{cid}").status_code == 401
+
+    # ... and each succeeds as the SERVICE principal.
+    assert client.patch(f"{CARDS}/{cid}", json={"title": "x"}, headers=AUTH).status_code == 200
+    assert (
+        client.post(f"{CARDS}/{cid}/move", json={"column": "done"}, headers=AUTH).status_code == 200
+    )
+    assert client.delete(f"{CARDS}/{cid}", headers=AUTH).status_code == 204
+
+
+def test_service_token_bypasses_board_ownership(logged_in_client, service_client):
+    # A human owns a board; the SERVICE principal can still read + write it
+    # (unscoped bypass — the transitional agent path).
+    owned = logged_in_client.post(BOARDS, json={"name": "human-owned"}).json()["id"]
+    card = service_client.post(CARDS, json={"title": "svc", "board_id": owned})
+    assert card.status_code == 201
+    assert service_client.get(f"{BOARDS}/{owned}").status_code == 200
 
 
 def test_epic_create_is_guarded_too(client, tokens_set):
     assert client.post(EPICS, json={"name": "E"}).status_code == 401
     assert client.post(EPICS, json={"name": "E"}, headers=AUTH).status_code == 201
-
-
-def test_all_mutating_card_routes_are_guarded(client, tokens_set):
-    # Seed a card using a valid token so we have something to mutate.
-    card = client.post(CARDS, json={"title": "seed"}, headers=AUTH).json()
-    cid = card["id"]
-
-    # Every write without a token → 401 ...
-    assert client.patch(f"{CARDS}/{cid}", json={"title": "x"}).status_code == 401
-    assert client.post(f"{CARDS}/{cid}/move", json={"column": "done"}).status_code == 401
-    assert client.delete(f"{CARDS}/{cid}").status_code == 401
-
-    # ... and each succeeds with a valid token.
-    assert client.patch(f"{CARDS}/{cid}", json={"title": "x"}, headers=AUTH).status_code == 200
-    assert (
-        client.post(f"{CARDS}/{cid}/move", json={"column": "done"}, headers=AUTH).status_code
-        == 200
-    )
-    assert client.delete(f"{CARDS}/{cid}", headers=AUTH).status_code == 204
-
-
-def test_reads_stay_open_when_auth_enabled(client, tokens_set):
-    # A card created with a token is then readable with no token.
-    created = client.post(CARDS, json={"title": "readable"}, headers=AUTH).json()
-    assert client.get(CARDS).status_code == 200
-    assert client.get(f"{CARDS}/{created['id']}").status_code == 200
-    assert client.get(EPICS).status_code == 200
-
-
-# --- auth disabled (default): writes open -----------------------------------
-
-
-def test_writes_open_when_api_tokens_unset(client, monkeypatch):
-    # Be explicit that nothing is configured, regardless of ambient env.
-    monkeypatch.delenv("API_TOKENS", raising=False)
-    assert client.post(CARDS, json={"title": "open"}).status_code == 201
-    assert client.post(EPICS, json={"name": "open-epic"}).status_code == 201
