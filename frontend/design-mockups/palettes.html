@@ -1,0 +1,179 @@
+<title>Board Palettes — Light & Dark</title>
+<style>
+  :root {
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    /* tokens below are injected by JS per palette+theme */
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ground); color: var(--ink); font-family: var(--sans); line-height: 1.45; -webkit-font-smoothing: antialiased; transition: background .2s, color .2s; }
+
+  .controls { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+    padding: .7rem 1.25rem; background: var(--surface); border-bottom: 1px solid var(--line); }
+  .controls .who { font-size: .78rem; color: var(--muted); } .controls .who b { color: var(--ink); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: none; background: transparent; color: var(--muted); font: inherit; font-size: .82rem; padding: .35rem .8rem; cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .spacer { margin-left: auto; }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 1.5rem 1.25rem 3rem; }
+  .pal-name { margin: .25rem 0 .15rem; font-size: 1.35rem; letter-spacing: -.01em; }
+  .pal-blurb { margin: 0 0 1.1rem; color: var(--muted); font-size: .9rem; max-width: 60ch; }
+
+  /* swatches */
+  .swatches { display: flex; flex-wrap: wrap; gap: .6rem; margin-bottom: 1.5rem; }
+  .sw { display: flex; align-items: center; gap: .5rem; border: 1px solid var(--line); border-radius: 8px; padding: .4rem .55rem; background: var(--surface); }
+  .sw .chip { width: 26px; height: 26px; border-radius: 6px; border: 1px solid rgba(128,128,128,.25); }
+  .sw .lab { font-size: .7rem; } .sw .lab b { display: block; color: var(--ink); font-size: .74rem; }
+  .sw .lab span { color: var(--muted); font-family: var(--mono); font-size: .66rem; }
+
+  /* mini app */
+  .app { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--ground); box-shadow: var(--shadow-md); }
+  .topbar { display: flex; align-items: center; gap: .9rem; padding: .55rem .9rem; background: var(--surface); border-bottom: 1px solid var(--line); }
+  .brand { display: flex; align-items: center; gap: .5rem; font-weight: 700; letter-spacing: -.01em; font-size: .95rem; }
+  .brand .glyph { width: 16px; height: 20px; display: grid; grid-template-columns: 5px 5px; gap: 2px; }
+  .brand .glyph i { display: block; border-radius: 2px; background: var(--accent); }
+  .brand .glyph i:nth-child(2){ align-self:end; height:60%; background: var(--agent); } .brand .glyph i:nth-child(3){ height:60%; }
+  .tabs { display: flex; gap: .1rem; } .tabs button { border:none; background:none; color: var(--muted); font: inherit; font-size:.82rem; padding:.3rem .6rem; border-radius:6px; }
+  .tabs .active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .right { margin-left:auto; display:flex; align-items:center; gap:.5rem; }
+  .av { width:24px; height:24px; border-radius:50%; display:grid; place-items:center; font-size:.68rem; font-weight:700; color:#fff; background: var(--accent); }
+
+  .board { display:grid; grid-template-columns: repeat(3,1fr); gap:1rem; padding:1rem; align-items:start; }
+  .col { display:flex; flex-direction:column; gap:.55rem; }
+  .col-head { display:flex; align-items:center; gap:.5rem; padding:0 .15rem; }
+  .col-head h3 { margin:0; font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color: var(--muted); font-weight:700; }
+  .dot { width:8px; height:8px; border-radius:50%; }
+  .col-todo .dot{ background: var(--muted); } .col-prog .dot{ background: var(--accent); } .col-done .dot{ background: var(--success); }
+  .count { font-size:.72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .card { background: var(--surface); border:1px solid var(--line); border-radius:8px; padding:.6rem .7rem; box-shadow: var(--shadow-sm); }
+  .c-top { display:flex; align-items:center; gap:.5rem; margin-bottom:.35rem; }
+  .ticket { font-family: var(--mono); font-size:.68rem; font-weight:600; color: var(--muted); }
+  .epic { font-size:.64rem; font-weight:600; color: var(--agent); background: var(--agent-soft); padding:.08rem .4rem; border-radius:4px; }
+  .pts { margin-left:auto; font-size:.68rem; font-weight:700; color: var(--accent); background: var(--accent-soft); border-radius:20px; min-width:20px; height:18px; padding:0 .35rem; display:grid; place-items:center; }
+  .title { margin:0; font-size:.875rem; font-weight:500; }
+  .c-foot { display:flex; align-items:center; gap:.5rem; margin-top:.55rem; }
+  .who { display:flex; align-items:center; gap:.35rem; font-size:.7rem; color: var(--muted); }
+  .who-av { width:20px; height:20px; border-radius:50%; display:grid; place-items:center; font-size:.6rem; font-weight:700; color:#fff; background: var(--accent); }
+  .who-av.agent { background: var(--agent); }
+  .actions { margin-left:auto; display:flex; gap:.1rem; }
+  .a-btn { display:grid; place-items:center; width:24px; height:24px; border:none; background:none; color: var(--muted); border-radius:6px; }
+  .a-btn.danger { color: var(--danger); opacity:.85; }
+  .ic { width:14px; height:14px; stroke: currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  .add { display:flex; align-items:center; gap:.4rem; border:1px dashed var(--line); background:none; color: var(--muted); font:inherit; font-size:.82rem; padding:.45rem; border-radius:8px; }
+  .banner { display:flex; gap:.6rem; align-items:center; margin:1rem; padding:.55rem .8rem; border-radius:8px; background: var(--danger-soft); color: var(--danger); font-size:.82rem; }
+</style>
+
+<div class="controls">
+  <span class="who">Palette round — pick a <b>direction</b>, then check it in <b>both themes</b>.</span>
+  <div class="seg" id="pal" role="group" aria-label="Palette">
+    <button data-p="atlas" aria-pressed="true">Atlas</button>
+    <button data-p="graphite" aria-pressed="false">Graphite</button>
+    <button data-p="harbor" aria-pressed="false">Harbor</button>
+  </div>
+  <div class="spacer"></div>
+  <div class="seg" id="theme" role="group" aria-label="Theme">
+    <button data-t="light" aria-pressed="true">Light</button>
+    <button data-t="dark" aria-pressed="false">Dark</button>
+  </div>
+</div>
+
+<div class="wrap">
+  <h1 class="pal-name" id="palName"></h1>
+  <p class="pal-blurb" id="palBlurb"></p>
+  <div class="swatches" id="swatches"></div>
+
+  <div class="app">
+    <div class="topbar">
+      <div class="brand"><span class="glyph"><i></i><i></i><i></i><i></i></span> Simple Kanban</div>
+      <div class="tabs"><button class="active">Board</button><button>Epics</button><button>Tokens</button></div>
+      <div class="right"><div class="av">Y</div></div>
+    </div>
+    <div class="banner">Couldn't reach the board — check your connection and retry.</div>
+    <div class="board" id="board"></div>
+  </div>
+</div>
+
+<script>
+  const ICON = {
+    edit:'<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+    trash:'<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>',
+    plus:'<path d="M12 5v14M5 12h14"/>'
+  };
+  const svg = p => `<svg class="ic" viewBox="0 0 24 24">${p}</svg>`;
+
+  const PAL = {
+    atlas: {
+      name: 'Atlas — Blue & Violet',
+      blurb: 'The refined take on what you have today: a trustworthy Atlassian blue for primary actions and a violet second accent for epics and agents. Cool blue-grey neutrals. Familiar, calm, corporate-safe.',
+      light: { ground:'#f4f5f7', surface:'#ffffff', 'surface-2':'#ebecf0', line:'#dfe1e6', ink:'#172b4d', muted:'#5e6c84',
+        accent:'#0052cc','accent-soft':'#e9f2ff', agent:'#5243aa','agent-soft':'#eae6ff', success:'#36b37e', danger:'#de350b','danger-soft':'#ffebe6',
+        'shadow-sm':'0 1px 0 rgba(9,30,66,.08)','shadow-md':'0 1px 1px rgba(9,30,66,.1),0 8px 20px -12px rgba(9,30,66,.35)' },
+      dark: { ground:'#0d1524', surface:'#1a2740', 'surface-2':'#141f36', line:'#2a3a5c', ink:'#e6edf9', muted:'#9fb0cc',
+        accent:'#4c9aff','accent-soft':'#12294d', agent:'#b3a4ff','agent-soft':'#241f45', success:'#4bce97', danger:'#ff7452','danger-soft':'#3d1a12',
+        'shadow-sm':'0 1px 0 rgba(0,0,0,.4)','shadow-md':'0 10px 28px -14px rgba(0,0,0,.75)' },
+    },
+    graphite: {
+      name: 'Graphite — Zinc & Teal',
+      blurb: 'A developer-tool calm: near-neutral graphite grounds and a single confident teal accent, with violet reserved for epics/agents. Reads like a well-made CLI companion — quiet until something needs you.',
+      light: { ground:'#f6f7f8', surface:'#ffffff', 'surface-2':'#eceef1', line:'#dcdfe4', ink:'#1a1d21', muted:'#616870',
+        accent:'#0d9488','accent-soft':'#d5f1ec', agent:'#7c3aed','agent-soft':'#eee6fd', success:'#16a34a', danger:'#dc2626','danger-soft':'#fde4e4',
+        'shadow-sm':'0 1px 0 rgba(20,25,30,.06)','shadow-md':'0 1px 1px rgba(20,25,30,.08),0 8px 20px -12px rgba(20,25,30,.28)' },
+      dark: { ground:'#101315', surface:'#1a1f23', 'surface-2':'#15191c', line:'#2b3238', ink:'#e8ebed', muted:'#99a2ab',
+        accent:'#2dd4bf','accent-soft':'#0f312d', agent:'#b794f6','agent-soft':'#241a3d', success:'#4ade80', danger:'#f87171','danger-soft':'#3a1717',
+        'shadow-sm':'0 1px 0 rgba(0,0,0,.5)','shadow-md':'0 10px 28px -14px rgba(0,0,0,.8)' },
+    },
+    harbor: {
+      name: 'Harbor — Azure & Coral',
+      blurb: 'The most energetic option, built around the human-vs-agent story: a vivid azure for people and a warm coral for agents, so who-touched-what is legible at a glance. Slate neutrals keep the two accents from clashing.',
+      light: { ground:'#f5f7fa', surface:'#ffffff', 'surface-2':'#e9eef4', line:'#d5dce6', ink:'#0f2740', muted:'#5a6b82',
+        accent:'#2563eb','accent-soft':'#dfe8ff', agent:'#ea580c','agent-soft':'#ffe7d6', success:'#0f9d58', danger:'#dc2626','danger-soft':'#fce4e4',
+        'shadow-sm':'0 1px 0 rgba(15,39,64,.07)','shadow-md':'0 1px 1px rgba(15,39,64,.1),0 8px 20px -12px rgba(15,39,64,.32)' },
+      dark: { ground:'#0b1220', surface:'#131c30', 'surface-2':'#0f1728', line:'#26324a', ink:'#e7edf7', muted:'#93a1ba',
+        accent:'#5b9bff','accent-soft':'#14284b', agent:'#fb923c','agent-soft':'#3a2411', success:'#34d399', danger:'#f87171','danger-soft':'#3a1717',
+        'shadow-sm':'0 1px 0 rgba(0,0,0,.5)','shadow-md':'0 10px 28px -14px rgba(0,0,0,.8)' },
+    },
+  };
+
+  const COLS = [
+    { key:'todo', label:'Todo', cls:'col-todo', cards:[
+      { t:'KAN-26', title:'Wire up OAuth callback route', pts:3, who:'Alice', agent:false, epic:'Accounts & Auth' },
+      { t:'KAN-27', title:'Add rate limiting to the API', pts:5, who:'Bob', agent:false, epic:null },
+    ]},
+    { key:'prog', label:'In Progress', cls:'col-prog', cards:[
+      { t:'KAN-28', title:'Board switcher persistence bug', pts:2, who:'Alice', agent:false, epic:null },
+      { t:'KAN-29', title:'Refactor principal resolver', pts:8, who:'Claude', agent:true, epic:'Board authz' },
+    ]},
+    { key:'done', label:'Done', cls:'col-done', cards:[
+      { t:'KAN-30', title:'Ship PAT revoke endpoint', pts:3, who:'Bob', agent:false, epic:null },
+    ]},
+  ];
+  const card = c => `<article class="card">
+    <div class="c-top"><span class="ticket">${c.t}</span>${c.epic?`<span class="epic">${c.epic}</span>`:''}<span class="pts">${c.pts}</span></div>
+    <p class="title">${c.title}</p>
+    <div class="c-foot">
+      <span class="who"><span class="who-av ${c.agent?'agent':''}">${c.who.slice(0,1)}</span>${c.who}</span>
+      <div class="actions"><button class="a-btn">${svg(ICON.edit)}</button><button class="a-btn danger">${svg(ICON.trash)}</button></div>
+    </div></article>`;
+  document.getElementById('board').innerHTML = COLS.map(col=>`
+    <div class="col ${col.cls}"><div class="col-head"><span class="dot"></span><h3>${col.label}</h3><span class="count">${col.cards.length}</span></div>
+    ${col.cards.map(card).join('')}<button class="add">${svg(ICON.plus)} Add card</button></div>`).join('');
+
+  const SW = [['accent','Primary'],['agent','Agent / epic'],['success','Done'],['danger','Delete'],['ground','Ground'],['surface','Surface']];
+  let pal='atlas', theme='light';
+  function apply(){
+    const set = PAL[pal][theme], root = document.documentElement.style;
+    Object.entries(set).forEach(([k,v]) => root.setProperty('--'+k, v));
+    document.getElementById('palName').textContent = PAL[pal].name;
+    document.getElementById('palBlurb').textContent = PAL[pal].blurb;
+    document.getElementById('swatches').innerHTML = SW.map(([k,lab])=>`
+      <div class="sw"><span class="chip" style="background:${set[k]}"></span><span class="lab"><b>${lab}</b><span>${set[k]}</span></span></div>`).join('');
+    document.querySelectorAll('#pal button').forEach(b=>b.setAttribute('aria-pressed', b.dataset.p===pal));
+    document.querySelectorAll('#theme button').forEach(b=>b.setAttribute('aria-pressed', b.dataset.t===theme));
+  }
+  document.getElementById('pal').onclick = e => { const b=e.target.closest('button'); if(b){ pal=b.dataset.p; apply(); } };
+  document.getElementById('theme').onclick = e => { const b=e.target.closest('button'); if(b){ theme=b.dataset.t; apply(); } };
+  apply();
+</script>
