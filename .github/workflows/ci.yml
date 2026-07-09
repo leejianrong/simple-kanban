@@ -1,17 +1,18 @@
 name: CI
 
-# Validate every PR and every push to main (ADR 0004). Seven independent jobs:
+# Validate every PR and every push to main (ADR 0004). Eight independent jobs:
 # lint, fast unit tests (no Docker), integration tests (real Postgres via
 # testcontainers), the frontend build/type-check, Playwright e2e smoke tests
 # (real Postgres via a service container), the shared kanban-client's lint +
-# tests, and the MCP server's lint + tests (both mocked httpx, no DB). The
-# Deploy workflow only runs after this whole workflow succeeds on main.
+# tests, the MCP server's lint + tests, and the `kan` CLI's lint + tests (the
+# last three all mocked httpx, no DB). The Deploy workflow only runs after this
+# whole workflow succeeds on main.
 #
 # CI path filtering (KAN-37): a leading `changes` job computes which areas of
-# the repo a PR touched; each of the seven jobs then guards its *heavy steps*
+# the repo a PR touched; each of the eight jobs then guards its *heavy steps*
 # on the relevant output. On a docs-only change (nothing under backend/,
-# frontend/, mcp/, kanban-client/ — e.g. this workflow file itself, docs/,
-# .claude/, root *.md) every job still RUNS and REPORTS SUCCESS under its
+# frontend/, mcp/, kanban-client/, kanban-cli/ — e.g. this workflow file itself,
+# docs/, .claude/, root *.md) every job still RUNS and REPORTS SUCCESS under its
 # existing `name:`, but skips the expensive install/test work in seconds.
 #
 # This is a deliberately GATE-SAFE design: branch protection lists several of
@@ -42,6 +43,7 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       mcp: ${{ steps.filter.outputs.mcp }}
       client: ${{ steps.filter.outputs.client }}
+      cli: ${{ steps.filter.outputs.cli }}
       app: ${{ steps.filter.outputs.app }}
     steps:
       # Needed so paths-filter can diff on `push` events (on `pull_request` it
@@ -61,11 +63,14 @@ jobs:
               - 'mcp/**'
             client:
               - 'kanban-client/**'
+            cli:
+              - 'kanban-cli/**'
             app:
               - 'backend/**'
               - 'frontend/**'
               - 'mcp/**'
               - 'kanban-client/**'
+              - 'kanban-cli/**'
 
   lint:
     name: Lint (ruff)
@@ -180,6 +185,32 @@ jobs:
       - name: Pytest
         if: needs.changes.outputs.mcp == 'true'
         working-directory: mcp
+        run: uv run --frozen --group dev pytest -q
+
+  cli:
+    name: CLI (lint + tests)
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip (no kanban-cli changes)
+        if: needs.changes.outputs.cli != 'true'
+        run: echo "No kanban-cli changes — skipping CLI lint + tests."
+      - uses: actions/checkout@v4
+        if: needs.changes.outputs.cli == 'true'
+      - name: Install uv
+        if: needs.changes.outputs.cli == 'true'
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      # Pure logic — the shared client is exercised against a mocked httpx
+      # transport, so no backend or database is needed.
+      - name: Ruff lint
+        if: needs.changes.outputs.cli == 'true'
+        working-directory: kanban-cli
+        run: uv run --frozen --group dev ruff check .
+      - name: Pytest
+        if: needs.changes.outputs.cli == 'true'
+        working-directory: kanban-cli
         run: uv run --frozen --group dev pytest -q
 
   frontend:

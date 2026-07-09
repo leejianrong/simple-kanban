@@ -225,7 +225,16 @@ def _cmd_epic_delete(client: KanbanClient, config: Config, args: argparse.Namesp
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="kan",
-        description="Manage Simple Kanban cards from the command line.",
+        description="Manage Simple Kanban cards, boards, and epics from the command line.",
+        epilog=(
+            "Configuration (environment variables):\n"
+            "  KANBAN_API_URL   API origin (default: http://localhost:8000)\n"
+            "  KANBAN_TOKEN     required personal access token 'kanban_pat_…'\n"
+            "  KANBAN_BOARD_ID  optional default board id for board-scoped commands\n"
+            "\n"
+            "Exit codes: 0 ok, 1 error, 2 usage, 3 unauthorized, 4 forbidden, 5 not found."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     # A shared parent so --json works before OR after the subcommand
     # (e.g. `kan --json list` and `kan list --json` both parse).
