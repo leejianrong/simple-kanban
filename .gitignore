@@ -24,3 +24,6 @@ frontend/.playwright/
 .DS_Store
 .idea/
 .vscode/
+
+# Local MCP config — holds a personal access token (never commit)
+.mcp.json
