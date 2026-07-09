@@ -92,6 +92,15 @@ class KanbanClient:
         """Create a board owned by the caller's user."""
         return self._request("POST", "/boards", json={"name": name}).json()
 
+    def update_board(self, board_id: int, *, name: str | None = None) -> dict[str, Any]:
+        payload = _clean({"name": name})
+        return self._request("PATCH", f"/boards/{board_id}", json=payload).json()
+
+    def delete_board(self, board_id: int) -> dict[str, Any]:
+        # 204 No Content — no body to parse.
+        self._request("DELETE", f"/boards/{board_id}")
+        return {"deleted": board_id}
+
     # --- reads --------------------------------------------------------------
 
     def list_cards(
@@ -160,6 +169,17 @@ class KanbanClient:
     ) -> dict[str, Any]:
         payload = _clean({"board_id": board_id, "name": name, "description": description})
         return self._request("POST", "/epics", json=payload).json()
+
+    def update_epic(
+        self, epic_id: int, *, name: str | None = None, description: str | None = None
+    ) -> dict[str, Any]:
+        payload = _clean({"name": name, "description": description})
+        return self._request("PATCH", f"/epics/{epic_id}", json=payload).json()
+
+    def delete_epic(self, epic_id: int) -> dict[str, Any]:
+        # 204 No Content — no body to parse.
+        self._request("DELETE", f"/epics/{epic_id}")
+        return {"deleted": epic_id}
 
     def update_card(
         self,
