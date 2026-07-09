@@ -182,9 +182,20 @@ Dogfooding observations about driving this board as an agent PM. Seeded from the
   before the machine finishes waking. So warming with curl isn't always enough; you may still need to
   retry the first MCP call once or twice. (Reinforces KAN-25: generous timeout + one auto-retry in
   the shared client.)
-- **Don't run git in the primary checkout while an agent owns a worktree.** One agent accidentally
-  created its branch in the primary checkout first. Keep all per-card git in the agent's worktree;
-  the PM's primary checkout should only ever sit on `main`.
+- **Worktree isolation does NOT sandbox `Bash` — brief agents explicitly.** The harness blocks the
+  `Write`/`Edit` tools from touching paths outside the agent's worktree, but `Bash` can still `cd`
+  into the shared primary checkout and run `git switch -c` there, silently moving YOUR `main` checkout
+  onto a feature branch. Two agents did a version of this. **In every sub-agent brief, say: "run all
+  git against your worktree path only; never `cd` into the parent checkout."** As PM, keep your primary
+  checkout parked on `main` and re-check `git branch --show-current` after each agent returns (both
+  times it self-restored, but verify — don't assume).
+- **Shared-package pattern in this uv monorepo: path source, not a root workspace.** KAN-21 extracted
+  `kanban-client/` as a standalone uv package that `mcp` depends on via
+  `[tool.uv.sources] kanban-client = { path = "../kanban-client", editable = true }`. A repo-root uv
+  *workspace* would be auto-discovered when running `uv` from `backend/` and force `backend` into the
+  workspace, breaking its independent `--frozen` flow. Each package stays independently locked; the
+  lockfile records a *relative* path so CI's fresh checkout stays portable. Any new shared package
+  also needs its own CI job (mirror the `mcp` job) — CI is now 7 jobs.
 - **Distinguish CI *infra* failures from real ones before reacting.** A whole run of jobs all "failing"
   at the *same suspiciously-round duration* (e.g. every job at `15m1s`, including ones that normally
   take 11s) is an infrastructure symptom, not your code. Check the run's annotations
