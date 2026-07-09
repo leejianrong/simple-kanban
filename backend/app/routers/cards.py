@@ -15,19 +15,28 @@ boards. See :mod:`app.authz`.
 """
 from __future__ import annotations
 
+from collections import defaultdict
+from collections.abc import Sequence
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import select, tuple_
+from sqlalchemy import or_, select, tuple_
 from sqlalchemy.orm import Session
 
 from ..auth_models import User
 from ..authz import authorize_board, get_principal, visible_board_ids
 from ..db import get_db
-from ..models import Card, Epic
+from ..models import Card, CardDependency, Epic
 from ..ordering import next_position, renumber_column
 from ..pagination import NEXT_CURSOR_HEADER, decode_cursor, encode_cursor
-from ..schemas import CardCreate, CardMove, CardRead, CardUpdate, ColumnEnum
+from ..schemas import (
+    CardCreate,
+    CardMove,
+    CardRead,
+    CardUpdate,
+    ColumnEnum,
+    DependencyCreate,
+)
 from .boards import resolve_board_id
 
 router = APIRouter(prefix="/cards", tags=["cards"])
@@ -37,6 +46,43 @@ def _get_or_404(db: Session, card_id: int) -> Card:
     card = db.get(Card, card_id)
     if card is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Card not found")
+    return card
+
+
+def _attach_dependencies(db: Session, cards: Sequence[Card]) -> Sequence[Card]:
+    """Populate the transient ``blocked_by`` / ``blocks`` lists on each card from
+    the ``card_dependency`` table (KAN-28), then return the same cards.
+
+    One query fetches every edge touching the given cards and the grouping happens
+    in Python, so a list of N cards costs a single round-trip — no per-card N+1.
+    ``blocked_by`` = ids of cards that block this one (edges where it is the
+    *blocked*); ``blocks`` = ids it blocks (edges where it is the *blocker*).
+    """
+    ids = [c.id for c in cards]
+    if not ids:
+        return cards
+    rows = db.execute(
+        select(CardDependency.blocker_id, CardDependency.blocked_id).where(
+            or_(
+                CardDependency.blocker_id.in_(ids),
+                CardDependency.blocked_id.in_(ids),
+            )
+        )
+    ).all()
+    blocked_by: dict[int, list[int]] = defaultdict(list)
+    blocks: dict[int, list[int]] = defaultdict(list)
+    for blocker_id, blocked_id in rows:
+        blocked_by[blocked_id].append(blocker_id)
+        blocks[blocker_id].append(blocked_id)
+    for card in cards:
+        card.blocked_by = sorted(blocked_by.get(card.id, []))
+        card.blocks = sorted(blocks.get(card.id, []))
+    return cards
+
+
+def _attach_one(db: Session, card: Card) -> Card:
+    """Attach dependency arrays to a single card (thin wrapper on the batch helper)."""
+    _attach_dependencies(db, [card])
     return card
 
 
@@ -126,6 +172,7 @@ def list_cards(
         last = cards[-1]
         response.headers[NEXT_CURSOR_HEADER] = encode_cursor(last.updated_at, last.id)
 
+    _attach_dependencies(db, cards)
     return cards
 
 
@@ -152,7 +199,7 @@ def create_card(
     db.commit()
     # Refresh so server-assigned fields (id, ticket_number, timestamps) are populated.
     db.refresh(card)
-    return card
+    return _attach_one(db, card)
 
 
 @router.get("/{card_id}", response_model=CardRead)
@@ -163,7 +210,7 @@ def get_card(
 ) -> Card:
     card = _get_or_404(db, card_id)
     authorize_board(db, principal, card.board_id)
-    return card
+    return _attach_one(db, card)
 
 
 @router.patch("/{card_id}", response_model=CardRead)
@@ -188,7 +235,7 @@ def update_card(
         setattr(card, field, value)
     db.commit()  # updated_at is bumped server-side via onupdate
     db.refresh(card)
-    return card
+    return _attach_one(db, card)
 
 
 @router.delete("/{card_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -248,4 +295,128 @@ def move_card(
 
     db.commit()
     db.refresh(card)
-    return card
+    return _attach_one(db, card)
+
+
+# --- card-to-card dependencies (KAN-28) ------------------------------------
+
+
+def _blocks_reaches(db: Session, start_id: int, target_id: int) -> bool:
+    """True if ``start_id`` can reach ``target_id`` by following blocks-edges
+    (blocker→blocked). Iterative DFS with a visited set, so it terminates even on
+    an (already-persisted) cycle.
+
+    Used for cycle prevention: adding the edge ``blocker→blocked`` would close a
+    loop iff ``blocked`` already reaches ``blocker``.
+    """
+    seen: set[int] = set()
+    stack = [start_id]
+    while stack:
+        current = stack.pop()
+        if current == target_id:
+            return True
+        if current in seen:
+            continue
+        seen.add(current)
+        stack.extend(
+            db.scalars(
+                select(CardDependency.blocked_id).where(
+                    CardDependency.blocker_id == current
+                )
+            ).all()
+        )
+    return False
+
+
+@router.post(
+    "/{card_id}/dependencies",
+    response_model=CardRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_dependency(
+    card_id: int,
+    payload: DependencyCreate,
+    db: Session = Depends(get_db),
+    principal: User = Depends(get_principal),
+) -> Card:
+    """Record that card ``{card_id}`` is **blocked-by** card ``blocker_id`` — i.e.
+    insert the edge ``(blocker_id → card_id)``. Returns the (now-blocked) card with
+    refreshed ``blocked_by`` / ``blocks`` arrays.
+
+    Guards (all 422 unless noted), mirroring ``_validate_epic``:
+    - both cards must exist (**404** otherwise);
+    - **same board** — the blocker must live on the blocked card's board;
+    - **no self-link** — a card cannot block itself;
+    - **no duplicate** — the edge must not already exist;
+    - **no cycle** — the edge must not make the blocks-graph cyclic.
+
+    Owner-gated on ``{card_id}``'s board; the same-board rule means that also covers
+    the blocker.
+    """
+    card = _get_or_404(db, card_id)
+    authorize_board(db, principal, card.board_id)
+
+    blocker_id = payload.blocker_id
+    if blocker_id == card.id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="a card cannot block itself",
+        )
+    blocker = db.get(Card, blocker_id)
+    if blocker is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="blocker card not found"
+        )
+    if blocker.board_id != card.board_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="blocker must be on the same board",
+        )
+    existing = db.scalars(
+        select(CardDependency).where(
+            CardDependency.blocker_id == blocker_id,
+            CardDependency.blocked_id == card.id,
+        )
+    ).first()
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="dependency already exists",
+        )
+    # Adding blocker→card would create a cycle iff card already reaches blocker.
+    if _blocks_reaches(db, card.id, blocker_id):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="dependency would create a cycle",
+        )
+
+    db.add(CardDependency(blocker_id=blocker_id, blocked_id=card.id))
+    db.commit()
+    return _attach_one(db, card)
+
+
+@router.delete("/{card_id}/dependencies/{blocker_id}", response_model=CardRead)
+def remove_dependency(
+    card_id: int,
+    blocker_id: int,
+    db: Session = Depends(get_db),
+    principal: User = Depends(get_principal),
+) -> Card:
+    """Remove the ``(blocker_id → card_id)`` edge (card ``{card_id}`` is no longer
+    blocked-by ``blocker_id``). **404** if that edge doesn't exist. Returns the card
+    with refreshed dependency arrays."""
+    card = _get_or_404(db, card_id)
+    authorize_board(db, principal, card.board_id)
+    edge = db.scalars(
+        select(CardDependency).where(
+            CardDependency.blocker_id == blocker_id,
+            CardDependency.blocked_id == card.id,
+        )
+    ).first()
+    if edge is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Dependency not found"
+        )
+    db.delete(edge)
+    db.commit()
+    return _attach_one(db, card)

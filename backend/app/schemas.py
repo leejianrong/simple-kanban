@@ -100,8 +100,20 @@ class CardRead(BaseModel):
     story_points: int | None
     assignee: str | None
     epic_id: int | None
+    # Card-to-card dependencies (KAN-28), populated by the router from the
+    # card_dependency table (not ORM-mapped columns): ids of cards that block this
+    # one, and ids of cards this one blocks. Empty when there are none.
+    blocked_by: list[int] = []
+    blocks: list[int] = []
     created_at: datetime
     updated_at: datetime
+
+
+class DependencyCreate(BaseModel):
+    """Add a blocker to a card (KAN-28): ``POST /cards/{id}/dependencies`` with
+    ``{"blocker_id": N}`` records that card ``{id}`` is *blocked-by* card ``N``."""
+
+    blocker_id: int
 
 
 class EpicCreate(BaseModel):

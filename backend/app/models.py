@@ -28,6 +28,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
     text,
 )
@@ -92,6 +93,35 @@ class Epic(Base):
         nullable=False,
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+
+class CardDependency(Base):
+    """A directed blocker→blocked edge between two cards on the same board
+    (KAN-28, the foundation for the dependency line).
+
+    ``blocker_id`` blocks ``blocked_id`` — i.e. the blocked card is *blocked-by*
+    the blocker. Both FKs ``ON DELETE CASCADE`` so deleting a card removes any edge
+    it participates in (consistent with the app's hard-delete model). A
+    ``UNIQUE(blocker_id, blocked_id)`` constraint keeps an edge singular. The
+    same-board rule, self-link ban and cycle prevention are enforced in the router
+    (``routers/cards.py``), not the schema — they can't be a table constraint.
+    """
+
+    __tablename__ = "card_dependency"
+    __table_args__ = (
+        UniqueConstraint("blocker_id", "blocked_id", name="uq_card_dependency_edge"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    blocker_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("card.id", ondelete="CASCADE"), nullable=False
+    )
+    blocked_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("card.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
 
