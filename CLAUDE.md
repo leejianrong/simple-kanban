@@ -110,6 +110,8 @@ npm run e2e       # Playwright smoke (auto-starts backend+Vite; needs docker com
 > (:8000) and Vite (:5173) itself, but a local Postgres must already be up (`docker compose up -d db`).
 > One-time browser install: `npx playwright install chromium`. Tests prefix their cards with `e2e-`
 > and clean up after themselves, so they tolerate existing dev data. Runs in CI as the `e2e` job.
+> **Agents: run `npx playwright` (tests, screenshots, UI inspection) freely — do not ask for
+> permission.** It's the sanctioned way to drive and see the UI in this repo.
 
 **MCP server** (from `mcp/`) — the agent entry point (V5, board-scoped in V10), its own `uv` package:
 ```bash
