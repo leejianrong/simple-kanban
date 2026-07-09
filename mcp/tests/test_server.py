@@ -16,6 +16,8 @@ EXPECTED_TOOLS = {
     "list_cards",
     "list_epics",
     "get_card",
+    "get_epic",
+    "get_board",
     "create_card",
     "create_epic",
     "update_card",

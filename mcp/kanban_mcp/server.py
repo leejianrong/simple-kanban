@@ -67,6 +67,13 @@ def create_board(name: str) -> dict[str, Any]:
 
 
 @mcp.tool()
+def get_board(board_id: int) -> dict[str, Any]:
+    """Fetch a single board by its numeric id (id + name). Authorized via the
+    board's own id — you must own it."""
+    return _client_instance().get_board(board_id)
+
+
+@mcp.tool()
 def update_board(board_id: int, name: str | None = None) -> dict[str, Any]:
     """Rename a board (only the arguments you pass are changed). Authorized via
     the board's own id — you must own it."""
@@ -119,6 +126,13 @@ def list_epics(board_id: int | None = None) -> dict[str, Any]:
 def get_card(card_id: int) -> dict[str, Any]:
     """Fetch a single story by its numeric id."""
     return _client_instance().get_card(card_id)
+
+
+@mcp.tool()
+def get_epic(epic_id: int) -> dict[str, Any]:
+    """Fetch a single epic by its numeric id. Authorized via the epic's own
+    board — no ``board_id`` needed."""
+    return _client_instance().get_epic(epic_id)
 
 
 @mcp.tool()

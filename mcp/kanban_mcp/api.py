@@ -96,6 +96,9 @@ class KanbanClient:
         payload = _clean({"name": name})
         return self._request("PATCH", f"/boards/{board_id}", json=payload).json()
 
+    def get_board(self, board_id: int) -> dict[str, Any]:
+        return self._request("GET", f"/boards/{board_id}").json()
+
     def delete_board(self, board_id: int) -> dict[str, Any]:
         # 204 No Content — no body to parse.
         self._request("DELETE", f"/boards/{board_id}")
@@ -137,6 +140,9 @@ class KanbanClient:
 
     def get_card(self, card_id: int) -> dict[str, Any]:
         return self._request("GET", f"/cards/{card_id}").json()
+
+    def get_epic(self, epic_id: int) -> dict[str, Any]:
+        return self._request("GET", f"/epics/{epic_id}").json()
 
     # --- writes -------------------------------------------------------------
 

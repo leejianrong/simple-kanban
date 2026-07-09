@@ -64,6 +64,14 @@ def test_update_board_patches_name():
     assert out == {"id": 2, "name": "Renamed"}
 
 
+def test_get_board_hits_the_id_path():
+    handler, seen = capture(httpx.Response(200, json={"id": 4, "name": "B"}))
+    out = make_client(handler).get_board(4)
+    assert seen["method"] == "GET"
+    assert seen["path"] == "/api/v1/boards/4"
+    assert out == {"id": 4, "name": "B"}
+
+
 def test_delete_board_sends_delete_and_returns_ack_without_parsing_body():
     handler, seen = capture(httpx.Response(204))  # no JSON body
     out = make_client(handler).delete_board(4)
@@ -120,6 +128,14 @@ def test_get_card_hits_the_id_path():
     assert seen["method"] == "GET"
     assert seen["path"] == "/api/v1/cards/7"
     assert out == {"id": 7}
+
+
+def test_get_epic_hits_the_id_path():
+    handler, seen = capture(httpx.Response(200, json={"id": 3, "name": "E"}))
+    out = make_client(handler).get_epic(3)
+    assert seen["method"] == "GET"
+    assert seen["path"] == "/api/v1/epics/3"
+    assert out == {"id": 3, "name": "E"}
 
 
 # --- writes ----------------------------------------------------------------

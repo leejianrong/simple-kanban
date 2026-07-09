@@ -12,11 +12,13 @@ source of truth (API-first, ADR 0005). Milestone 2 slice **V5**; board-scoped in
 |------|----------|--------------|
 | `list_boards()` | `GET /boards` | — (lists boards you own) |
 | `create_board(name)` | `POST /boards` | — (creates one you own) |
+| `get_board(board_id)` | `GET /boards/{id}` | — (by id) |
 | `update_board(board_id, name?)` | `PATCH /boards/{id}` | via the entity's own board |
 | `delete_board(board_id)` | `DELETE /boards/{id}` | via the entity's own board |
 | `list_cards(board_id?, column?, epic_id?, updated_since?, limit?, cursor?)` | `GET /cards` (V3 query API) | `board_id` |
 | `list_epics(board_id?)` | `GET /epics` | `board_id` |
 | `get_card(card_id)` | `GET /cards/{id}` | — (by card id) |
+| `get_epic(epic_id)` | `GET /epics/{id}` | — (by id) |
 | `create_card(title, board_id?, description?, column?, story_points?, assignee?, epic_id?)` | `POST /cards` | `board_id` |
 | `create_epic(name, board_id?, description?)` | `POST /epics` | `board_id` |
 | `update_epic(epic_id, name?, description?)` | `PATCH /epics/{id}` | via the entity's own board |
