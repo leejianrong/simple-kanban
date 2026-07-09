@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Pencil, Trash2 } from "lucide-svelte";
   import type { Card } from "../api";
   import { epicFor, removeCard } from "../board.svelte";
   import CardForm from "./CardForm.svelte";
@@ -7,6 +8,9 @@
 
   // The epic this story belongs to (if any) — rendered as a tag on the face.
   const epic = $derived(epicFor(card.epic_id));
+
+  // Assignee avatar: first initial of the name/handle.
+  const initials = $derived(card.assignee?.trim().charAt(0).toUpperCase() ?? "");
 
   // view (P1 face) · edit (P3) · confirmDelete (P4)
   let mode = $state<"view" | "edit" | "confirmDelete">("view");
@@ -50,22 +54,34 @@
   <article class="card">
     <div class="card-top">
       <span class="ticket">{card.ticket_number}</span>
+      {#if epic}
+        <span class="epic-tag" title="{epic.ticket_number} · {epic.name}">{epic.name}</span>
+      {/if}
       {#if card.story_points != null}
-        <span class="points">{card.story_points}</span>
+        <span class="points" title="Story points">{card.story_points}</span>
       {/if}
     </div>
-    {#if epic}
-      <div class="card-meta">
-        <span class="epic-tag" title="{epic.ticket_number} · {epic.name}">{epic.name}</span>
-      </div>
-    {/if}
     <p class="card-title">{card.title}</p>
-    {#if card.assignee}
-      <span class="assignee">{card.assignee}</span>
-    {/if}
-    <div class="card-actions">
-      <button class="link" onclick={() => (mode = "edit")}>Edit</button>
-      <button class="link danger" onclick={() => (mode = "confirmDelete")}>Delete</button>
+    <div class="card-foot">
+      {#if card.assignee}
+        <span class="who">
+          <span class="avatar-sm" aria-hidden="true">{initials}</span>
+          <span class="who-name">{card.assignee}</span>
+        </span>
+      {/if}
+      <div class="card-actions">
+        <button class="icon-btn" title="Edit" aria-label="Edit" onclick={() => (mode = "edit")}>
+          <Pencil size={15} />
+        </button>
+        <button
+          class="icon-btn danger"
+          title="Delete"
+          aria-label="Delete"
+          onclick={() => (mode = "confirmDelete")}
+        >
+          <Trash2 size={15} />
+        </button>
+      </div>
     </div>
   </article>
 {/if}
