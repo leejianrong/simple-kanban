@@ -19,20 +19,27 @@ source of truth (API-first, ADR 0005). Milestone 2 slice **V5**.
 
 \* A token was originally required **only** for writes, and only if the target
 server had `API_TOKENS` set (ADR 0010). **Since M3 V8 (ADR 0013) the whole
-`/api/v1` surface is auth-required** — reads *and* writes need a principal. The MCP
-server has no cookie session, so it authenticates with the `API_TOKENS` bearer,
-which resolves to a **SERVICE** principal that bypasses per-board ownership
-(transitional). So: set `KANBAN_TOKEN` to one of the server's `API_TOKENS` and set
-`API_TOKENS` on the server; a fully tokenless server now rejects the MCP with
-`401`. **V9/V10** replace this with a per-user personal-access-token and board
-scoping (ADR 0010 superseded).
+`/api/v1` surface is auth-required** — reads *and* writes need a principal, so
+`KANBAN_TOKEN` is now mandatory. **Two token options during the V8→V10 window:**
+
+1. **A personal access token (recommended, V9 / ADR 0014).** Create one in the SPA
+   (top-bar **Tokens** → *New token*), copy the `kanban_pat_…` secret shown once,
+   and set it as `KANBAN_TOKEN`. It authenticates **as your user** and is
+   **owner-gated** — the agent can only touch boards you own. No server config
+   needed. This is the path V10 wires up fully (board targeting + create/list-board
+   tools).
+2. **A shared `API_TOKENS` service token (transitional).** Set `API_TOKENS` on the
+   server and use one of its values as `KANBAN_TOKEN`; it resolves to an unscoped
+   **SERVICE** principal that bypasses ownership. Removed in **V10** — prefer a PAT.
+
+A fully tokenless server rejects the MCP with `401`.
 
 ## Configuration (env)
 
 | Var | Default | Meaning |
 |-----|---------|---------|
 | `KANBAN_API_URL` | `http://localhost:8000` | API origin (the `/api/v1` prefix is added for you) |
-| `KANBAN_TOKEN` | *(unset)* | Bearer token. Since V8 (ADR 0013) `/api/v1` is auth-required, so this must be one of the server's `API_TOKENS` (SERVICE bypass) — an empty token now yields `401` |
+| `KANBAN_TOKEN` | *(unset)* | Bearer token (required since V8 — `/api/v1` is auth-required). Prefer a per-user **PAT** (`kanban_pat_…`, created in the Tokens UI, V9); an `API_TOKENS` value also works transitionally. Empty → `401` |
 
 ## Run it
 

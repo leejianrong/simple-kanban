@@ -184,3 +184,39 @@ class BoardRead(BaseModel):
     owner_id: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
+
+
+class TokenCreate(BaseModel):
+    """Create a personal access token (M3 V9, ADR 0014). Only a name (and an
+    optional expiry); the secret is server-generated, never client-supplied."""
+
+    name: Annotated[str, Field(min_length=1)]
+    expires_at: datetime | None = None
+
+    @field_validator("name")
+    @classmethod
+    def name_non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("name must not be empty")
+        return v
+
+
+class TokenRead(BaseModel):
+    """Token metadata — never includes the secret (only shown once, on create)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    token_prefix: str
+    created_at: datetime
+    last_used_at: datetime | None
+    expires_at: datetime | None
+
+
+class TokenCreated(TokenRead):
+    """The create-only response: metadata **plus** the raw secret, returned
+    exactly once. The client must copy it now — it is not stored and cannot be
+    retrieved again (R7.1)."""
+
+    token: str

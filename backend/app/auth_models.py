@@ -13,12 +13,17 @@ never touches them.
 """
 from __future__ import annotations
 
+import uuid
+from datetime import datetime
+
 from fastapi_users_db_sqlalchemy import (
     SQLAlchemyBaseOAuthAccountTableUUID,
     SQLAlchemyBaseUserTableUUID,
 )
 from fastapi_users_db_sqlalchemy.access_token import SQLAlchemyBaseAccessTokenTableUUID
-from sqlalchemy.orm import Mapped, relationship
+from fastapi_users_db_sqlalchemy.generics import GUID
+from sqlalchemy import BigInteger, DateTime, ForeignKey, String, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
 
@@ -42,7 +47,52 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
 class AccessToken(SQLAlchemyBaseAccessTokenTableUUID, Base):
     """A server-side session record for the cookie ``DatabaseStrategy`` — logout
     deletes the row, making sessions revocable (D3). Distinct from the agent
-    personal-access-tokens coming in V9."""
+    personal-access-tokens below."""
 
     # The mixin defaults to "accesstoken"; use the snake_case name the docs use.
     __tablename__ = "access_token"
+
+
+class PersonalAccessToken(Base):
+    """A self-serve **agent personal access token** (M3 V9, ADR 0014).
+
+    A PAT lets a non-interactive agent authenticate as its **owning user** and
+    inherit that user's board access (SHAPING D5) — the same principal + owner
+    check humans use (ADR 0013), just a different front door. It **supersedes**
+    V4's shared ``API_TOKENS`` env list (ADR 0010) with per-user, revocable,
+    metadata-carrying tokens.
+
+    **Unlike the other tables in this module, a PAT is read through the SYNC
+    engine** (``get_db``): it is *our* table, looked up with a plain indexed
+    ``SELECT`` on ``token_hash`` inside the sync board-auth path (ADR 0008), not
+    fastapi-users' async store. Only the raw secret's **hash** is stored (R7.1):
+    HMAC-SHA256 keyed with ``AUTH_SECRET`` (see ``app/tokens.py``) — a fast,
+    *indexable* hash (the token is a 256-bit random secret, so slow password
+    hashing buys nothing and would forbid a direct lookup)."""
+
+    __tablename__ = "personal_access_token"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    # The owning user. CASCADE: deleting a user removes their tokens.
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # HMAC-SHA256 hex digest (64 chars); unique + indexed for O(1) auth lookup.
+    token_hash: Mapped[str] = mapped_column(
+        String(64), unique=True, nullable=False, index=True
+    )
+    # A short, non-secret prefix of the raw token (e.g. ``kanban_pat_ab12``) shown
+    # in the UI list so a user can tell their tokens apart. Never the full secret.
+    token_prefix: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    # Stamped on each successful auth (a "last used" signal for the UI/audit).
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Optional expiry; NULL = never expires. Enforced at auth time.
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

@@ -21,16 +21,19 @@ sub-dependency for a sync endpoint (proven in V7's ``create_board``).
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Union
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from .auth import bearer_scheme, configured_tokens
-from .auth_models import User
+from .auth_models import PersonalAccessToken, User
+from .db import get_db
 from .models import Board
+from .tokens import TOKEN_PREFIX, hash_token
 from .users import current_optional_user
 
 
@@ -48,25 +51,69 @@ SERVICE = _Service()
 Principal = Union[User, _Service]
 
 
+def _resolve_pat(db: Session, raw: str) -> User | None:
+    """Resolve a bearer value to its owning ``User`` if it is a valid, unexpired
+    personal access token (M3 V9, ADR 0014), else ``None``.
+
+    Fully **sync** (ADR 0008): our own table, an indexed lookup by hash. Stamps
+    ``last_used_at`` on success. Revocation is deletion, so a revoked token simply
+    isn't found.
+    """
+    # Fast-path skip: only strings minted by us can match, so a stray API_TOKENS
+    # value never triggers a DB round-trip.
+    if not raw.startswith(TOKEN_PREFIX):
+        return None
+    pat = db.scalars(
+        select(PersonalAccessToken).where(
+            PersonalAccessToken.token_hash == hash_token(raw)
+        )
+    ).first()
+    if pat is None:
+        return None
+    if pat.expires_at is not None and pat.expires_at <= datetime.now(timezone.utc):
+        return None
+    pat.last_used_at = func.now()  # server-clock stamp; committed below
+    db.commit()
+    return db.get(User, pat.user_id)
+
+
 def get_principal(
     user: User | None = Depends(current_optional_user),
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
 ) -> Principal:
     """Resolve the request principal, or 401 if there is none.
 
-    Precedence: a human cookie session wins; failing that, a valid ``API_TOKENS``
-    bearer yields the SERVICE principal. Anything else is unauthenticated.
+    Precedence: a human **cookie session** wins; else a valid **personal access
+    token** bearer → its owning ``User`` (V9, owner-gated like a human); else a
+    valid **``API_TOKENS``** bearer → the transitional SERVICE bypass (removed in
+    V10). Anything else is unauthenticated.
     """
     if user is not None:
         return user
-    tokens = configured_tokens()
-    if tokens and credentials is not None and credentials.credentials in tokens:
-        return SERVICE
+    if credentials is not None:
+        pat_user = _resolve_pat(db, credentials.credentials)
+        if pat_user is not None:
+            return pat_user
+        tokens = configured_tokens()
+        if credentials.credentials in tokens:
+            return SERVICE
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="authentication required",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+
+def require_user(principal: Principal = Depends(get_principal)) -> User:
+    """Like :func:`get_principal` but rejects the SERVICE principal — for routes
+    that are inherently per-user (e.g. token management). 403 for SERVICE."""
+    if not isinstance(principal, User):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="this action requires a user account",
+        )
+    return principal
 
 
 def authorize_board(db: Session, principal: Principal, board_id: int) -> Board:

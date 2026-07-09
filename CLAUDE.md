@@ -13,22 +13,24 @@ V1 (epic entity + story links), V2 (API versioning), V3 (query API), V4 (token a
 MCP server in [mcp/](mcp/) + Claude Code wiring). See the milestone table below and
 [docs/milestone-2/SLICES.md](docs/milestone-2/SLICES.md).
 **Milestone 3 (Accounts, Boards & Agent Access)** is fully shaped ([docs/milestone-3/](docs/milestone-3/))
-and **in progress**: **V6 (human GitHub login + landing + auth-gated SPA, ADR 0011)**, **V7
-(multi-board with ownership, ADR 0012)**, and **V8 (board authorization, ADR 0013)** are **built**;
-V9–V10 (agent PATs, MCP board-scoping) are not yet built. **V8 flipped `/api/v1` from open to
-auth-required and owner-gated:** every board-scoped route resolves a principal (cookie session →
-`User`, else an `API_TOKENS` bearer → a transitional **SERVICE** bypass, else `401`) and allows only
-the board's owner (else `403`); lists are owner-scoped. First login claims unclaimed boards
-(rescuing the migrated default board).
+and **in progress**: **V6 (human GitHub login, ADR 0011)**, **V7 (multi-board with ownership, ADR
+0012)**, **V8 (board authorization, ADR 0013)**, and **V9 (self-serve agent PATs, ADR 0014)** are
+**built**; only **V10 (MCP board-scoping + PAT auth)** is not yet built. **V8 flipped `/api/v1` from
+open to auth-required and owner-gated:** every board-scoped route resolves a principal and allows
+only the board's owner (else `403`); lists are owner-scoped; first login claims unclaimed boards.
+**V9 added per-user hashed PATs** as the third branch of that one resolver (cookie session → `User`;
+else PAT bearer → its owning `User`; else `API_TOKENS` bearer → a transitional **SERVICE** bypass;
+else `401`) — a PAT is owner-gated exactly like its owner. The `API_TOKENS` SERVICE bypass is kept
+only until **V10** rewires the MCP server onto PATs and removes it.
 The [docs/](docs/) folder describes those plans at a high level, so **don't assume a documented
 detail matches the code** — check the source.
 
 | Area | Built now | Documented but NOT yet built |
 |------|-----------|------------------------------|
-| API | Canonical `/api/v1` (V2): `GET/POST /api/v1/cards`, `GET/PATCH/DELETE /api/v1/cards/{id}`, `POST /api/v1/cards/{id}/move`; `GET/POST /api/v1/epics`, `GET/PATCH/DELETE /api/v1/epics/{id}`; `GET/POST /api/v1/boards`, `GET/PATCH/DELETE /api/v1/boards/{id}` (V7); unversioned `GET /api/health`. `GET /api/v1/cards` takes query params `board_id`/`column`/`epic_id`/`updated_since`/`limit`/`cursor` with keyset pagination via the `X-Next-Cursor` header (V3); `GET /api/v1/epics` takes `board_id`. Card/epic create takes optional `board_id` (defaults to the earliest board). **Owner-gated (V8, ADR 0013):** every board-scoped route is auth-required — a cookie session (→`User`) or an `API_TOKENS` bearer (→SERVICE bypass), else `401`; non-owner → `403`; lists owner-scoped. A story's epic must be on the same board (422) | Per-user PAT auth (V9) replaces the `API_TOKENS` SERVICE bypass |
+| API | Canonical `/api/v1` (V2): `GET/POST /api/v1/cards`, `GET/PATCH/DELETE /api/v1/cards/{id}`, `POST /api/v1/cards/{id}/move`; `GET/POST /api/v1/epics`, `GET/PATCH/DELETE /api/v1/epics/{id}`; `GET/POST /api/v1/boards`, `GET/PATCH/DELETE /api/v1/boards/{id}` (V7); unversioned `GET /api/health`. `GET /api/v1/cards` takes query params `board_id`/`column`/`epic_id`/`updated_since`/`limit`/`cursor` with keyset pagination via the `X-Next-Cursor` header (V3); `GET /api/v1/epics` takes `board_id`. Card/epic create takes optional `board_id` (defaults to the earliest board). `GET/POST /api/v1/tokens`, `DELETE /api/v1/tokens/{id}` (V9 agent PATs). **Owner-gated (V8, ADR 0013):** every board-scoped route is auth-required — a cookie session (→`User`), a **PAT bearer** (→owning `User`, V9), or an `API_TOKENS` bearer (→transitional SERVICE bypass), else `401`; non-owner → `403`; lists owner-scoped. A story's epic must be on the same board (422) | MCP board-scoping + PAT wiring (V10); then drop the `API_TOKENS` SERVICE bypass |
 | Boards (M3 V7 + V8 authz) | `board` table (`name` + nullable `owner_id`→user); NOT NULL `board_id` on card+epic (ON DELETE CASCADE); `/api/v1/boards` CRUD (owner from session, cascade delete). Migration `0005` seeds one default board + backfills existing cards/epics; **first login claims unclaimed boards** (V8, `UserManager.on_after_login`). Owner-only authz + list scoping enforced (V8, `app/authz.py`). Positions are per (board, column). Ticket numbers stay global `KAN-`/`EPIC-` (ADR 0012/0013) | — |
-| Auth (M3 V6 + V8) | Human login: unversioned `GET /auth/github/authorize` + `/auth/github/callback` (GitHub OAuth, **only mounted when creds are set**), `POST /auth/logout`, `GET/PATCH /users/me`. Revocable httpOnly cookie session (fastapi-users `CookieTransport` + `DatabaseStrategy`). `User`/`OAuthAccount`/`access_token` tables on a second **async** engine (ADR 0011). **Board authz** (`app/authz.py`, V8): sync principal resolver + `authorize_board`. **E2E-only** `POST /auth/test-login` when `E2E_AUTH_BYPASS` set (never in prod) | Self-serve agent PATs replacing `API_TOKENS` (V9) |
-| Frontend auth | `Landing.svelte` for logged-out visitors (from the mockup, `.landing`-scoped tokens, light/dark); `App.svelte` gates on `GET /users/me` (401 → landing, else board); top-bar shows the user email + **Log out**. Same-origin fetches carry the session cookie, so the now-owner-gated `/api/v1` works; `refetchBoards()` scopes to owned boards (a new user with none sees an empty board + switcher) | Tokens page (V9) |
+| Auth (M3 V6 + V8 + V9) | Human login: unversioned `GET /auth/github/authorize` + `/auth/github/callback` (GitHub OAuth, **only mounted when creds are set**), `POST /auth/logout`, `GET/PATCH /users/me`. Revocable httpOnly cookie session (fastapi-users `CookieTransport` + `DatabaseStrategy`). `User`/`OAuthAccount`/`access_token` tables on a second **async** engine (ADR 0011). **Board authz** (`app/authz.py`, V8): sync principal resolver + `authorize_board`. **Agent PATs** (V9, ADR 0014): `personal_access_token` table (migration `0006`), hashed HMAC-SHA256 (`app/tokens.py`), a sync PAT branch in the resolver → owning `User`; managed via `/api/v1/tokens`. **E2E-only** `POST /auth/test-login` when `E2E_AUTH_BYPASS` set (never in prod) | MCP PAT wiring (V10) |
+| Frontend auth | `Landing.svelte` for logged-out visitors (from the mockup, `.landing`-scoped tokens, light/dark); `App.svelte` gates on `GET /users/me` (401 → landing, else board); top-bar shows the user email + **Log out**. Same-origin fetches carry the session cookie, so the now-owner-gated `/api/v1` works; `refetchBoards()` scopes to owned boards (a new user with none sees an empty board + switcher). Top-bar **Tokens** view (`Tokens.svelte` + `tokens.svelte.ts`, V9): create / reveal-once / revoke agent PATs | — |
 | Frontend boards | Top-bar **board switcher** (`BoardSwitcher.svelte`): select / new / rename / delete; active board persisted in localStorage; card + epic views/creates scope to it (`boardStore` in board.svelte.ts) | — |
 | Ordering | `next_position()` (append to end), `renumber_column()` (re-sequence on move/reorder) | — |
 | Frontend | `Board \| Epics` top-bar toggle. Board: list + create + edit + delete + drag-and-drop (`svelte-dnd-action`); each story shows its epic-name tag; epic selector in the story form. Epics view: create / list / edit / delete epics with a child-story rollup | — |
@@ -52,8 +54,8 @@ detail matches the code** — check the source.
 | V6 | Human login: fastapi-users on a second **async** engine; GitHub OAuth + revocable cookie session; `Landing.svelte` + `GET /users/me` auth-gated SPA + logout (ADR 0011) | **Built** |
 | V7 | Boards as a first-class entity (`board` table, `card`/`epic` `board_id`), board switcher, default-board migration (ADR 0012) | **Built** |
 | V8 | Board authorization — `/api/v1` owner-gated (principal resolver + `authorize_board`, list scoping + 403); claim-on-login; `API_TOKENS`→SERVICE bypass; same-board epic rule (ADR 0013) | **Built** |
-| V9 | Self-serve agent personal-access-tokens (hashed), Tokens UI; retires V4's `API_TOKENS` | Not built |
-| V10 | MCP board-scoping + PAT auth | Not built |
+| V9 | Self-serve agent personal-access-tokens (hashed HMAC-SHA256, `personal_access_token` + migration `0006`, `/api/v1/tokens`, Tokens UI); PAT branch in the resolver → owning user; supersedes V4's `API_TOKENS` as the agent mechanism (ADR 0014) | **Built** |
+| V10 | MCP board-scoping + PAT auth; then remove the transitional `API_TOKENS` SERVICE bypass | Not built |
 
 When extending the app, follow the plan already written in [docs/SHAPING.md](docs/SHAPING.md)
 (§Detailed shape) and [docs/BREADBOARD.md](docs/BREADBOARD.md) for the core board, and
@@ -172,13 +174,16 @@ always target the app's database.
 
 `API_TOKENS` (V4, ADR 0010) is a comma-separated list of bearer tokens, read from the environment
 per request (rotatable; tests toggle it via `monkeypatch.setenv`). **Its meaning changed in V8 (ADR
-0013):** `/api/v1` is now **auth-required** for every request (not just writes, not just when set),
-so a valid `API_TOKENS` bearer no longer merely "enables auth on writes" — it resolves to a
-transitional **SERVICE** principal that **bypasses** per-board ownership (the MCP/agent path until
-V9 replaces it with per-user PATs). The SPA and human clients authenticate with the **cookie
-session** instead and don't send a token. Board CRUD via cookie session works whether or not
-`API_TOKENS` is set. Local dev + the SPA need no token; the MCP server needs one (set `API_TOKENS`
-on the server + `KANBAN_TOKEN` on the client). Prod sets it as a Fly secret.
+0013):** `/api/v1` is now **auth-required** for every request, so a valid `API_TOKENS` bearer resolves
+to a transitional **SERVICE** principal that **bypasses** per-board ownership. **V9 (ADR 0014)
+superseded it as the agent mechanism** with self-serve per-user **PATs** (`kanban_pat_…`, hashed;
+managed at `/api/v1/tokens` + the Tokens UI) that resolve to their owning user and are owner-gated.
+Agents should now use a PAT (`KANBAN_TOKEN` = a real PAT); the `API_TOKENS` SERVICE bypass remains
+only until **V10** rewires MCP and removes it. The SPA/human clients authenticate with the **cookie
+session** and send no token; board CRUD via cookie session works whether or not `API_TOKENS` is set.
+
+`AUTH_SECRET` doubles as the **pepper** for PAT hashing (HMAC-SHA256), so rotating it invalidates all
+existing PATs (and cookie sessions) — expected.
 
 `E2E_AUTH_BYPASS` (V8) — when truthy, mounts an **e2e-only** `POST /auth/test-login` that mints a
 real cookie session for an arbitrary email (Playwright can't fake the httpOnly session a
@@ -274,11 +279,13 @@ Preserve this pattern (it is a deliberate Shape A decision, [docs/BREADBOARD.md]
   was originally "none" (ADR 0007); V4 added optional bearer-token auth on writes (ADR 0010); **M3
   V6 added human GitHub login** with a first-class `User` + revocable cookie session (ADR 0011); V7
   added **multi-board with ownership** (ADR 0012). **V8 (ADR 0013) made `/api/v1` auth-required and
-  owner-gated** — every board-scoped route resolves a principal in `app/authz.py` (cookie session →
-  `User`, else an `API_TOKENS` bearer → a transitional **SERVICE** bypass, else `401`) and allows
-  only the board's owner (else `403`); lists are owner-scoped. **The V4 `require_token` write-guard
-  is gone** (folded into the resolver); `API_TOKENS` now means "SERVICE bypass", retired in V9 for
-  per-user PATs. Board-scoped changes go through `authorize_board` — don't add an ad-hoc check.
+  owner-gated** — every board-scoped route resolves a principal in `app/authz.py` and allows only
+  the board's owner (else `403`); lists are owner-scoped; the V4 `require_token` write-guard is gone
+  (folded in). **V9 (ADR 0014) added self-serve per-user PATs** as the resolver's agent branch
+  (cookie session → `User`; else PAT bearer → its owning `User`; else `API_TOKENS` bearer → the
+  transitional **SERVICE** bypass; else `401`). A PAT is owner-gated exactly like its owner. Route
+  authz goes through `get_principal` + `authorize_board` (or `require_user` for per-user routes like
+  `/api/v1/tokens`) — don't add an ad-hoc check. The `API_TOKENS` SERVICE bypass is retired in V10.
 - **Neon free tier scales to zero**, so the first request after idle is slow (~1s) — that's a
   documented cold start, not a bug.
 
@@ -291,7 +298,7 @@ spec for intended behavior:
 `SHAPING.md` (selects Shape A) → `BREADBOARD.md` (UI places & wiring) → build in slices.
 
 - **[docs/CONTEXT.md](docs/CONTEXT.md)** — canonical glossary and domain model. Use these terms exactly.
-- **[docs/adr/](docs/adr/)** (0001–0013, all Accepted) — the *why* behind each decision: monorepo &
+- **[docs/adr/](docs/adr/)** (0001–0014, all Accepted) — the *why* behind each decision: monorepo &
   stack (0001), Postgres+Alembic from day one (0002), single-artifact serving (0003), Fly.io+Neon
   CI/CD (0004), API-first/MCP-ready (0005), data model (0006), no-auth/LWW/no-realtime (0007),
   sync-SQLAlchemy + psycopg v3 + varchar-CHECK column + Vite dev-proxy (0008), epic as a first-class
@@ -301,4 +308,6 @@ spec for intended behavior:
   evolving 0007 (0011), multi-board with ownership — `board` table + `board_id` on card/epic,
   evolving 0006's single-board stance (0012), board authorization — `/api/v1` becomes auth-required
   + owner-gated (principal resolver + `authorize_board`, claim-on-login, `API_TOKENS`→SERVICE
-  bypass), realising D3's one authorization layer and further evolving 0007/0010 (0013).
+  bypass), realising D3's one authorization layer and further evolving 0007/0010 (0013), self-serve
+  agent personal access tokens — per-user hashed PATs resolving to their owning user, superseding
+  0010's shared `API_TOKENS` as the agent mechanism (0014).

@@ -372,3 +372,69 @@ button.primary:disabled {
 .epic-stories .ticket {
   margin-right: 0.3rem;
 }
+
+/* --- Agent tokens view (M3 V9, ADR 0014) --- */
+.tokens-view {
+  max-width: 640px;
+}
+.reveal {
+  background: var(--card-bg);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin: 0.75rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.reveal-title {
+  margin: 0;
+  font-size: 0.85rem;
+}
+.reveal-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.secret {
+  flex: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  background: rgba(9, 30, 66, 0.06);
+  padding: 0.4rem 0.5rem;
+  border-radius: 4px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.token-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.token-main {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.token-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.token-prefix {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.token-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.token-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}

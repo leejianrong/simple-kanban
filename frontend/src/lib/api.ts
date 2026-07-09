@@ -213,6 +213,50 @@ export async function deleteBoard(id: number): Promise<void> {
   if (!res.ok) throw new ApiError(res.status, await parseError(res));
 }
 
+// --- Agent tokens (Milestone 3 V9, ADR 0014) -------------------------------
+// Self-serve personal access tokens: a token acts as its owning user (inherits
+// board access). The secret is returned exactly once, on create.
+
+export interface Token {
+  id: number;
+  name: string;
+  token_prefix: string;
+  created_at: string;
+  last_used_at: string | null;
+  expires_at: string | null;
+}
+
+// The create response — metadata plus the raw secret (shown once, never again).
+export interface TokenCreated extends Token {
+  token: string;
+}
+
+export interface TokenCreate {
+  name: string;
+  expires_at?: string | null;
+}
+
+export async function listTokens(): Promise<Token[]> {
+  const res = await fetch(`${API}/tokens`);
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function createToken(payload: TokenCreate): Promise<TokenCreated> {
+  const res = await fetch(`${API}/tokens`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function deleteToken(id: number): Promise<void> {
+  const res = await fetch(`${API}/tokens/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+}
+
 // --- Auth (Milestone 3 V6, ADR 0011) ---------------------------------------
 // The fastapi-users auth + identity routes live at the origin root (/auth,
 // /users), NOT under /api/v1 — they're session plumbing, so no API prefix.

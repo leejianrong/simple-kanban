@@ -1,6 +1,6 @@
 {
   "//": "Copy to .mcp.json (repo root) for Claude Code. See mcp/README.md.",
-  "//local": "Since V8 (ADR 0013) /api/v1 is auth-required: run the local backend with API_TOKENS set and put one of them in KANBAN_TOKEN (an empty token now yields 401).",
+  "//local": "Since V8 (ADR 0013) /api/v1 is auth-required. Preferred: create a personal access token in the SPA (Tokens tab, V9) and put the kanban_pat_... secret in KANBAN_TOKEN (owner-gated). Alternatively run the backend with API_TOKENS set and use one of those (transitional). An empty token yields 401.",
   "//prod": "Set KANBAN_API_URL to https://simple-kanban-jian.fly.dev and KANBAN_TOKEN to one of the server's API_TOKENS.",
   "mcpServers": {
     "kanban": {
