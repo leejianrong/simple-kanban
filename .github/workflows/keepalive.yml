@@ -1,0 +1,40 @@
+name: Keep-alive
+
+# Scheduled health ping to keep the free-tier app + Neon DB warm (KAN-27).
+#
+# WHY: Fly scales the machine down and Neon's free tier scales to zero when
+# idle, so the first request after idle pays a cold-start (~1s+). This cron
+# pings /api/health every ~5 min to keep both warm. This is the DELIBERATE
+# free-tier remedy — explicitly NOT Fly `min_machines_running`, which keeps a
+# machine pinned and costs money. It pairs with KAN-25's client-side retry as
+# the two-pronged cold-start mitigation.
+#
+# CAVEATS:
+#   - GitHub only runs `schedule:` triggers from the DEFAULT branch AFTER merge,
+#     so this cron cannot be exercised from a PR branch. `workflow_dispatch` is
+#     included so a maintainer can trigger one run post-merge to confirm green.
+#   - Cron timing is best-effort — GitHub often delays scheduled runs 5-15 min
+#     under load. Every-5-min is the finest granularity GitHub allows, so this
+#     is the floor; treat the cadence as approximate, not guaranteed.
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # every 5 minutes — GitHub's finest cron granularity
+  workflow_dispatch: {}      # manual trigger to verify after merge
+
+# No repo write is needed — just an outbound curl.
+permissions: {}
+
+jobs:
+  ping:
+    name: Ping health endpoint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Curl /api/health (warm-tolerant)
+        # Target is overridable via the KEEPALIVE_URL repo variable, with a
+        # hardcoded fallback (the prod URL is already public in the docs).
+        # --retry-all-errors + a generous --max-time means one cold wake during
+        # the ping still succeeds and actually warms the app; only a genuine
+        # sustained outage fails the job loudly.
+        run: |
+          curl -sSf --max-time 60 --retry 5 --retry-all-errors --retry-delay 10 \
+            "${{ vars.KEEPALIVE_URL || 'https://simple-kanban-jian.fly.dev/api/health' }}"
