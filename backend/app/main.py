@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .routers import boards, cards, epics
+from .routers import boards, cards, epics, tokens
 from .users import register_auth_routes
 
 app = FastAPI(title="Simple Kanban API", version="0.1.0")
@@ -28,6 +28,7 @@ app = FastAPI(title="Simple Kanban API", version="0.1.0")
 app.include_router(boards.router, prefix="/api/v1")
 app.include_router(cards.router, prefix="/api/v1")
 app.include_router(epics.router, prefix="/api/v1")
+app.include_router(tokens.router, prefix="/api/v1")  # M3 V9 (ADR 0014): agent PATs
 
 # Human auth (M3 V6, ADR 0011): /auth/* + /users/*, unversioned like /api/health
 # (session/identity plumbing, not versioned API resources). The GitHub OAuth
