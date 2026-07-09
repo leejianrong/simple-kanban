@@ -84,8 +84,8 @@ def _reset_tables():
         # CASCADE drops dependents (a board's cards/epics, a user's oauth/tokens).
         # "user" is quoted (reserved word). RESTART IDENTITY makes ids deterministic.
         conn.execute(
-            text('TRUNCATE board, card, epic, "user", oauth_account, access_token '
-                 "RESTART IDENTITY CASCADE")
+            text('TRUNCATE board, card, epic, "user", oauth_account, access_token, '
+                 "personal_access_token RESTART IDENTITY CASCADE")
         )
         conn.execute(text("ALTER SEQUENCE card_ticket_seq RESTART WITH 1"))
         conn.execute(text("ALTER SEQUENCE epic_ticket_seq RESTART WITH 1"))
