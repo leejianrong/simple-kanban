@@ -13,12 +13,22 @@ import httpx
 
 DEFAULT_TIMEOUT = 10.0
 
+# Agent-facing hints for the auth failures V10 cares about (ADR 0015): a bad/
+# expired token vs. a board the caller's user doesn't own. The raw server detail
+# is preserved on ``.detail``; the hint just frames it usefully for the agent.
+_FRIENDLY_HINTS = {
+    401: "bad or expired token — set KANBAN_TOKEN to a valid PAT (create one in the Tokens UI)",
+    403: "that board isn't yours — call list_boards to see the boards you can use",
+}
+
 
 class KanbanApiError(RuntimeError):
     """A non-2xx response from the Kanban API (status + server-provided detail)."""
 
     def __init__(self, status_code: int, detail: str) -> None:
-        super().__init__(f"{status_code}: {detail}")
+        hint = _FRIENDLY_HINTS.get(status_code)
+        message = f"{status_code}: {hint} ({detail})" if hint else f"{status_code}: {detail}"
+        super().__init__(message)
         self.status_code = status_code
         self.detail = detail
 
@@ -72,11 +82,22 @@ class KanbanClient:
             raise KanbanApiError(response.status_code, _detail(response))
         return response
 
-    # --- reads (no token required) -----------------------------------------
+    # --- boards (discovery — V10) -------------------------------------------
+
+    def list_boards(self) -> dict[str, Any]:
+        """List the boards the caller's user owns (owner-scoped by the API)."""
+        return {"boards": self._request("GET", "/boards").json()}
+
+    def create_board(self, name: str) -> dict[str, Any]:
+        """Create a board owned by the caller's user."""
+        return self._request("POST", "/boards", json={"name": name}).json()
+
+    # --- reads --------------------------------------------------------------
 
     def list_cards(
         self,
         *,
+        board_id: int | None = None,
         column: str | None = None,
         epic_id: int | None = None,
         updated_since: str | None = None,
@@ -85,6 +106,7 @@ class KanbanClient:
     ) -> dict[str, Any]:
         params = _clean(
             {
+                "board_id": board_id,
                 "column": column,
                 "epic_id": epic_id,
                 "updated_since": updated_since,
@@ -100,15 +122,20 @@ class KanbanClient:
             result["next_cursor"] = next_cursor
         return result
 
+    def list_epics(self, *, board_id: int | None = None) -> dict[str, Any]:
+        params = _clean({"board_id": board_id})
+        return {"epics": self._request("GET", "/epics", params=params).json()}
+
     def get_card(self, card_id: int) -> dict[str, Any]:
         return self._request("GET", f"/cards/{card_id}").json()
 
-    # --- writes (need a token iff the target has API_TOKENS set) ------------
+    # --- writes -------------------------------------------------------------
 
     def create_card(
         self,
         title: str,
         *,
+        board_id: int | None = None,
         description: str | None = None,
         column: str | None = None,
         story_points: int | None = None,
@@ -117,6 +144,7 @@ class KanbanClient:
     ) -> dict[str, Any]:
         payload = _clean(
             {
+                "board_id": board_id,
                 "title": title,
                 "description": description,
                 "column": column,
@@ -127,8 +155,10 @@ class KanbanClient:
         )
         return self._request("POST", "/cards", json=payload).json()
 
-    def create_epic(self, name: str, *, description: str | None = None) -> dict[str, Any]:
-        payload = _clean({"name": name, "description": description})
+    def create_epic(
+        self, name: str, *, board_id: int | None = None, description: str | None = None
+    ) -> dict[str, Any]:
+        payload = _clean({"board_id": board_id, "name": name, "description": description})
         return self._request("POST", "/epics", json=payload).json()
 
     def update_card(
