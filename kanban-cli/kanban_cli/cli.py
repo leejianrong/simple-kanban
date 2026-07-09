@@ -1,9 +1,13 @@
-"""``kan`` — card CRUD + move + list over the Simple Kanban API (KAN-22).
+"""``kan`` — card / board / epic CRUD over the Simple Kanban API (KAN-22, KAN-23).
 
 Framework choice: **stdlib ``argparse``** with subparsers. No new dependency —
 consistent with the repo's thin ethos (the MCP server likewise leans on the SDK +
 httpx and nothing else). ``typer``/``click`` would buy nicer help/colour but add a
 dependency for a handful of subcommands; not worth it here.
+
+Card verbs are top-level (``kan list``/``create``/…); boards and epics are nested
+groups (``kan board list``, ``kan epic create``) so their verbs don't collide with
+the card verbs — parity with the board/epic surface of ``/api/v1`` (KAN-23).
 
 The CLI is a thin adapter over the shared ``KanbanClient``: parse args → env
 config → one client call → print. ``--json`` prints the client's raw dict (for
@@ -44,16 +48,21 @@ COLUMNS = ("todo", "in_progress", "done")
 # --- output helpers ---------------------------------------------------------
 
 
-def _emit(result: Any, *, as_json: bool) -> None:
-    """Print a command result: raw JSON when ``--json``, else a human summary."""
+def _emit(result: Any, *, as_json: bool, noun: str = "card") -> None:
+    """Print a command result: raw JSON when ``--json``, else a human summary.
+
+    ``noun`` (``card``/``epic``/``board``) only disambiguates the delete summary,
+    whose result dict (``{"deleted": id}``) is otherwise shape-identical across
+    entities; everything else is detected from the result's shape.
+    """
     if as_json:
         print(json.dumps(result, indent=2, default=str))
         return
-    print(_humanize(result))
+    print(_humanize(result, noun=noun))
 
 
-def _humanize(result: Any) -> str:
-    """Render a client result as concise human text (ticket / column / title)."""
+def _humanize(result: Any, *, noun: str = "card") -> str:
+    """Render a client result as concise human text (one entity per line)."""
     if isinstance(result, dict) and "cards" in result:  # list_cards
         cards = result["cards"]
         if not cards:
@@ -62,8 +71,18 @@ def _humanize(result: Any) -> str:
         if result.get("next_cursor"):
             lines.append(f"(more — next cursor: {result['next_cursor']})")
         return "\n".join(lines)
-    if isinstance(result, dict) and "deleted" in result:  # delete_card
-        return f"deleted card {result['deleted']}"
+    if isinstance(result, dict) and "boards" in result:  # list_boards
+        boards = result["boards"]
+        return "\n".join(_board_line(b) for b in boards) if boards else "(no boards)"
+    if isinstance(result, dict) and "epics" in result:  # list_epics
+        epics = result["epics"]
+        return "\n".join(_epic_line(e) for e in epics) if epics else "(no epics)"
+    if isinstance(result, dict) and "deleted" in result:  # delete_{card,epic}
+        return f"deleted {noun} {result['deleted']}"
+    # A single entity: epics/boards carry ``name`` (no ``title``); cards carry
+    # ``title``. Epics additionally have a ``ticket_number`` (``EPIC-…``).
+    if isinstance(result, dict) and "name" in result and "title" not in result:
+        return _epic_line(result) if "ticket_number" in result else _board_line(result)
     if isinstance(result, dict) and "ticket_number" in result:  # a single card
         return _card_line(result)
     return json.dumps(result, default=str)
@@ -78,6 +97,21 @@ def _card_line(card: dict[str, Any]) -> str:
             str(card.get("title", "")),
         )
     )
+
+
+def _epic_line(epic: dict[str, Any]) -> str:
+    """One concise line for an epic: ticket, name (tab-separated)."""
+    return "\t".join(
+        (
+            str(epic.get("ticket_number", epic.get("id", "?"))),
+            str(epic.get("name", "")),
+        )
+    )
+
+
+def _board_line(board: dict[str, Any]) -> str:
+    """One concise line for a board: id, name (tab-separated)."""
+    return "\t".join((str(board.get("id", "?")), str(board.get("name", ""))))
 
 
 # --- board resolution -------------------------------------------------------
@@ -139,6 +173,50 @@ def _cmd_delete(client: KanbanClient, config: Config, args: argparse.Namespace) 
             f"refusing to delete card {args.card_id} without confirmation; pass --yes"
         )
     return client.delete_card(args.card_id)
+
+
+# --- board handlers ---------------------------------------------------------
+# Boards are owner-scoped, not board-scoped: no --board targeting here.
+
+
+def _cmd_board_list(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    return client.list_boards()
+
+
+def _cmd_board_create(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    return client.create_board(args.name)
+
+
+# --- epic handlers ----------------------------------------------------------
+# Epics are board-scoped, so list/create honour --board / KANBAN_BOARD_ID.
+
+
+def _cmd_epic_list(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    return client.list_epics(board_id=_resolve_board(args.board, config))
+
+
+def _cmd_epic_create(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    return client.create_epic(
+        args.name,
+        board_id=_resolve_board(args.board, config),
+        description=args.description,
+    )
+
+
+def _cmd_epic_update(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    return client.update_epic(
+        args.epic_id,
+        name=args.name,
+        description=args.description,
+    )
+
+
+def _cmd_epic_delete(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    if not args.yes:
+        raise ConfigError(
+            f"refusing to delete epic {args.epic_id} without confirmation; pass --yes"
+        )
+    return client.delete_epic(args.epic_id)
 
 
 # --- argument parser --------------------------------------------------------
@@ -214,6 +292,46 @@ def build_parser() -> argparse.ArgumentParser:
     p_delete.add_argument("--yes", action="store_true", help="confirm the deletion")
     p_delete.set_defaults(func=_cmd_delete)
 
+    # --- board subcommands (nested group; parity with /api/v1/boards) --------
+    p_board = sub.add_parser("board", help="manage boards (list / create)")
+    board_sub = p_board.add_subparsers(
+        dest="board_command", metavar="<subcommand>", required=True
+    )
+
+    p_board_list = board_sub.add_parser("list", parents=[common], help="list your boards")
+    p_board_list.set_defaults(func=_cmd_board_list, noun="board")
+
+    p_board_create = board_sub.add_parser("create", parents=[common], help="create a board")
+    p_board_create.add_argument("name")
+    p_board_create.set_defaults(func=_cmd_board_create, noun="board")
+
+    # --- epic subcommands (nested group; parity with /api/v1/epics) ----------
+    p_epic = sub.add_parser("epic", help="manage epics (list / create / update / delete)")
+    epic_sub = p_epic.add_subparsers(
+        dest="epic_command", metavar="<subcommand>", required=True
+    )
+
+    p_epic_list = epic_sub.add_parser("list", parents=[common], help="list / query epics")
+    p_epic_list.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
+    p_epic_list.set_defaults(func=_cmd_epic_list, noun="epic")
+
+    p_epic_create = epic_sub.add_parser("create", parents=[common], help="create an epic")
+    p_epic_create.add_argument("name")
+    p_epic_create.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
+    p_epic_create.add_argument("--description")
+    p_epic_create.set_defaults(func=_cmd_epic_create, noun="epic")
+
+    p_epic_update = epic_sub.add_parser("update", parents=[common], help="edit an epic's fields")
+    p_epic_update.add_argument("epic_id", type=int)
+    p_epic_update.add_argument("--name")
+    p_epic_update.add_argument("--description")
+    p_epic_update.set_defaults(func=_cmd_epic_update, noun="epic")
+
+    p_epic_delete = epic_sub.add_parser("delete", parents=[common], help="delete an epic")
+    p_epic_delete.add_argument("epic_id", type=int)
+    p_epic_delete.add_argument("--yes", action="store_true", help="confirm the deletion")
+    p_epic_delete.set_defaults(func=_cmd_epic_delete, noun="epic")
+
     return parser
 
 
@@ -244,5 +362,7 @@ def run(argv: Sequence[str] | None = None) -> int:
         print(f"kan: {exc}", file=sys.stderr)
         return EXIT_ERROR
 
-    _emit(result, as_json=args.as_json)
+    # ``noun`` defaults to "card" (card verbs are top-level and set no noun);
+    # the board/epic subparsers set it so the delete summary reads correctly.
+    _emit(result, as_json=args.as_json, noun=getattr(args, "noun", "card"))
     return EXIT_OK

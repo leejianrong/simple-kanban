@@ -17,6 +17,8 @@ from kanban_client import KanbanApiError
 from kanban_cli import cli
 
 CARD = {"ticket_number": "KAN-1", "column": "todo", "title": "Ship it", "id": 1}
+EPIC = {"ticket_number": "EPIC-1", "name": "Onboarding", "description": "d", "id": 1}
+BOARD = {"id": 2, "name": "Roadmap", "owner_id": None}
 
 
 class FakeClient:
@@ -33,8 +35,8 @@ class FakeClient:
     def __exit__(self, *exc: object) -> bool:
         return False
 
-    def _call(self, name: str, **kwargs):
-        self.calls.append((name, kwargs))
+    def _call(self, method: str, **kwargs):
+        self.calls.append((method, kwargs))
         if self._error is not None:
             raise self._error
         return self._result
@@ -56,6 +58,24 @@ class FakeClient:
 
     def delete_card(self, card_id):
         return self._call("delete_card", card_id=card_id)
+
+    def list_boards(self):
+        return self._call("list_boards")
+
+    def create_board(self, name):
+        return self._call("create_board", name=name)
+
+    def list_epics(self, **kw):
+        return self._call("list_epics", **kw)
+
+    def create_epic(self, name, **kw):
+        return self._call("create_epic", name=name, **kw)
+
+    def update_epic(self, epic_id, **kw):
+        return self._call("update_epic", epic_id=epic_id, **kw)
+
+    def delete_epic(self, epic_id):
+        return self._call("delete_epic", epic_id=epic_id)
 
 
 @pytest.fixture
@@ -247,6 +267,107 @@ def test_usage_error_exits_two(env):
     # argparse exits (SystemExit) with code 2 on a bad invocation.
     with pytest.raises(SystemExit) as exc:
         cli.run(["move", "7", "not_a_column"])
+    assert exc.value.code == cli.EXIT_USAGE
+
+
+# --- board subcommands ------------------------------------------------------
+
+
+def test_board_list_calls_client(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"boards": [BOARD]}))
+    assert cli.run(["board", "list"]) == 0
+    assert fake.calls == [("list_boards", {})]
+
+
+def test_board_create_passes_name(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result=BOARD))
+    assert cli.run(["board", "create", "Roadmap"]) == 0
+    assert fake.calls == [("create_board", {"name": "Roadmap"})]
+
+
+def test_board_list_human_output(monkeypatch, env, capsys):
+    patch_client(monkeypatch, FakeClient(result={"boards": [BOARD]}))
+    cli.run(["board", "list"])
+    assert capsys.readouterr().out.strip() == "2\tRoadmap"
+
+
+def test_board_list_empty(monkeypatch, env, capsys):
+    patch_client(monkeypatch, FakeClient(result={"boards": []}))
+    cli.run(["board", "list"])
+    assert capsys.readouterr().out.strip() == "(no boards)"
+
+
+def test_board_list_json(monkeypatch, env, capsys):
+    patch_client(monkeypatch, FakeClient(result={"boards": [BOARD]}))
+    assert cli.run(["board", "list", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"boards": [BOARD]}
+
+
+# --- epic subcommands -------------------------------------------------------
+
+
+def test_epic_list_maps_board_filter(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"epics": [EPIC]}))
+    assert cli.run(["epic", "list", "--board", "3"]) == 0
+    assert fake.calls == [("list_epics", {"board_id": 3})]
+
+
+def test_epic_list_uses_board_env_default(monkeypatch, env):
+    monkeypatch.setenv("KANBAN_BOARD_ID", "7")
+    fake = patch_client(monkeypatch, FakeClient(result={"epics": []}))
+    cli.run(["epic", "list"])
+    assert fake.calls[0][1]["board_id"] == 7
+
+
+def test_epic_create_maps_all_options(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result=EPIC))
+    code = cli.run(
+        ["epic", "create", "Onboarding", "--board", "2", "--description", "d"]
+    )
+    assert code == 0
+    assert fake.calls == [
+        ("create_epic", {"name": "Onboarding", "board_id": 2, "description": "d"})
+    ]
+
+
+def test_epic_update_maps_fields(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result=EPIC))
+    assert cli.run(["epic", "update", "1", "--name", "New", "--description", "x"]) == 0
+    assert fake.calls == [
+        ("update_epic", {"epic_id": 1, "name": "New", "description": "x"})
+    ]
+
+
+def test_epic_delete_requires_yes(monkeypatch, env, capsys):
+    fake = patch_client(monkeypatch, FakeClient(result={"deleted": 1}))
+    code = cli.run(["epic", "delete", "1"])
+    assert code == cli.EXIT_ERROR
+    assert fake.calls == []  # never touched the API
+    assert "--yes" in capsys.readouterr().err
+
+
+def test_epic_delete_with_yes(monkeypatch, env, capsys):
+    fake = patch_client(monkeypatch, FakeClient(result={"deleted": 1}))
+    assert cli.run(["epic", "delete", "1", "--yes"]) == 0
+    assert fake.calls == [("delete_epic", {"epic_id": 1})]
+    assert "deleted epic 1" in capsys.readouterr().out
+
+
+def test_epic_list_human_output(monkeypatch, env, capsys):
+    patch_client(monkeypatch, FakeClient(result={"epics": [EPIC]}))
+    cli.run(["epic", "list"])
+    assert capsys.readouterr().out.strip() == "EPIC-1\tOnboarding"
+
+
+def test_epic_single_human_output(monkeypatch, env, capsys):
+    patch_client(monkeypatch, FakeClient(result=EPIC))
+    cli.run(["epic", "create", "Onboarding"])
+    assert capsys.readouterr().out.strip() == "EPIC-1\tOnboarding"
+
+
+def test_epic_missing_subcommand_is_usage_error(env):
+    with pytest.raises(SystemExit) as exc:
+        cli.run(["epic"])
     assert exc.value.code == cli.EXIT_USAGE
 
 
