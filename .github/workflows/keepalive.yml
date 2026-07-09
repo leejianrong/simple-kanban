@@ -1,6 +1,7 @@
 name: Keep-alive
 
-# Scheduled health ping to keep the free-tier app + Neon DB warm (KAN-27).
+# Scheduled health ping to keep the free-tier app + Neon DB warm (KAN-27),
+# hardened to ride out deploy/cold-start windows without false-red (KAN-45).
 #
 # WHY: Fly scales the machine down and Neon's free tier scales to zero when
 # idle, so the first request after idle pays a cold-start (~1s+). This cron
@@ -8,6 +9,20 @@ name: Keep-alive
 # free-tier remedy — explicitly NOT Fly `min_machines_running`, which keeps a
 # machine pinned and costs money. It pairs with KAN-25's client-side retry as
 # the two-pronged cold-start mitigation.
+#
+# BUDGET & SOFT-FAIL (KAN-45): the original `--max-time 60` retry budget was
+# shorter than the real worst-case outage. A CD deploy recreates the machine
+# and a Neon cold start stacks on top, so during a rollout the endpoint can
+# return TLS UNEXPECTED_EOF (curl exit 35) for ~60-90s. That both under-warmed
+# the app AND marked the run red — false-alarm noise for an EXPECTED downtime
+# window. This job instead:
+#   - polls /api/health for up to ~150s (comfortably longer than a full
+#     rollout + cold start), succeeding the instant it sees HTTP 200; and
+#   - treats a still-unhealthy endpoint after the full budget as a WARNING,
+#     not a failure. Keep-alive's job is to WARM the app, not to PAGE. It
+#     emits a `::warning::` + step summary and exits 0, so a transient
+#     deploy/cold-start window never turns the workflow red. (A genuine
+#     sustained outage is caught by other signals, not by keep-alive noise.)
 #
 # CAVEATS:
 #   - GitHub only runs `schedule:` triggers from the DEFAULT branch AFTER merge,
@@ -29,12 +44,34 @@ jobs:
     name: Ping health endpoint
     runs-on: ubuntu-latest
     steps:
-      - name: Curl /api/health (warm-tolerant)
+      - name: Poll /api/health until warm (soft-fail)
         # Target is overridable via the KEEPALIVE_URL repo variable, with a
         # hardcoded fallback (the prod URL is already public in the docs).
-        # --retry-all-errors + a generous --max-time means one cold wake during
-        # the ping still succeeds and actually warms the app; only a genuine
-        # sustained outage fails the job loudly.
+        # Poll every ~10s for up to ~150s; each attempt uses a short
+        # --connect-timeout/--max-time so a single hung connect can't eat the
+        # whole budget. Succeed (and stop) the instant we see HTTP 200 — that
+        # single request also actually WARMS the app. If still unhealthy after
+        # the full budget we WARN and exit 0 (see BUDGET & SOFT-FAIL above):
+        # keep-alive warms, it does not page.
         run: |
-          curl -sSf --max-time 60 --retry 5 --retry-all-errors --retry-delay 10 \
-            "${{ vars.KEEPALIVE_URL || 'https://simple-kanban-jian.fly.dev/api/health' }}"
+          URL="${{ vars.KEEPALIVE_URL || 'https://simple-kanban-jian.fly.dev/api/health' }}"
+          MAX_ATTEMPTS=15        # 15 attempts
+          INTERVAL=10            # every 10s → ~150s total wait budget
+          echo "Keep-alive polling $URL (up to $MAX_ATTEMPTS attempts, ${INTERVAL}s apart)"
+          for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' \
+              --connect-timeout 5 --max-time 20 "$URL" || true)
+            if [ "$code" = "200" ]; then
+              echo "Healthy on attempt $attempt (HTTP 200) — app warmed."
+              echo "Keep-alive OK on attempt $attempt (HTTP 200)." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "Attempt $attempt/$MAX_ATTEMPTS: not healthy yet (HTTP ${code:-000}); retrying in ${INTERVAL}s…"
+            [ "$attempt" -lt "$MAX_ATTEMPTS" ] && sleep "$INTERVAL"
+          done
+          # Still not healthy after the full budget. This is most likely an
+          # EXPECTED deploy/cold-start window, so warn-and-report rather than
+          # fail the run (warm-not-page). Exit 0 deliberately.
+          echo "::warning title=Keep-alive::Endpoint not healthy after ${MAX_ATTEMPTS} attempts (~$((MAX_ATTEMPTS * INTERVAL))s). Likely a deploy/cold-start window — not paging."
+          echo "⚠️ Keep-alive: $URL not healthy after ${MAX_ATTEMPTS} attempts (~$((MAX_ATTEMPTS * INTERVAL))s). Treated as an expected deploy/cold-start window (soft-fail, exit 0)." >> "$GITHUB_STEP_SUMMARY"
+          exit 0
