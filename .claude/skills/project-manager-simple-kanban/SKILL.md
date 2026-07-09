@@ -245,5 +245,39 @@ Dogfooding observations about driving this board as an agent PM. Seeded from the
   card dependencies (model+API → ready/blocked query filter → UI → MCP) and card work-links + notes
   (model+API × 2 → MCP+UI). This is the PM job working as intended: dogfooding surfaces a gap → it
   becomes prioritised backlog. A good PM agent files what it learns, not just what it's told.
-- **Suggested next pull:** KAN-21 (extract shared `kanban_client`) — it's the prerequisite that
-  unblocks the entire kan-CLI epic (KAN-22/23/24) and the cold-start-resilience card (KAN-25).
+- **KAN-27 (Epic 7): keep-alive GitHub Actions cron** → PR #33, `done`. Verified it live: it succeeds
+  instantly when the app is up but FAILED (curl exit 35) when triggered during a deploy rollout — so
+  *verifying shipped work found a defect*, filed as KAN-45.
+- **KAN-45 (Epic 7): hardened the keep-alive** → PR #35, `done`. Poll `/api/health` for ~150s and
+  soft-fail (warn, exit 0) so a deploy/cold-start window neither under-warms nor falsely reds the run.
+- **EPIC-9 "M4: PM & Ops Ergonomics": COMPLETE** (all groomed from this session's own friction):
+  - **KAN-36** (PR #36) — pre-push hook path-scoped to changed areas; scoped slices no longer forced
+    to `--no-verify`.
+  - **KAN-35 + KAN-41** (PR #37) — refreshed stale `CLAUDE.md` MCP prose + documented/defaulted
+    `KANBAN_BOARD_ID`.
+  - **KAN-37** (PR #38) — CI path filters: docs-only PRs skip heavy work while ALL required checks
+    still report green (gate-safe step-level skip; the aggressive runner-count cut needs a
+    branch-protection change, documented as follow-up). **Confirmed live**: PR #39's untouched jobs
+    finished in 3–5s. Also discovered the *actual* required checks are only 4 (Lint, Unit, Integration,
+    Frontend) — the e2e/mcp/client jobs aren't individually required.
+  - **KAN-38/39/40** (PR #39) — `claim_card` (atomic pull), `warmup` (wake via MCP), `create_cards`
+    (batch); tools 16→19, logic in the shared client so the future CLI inherits it. *Future-session
+    benefit only* (MCP loads at session start), same caveat as KAN-25.
+- **Two new epics filed** from the UX assessment: **EPIC-9** (done) and **EPIC-10 "PR-Board Auto-Sync"**
+  (KAN-42/43/44 — GitHub webhook → auto-update the linked card; the big bet to make column reflect real
+  work state; depends on EPIC-8).
+- **Workflow lessons that worked this session:**
+  - **Pipeline the loop.** "One sub-agent at a time" means one *implementer coding* at a time — you can
+    still spawn the next card's agent while the previous PR sits in CI, as long as their files don't
+    overlap. Cut a lot of idle CI-watching. (Cards touching the same files — e.g. anything editing
+    `server.py`/`EXPECTED_TOOLS`, or two docs cards both editing `CLAUDE.md` — must be combined into one
+    agent/PR or run strictly serially.)
+  - **Every merge to `main` triggers a CD deploy** → a ~60–90s rollout outage where the app returns
+    TLS-EOF. So after each merge, expect to warm through a rollout before the next `mcp__kanban__*` call.
+    Neither KAN-25's retry nor KAN-27/45's keep-alive fully covers a rollout — a rolling/blue-green
+    deploy would (host-independent; not yet filed).
+  - **`update_card` silently ignores `column`** — column changes go through `move_card` only. (Live
+    proof of why KAN-38's `claim_card` exists.)
+- **Suggested next pull:** KAN-22 (build the `kan` CLI, unblocked by KAN-21) for a user-facing
+  deliverable, or KAN-28 (start EPIC-8's dependency model) to make the board a real PM surface and
+  unblock EPIC-10.
