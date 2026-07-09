@@ -21,7 +21,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import or_, select, tuple_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from ..auth_models import User
 from ..authz import authorize_board, get_principal, visible_board_ids
@@ -49,20 +49,51 @@ def _get_or_404(db: Session, card_id: int) -> Card:
     return card
 
 
-def _attach_dependencies(db: Session, cards: Sequence[Card]) -> Sequence[Card]:
-    """Populate the transient ``blocked_by`` / ``blocks`` lists on each card from
-    the ``card_dependency`` table (KAN-28), then return the same cards.
+def _blocked_predicate():
+    """A correlated-``EXISTS`` SQL predicate that is true for a ``Card`` (the outer
+    row) iff it is **blocked** (KAN-29): it has ≥1 blocker whose ``column`` is not
+    ``done``. Expressed in SQL so the ``blocked`` list filter composes cleanly with
+    the other ``WHERE`` clauses and keyset pagination (``limit``/``cursor`` stay
+    accurate). This is the exact SQL twin of the Python computation in
+    ``_attach_dependencies`` — keep the two definitions in step.
+    """
+    blocker = aliased(Card)
+    return (
+        select(1)
+        .select_from(CardDependency)
+        .join(blocker, blocker.id == CardDependency.blocker_id)
+        .where(
+            CardDependency.blocked_id == Card.id,
+            blocker.column != ColumnEnum.done.value,
+        )
+        .exists()
+    )
 
-    One query fetches every edge touching the given cards and the grouping happens
-    in Python, so a list of N cards costs a single round-trip — no per-card N+1.
-    ``blocked_by`` = ids of cards that block this one (edges where it is the
-    *blocked*); ``blocks`` = ids it blocks (edges where it is the *blocker*).
+
+def _attach_dependencies(db: Session, cards: Sequence[Card]) -> Sequence[Card]:
+    """Populate the transient ``blocked_by`` / ``blocks`` lists **and the derived
+    ``blocked`` flag** on each card from the ``card_dependency`` table (KAN-28 +
+    KAN-29), then return the same cards.
+
+    One query fetches every edge touching the given cards (joined to the blocker's
+    ``column``) and the grouping happens in Python, so a list of N cards costs a
+    single round-trip — no per-card N+1. ``blocked_by`` = ids of cards that block
+    this one (edges where it is the *blocked*); ``blocks`` = ids it blocks (edges
+    where it is the *blocker*). ``blocked`` is True when ≥1 of its blockers is not
+    yet ``done`` — the same rule as ``_blocked_predicate``.
     """
     ids = [c.id for c in cards]
     if not ids:
         return cards
+    blocker = aliased(Card)
     rows = db.execute(
-        select(CardDependency.blocker_id, CardDependency.blocked_id).where(
+        select(
+            CardDependency.blocker_id,
+            CardDependency.blocked_id,
+            blocker.column,
+        )
+        .join(blocker, blocker.id == CardDependency.blocker_id)
+        .where(
             or_(
                 CardDependency.blocker_id.in_(ids),
                 CardDependency.blocked_id.in_(ids),
@@ -71,12 +102,17 @@ def _attach_dependencies(db: Session, cards: Sequence[Card]) -> Sequence[Card]:
     ).all()
     blocked_by: dict[int, list[int]] = defaultdict(list)
     blocks: dict[int, list[int]] = defaultdict(list)
-    for blocker_id, blocked_id in rows:
+    # blocked_id -> number of its blockers not yet in ``done``.
+    active_blockers: dict[int, int] = defaultdict(int)
+    for blocker_id, blocked_id, blocker_column in rows:
         blocked_by[blocked_id].append(blocker_id)
         blocks[blocker_id].append(blocked_id)
+        if blocker_column != ColumnEnum.done.value:
+            active_blockers[blocked_id] += 1
     for card in cards:
         card.blocked_by = sorted(blocked_by.get(card.id, []))
         card.blocks = sorted(blocks.get(card.id, []))
+        card.blocked = active_blockers.get(card.id, 0) > 0
     return cards
 
 
@@ -114,6 +150,7 @@ def list_cards(
     column: ColumnEnum | None = None,
     epic_id: int | None = None,
     updated_since: datetime | None = None,
+    blocked: bool | None = None,
     limit: int | None = Query(default=None, ge=1, le=200),
     cursor: str | None = None,
 ) -> list[Card]:
@@ -127,7 +164,12 @@ def list_cards(
     always sends it to scope the view; omitted → all *your* boards); ``column``;
     ``epic_id`` (stories linked to that epic); ``updated_since`` (an ISO-8601
     timestamp — cards whose ``updated_at`` is at or after it, **inclusive**, the
-    "changed since" feed for polling agents).
+    "changed since" feed for polling agents); ``blocked`` (KAN-29 ready/blocked
+    signal — ``blocked=true`` returns only cards with ≥1 blocker not yet ``done``;
+    ``blocked=false`` returns the **actionable/ready** cards, i.e. no blockers or
+    all blockers done). The ``blocked`` field is on every card in the response
+    regardless of this filter. It is a SQL ``EXISTS`` predicate, so it AND-s with
+    the other filters and keyset pagination stays exact.
 
     Pagination is keyset over ``(updated_at, id)``: pass ``limit`` to cap the
     page; when a full page is returned the next page's opaque cursor rides the
@@ -150,6 +192,9 @@ def list_cards(
         query = query.where(Card.epic_id == epic_id)
     if updated_since is not None:
         query = query.where(Card.updated_at >= updated_since)
+    if blocked is not None:
+        predicate = _blocked_predicate()
+        query = query.where(predicate if blocked else ~predicate)
     if cursor is not None:
         try:
             cursor_updated_at, cursor_id = decode_cursor(cursor)
