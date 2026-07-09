@@ -1,6 +1,6 @@
 {
   "//": "Copy to .mcp.json (repo root) for Claude Code. See mcp/README.md.",
-  "//local": "Tokenless local backend on :8000 — KANBAN_TOKEN may stay empty.",
+  "//local": "Since V8 (ADR 0013) /api/v1 is auth-required: run the local backend with API_TOKENS set and put one of them in KANBAN_TOKEN (an empty token now yields 401).",
   "//prod": "Set KANBAN_API_URL to https://simple-kanban-jian.fly.dev and KANBAN_TOKEN to one of the server's API_TOKENS.",
   "mcpServers": {
     "kanban": {

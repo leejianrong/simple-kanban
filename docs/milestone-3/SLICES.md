@@ -16,7 +16,7 @@ needs boards + tokens.
 |-------|------|----------------|
 | **V6 · Human login + landing** ✅ **Built** | A1, A2, A3, A9 | Logged out → the landing page; "Sign in with GitHub" → OAuth → your board; reload stays in; log out → landing |
 | **V7 · Boards** ✅ **Built** | A4, A8 | Create a second board and switch between them; existing cards/epics live in a migrated default board |
-| **V8 · Board authorization** | A5 | User A gets `403` on user B's board (API + UI); your own boards work; lists show only your boards |
+| **V8 · Board authorization** ✅ **Built** | A5 | User A gets `403` on user B's board (API + UI); your own boards work; lists show only your boards |
 | **V9 · Agent tokens** | A6 | Create a named token in the UI (shown once), write to your board via `curl` with it, revoke it → `401` |
 | **V10 · MCP board-scoping** | A7 | Claude, via MCP with a PAT, creates/moves cards on a chosen board — and can't touch another user's board |
 
@@ -69,7 +69,18 @@ needs boards + tokens.
   e2e — create a second board, add a card there, confirm the first board is unaffected across reload.
 - **Acceptance:** the multi-board demo works; existing data preserved under the default board.
 
-## V8 · Board authorization
+## V8 · Board authorization ✅ Built
+
+> **Built** (ADR 0013). One sync **principal resolver** (`app/authz.py`): a cookie session → `User`,
+> else a valid `API_TOKENS` bearer → a **SERVICE** sentinel, else `401`. A single `authorize_board`
+> gates every board-scoped route (cards + epics list/get/create/patch/delete/move, board detail/
+> rename/delete) — owner-only, else `403`; lists are owner-scoped. `/api/v1` is now **auth-required**
+> (V4's `require_token` write-guard removed). Two forks resolved with the maintainer: **claim-on-login**
+> (`UserManager.on_after_login` adopts unclaimed boards → the first human rescues the migrated default
+> board), and **`API_TOKENS` as a transitional SERVICE bypass** so the MCP server keeps working until
+> V9 (retired then). Also: a story's epic must be on the **same board** (422). Test-harness reworked:
+> integration tests run as a board-owning session (`login_as` factory + `service_client`); e2e uses an
+> **e2e-only** `POST /auth/test-login` seam (`E2E_AUTH_BYPASS`, never in prod) for a real session.
 
 - **Build:** a **board-authorization** dependency — the resolved principal must own the target board,
   else `403`. Applied to every board-scoped read/write (cards, epics, board detail); list endpoints
