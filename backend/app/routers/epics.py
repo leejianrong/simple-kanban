@@ -21,7 +21,8 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..authz import Principal, authorize_board, get_principal, visible_board_ids
+from ..auth_models import User
+from ..authz import authorize_board, get_principal, visible_board_ids
 from ..db import get_db
 from ..models import Epic
 from ..schemas import EpicCreate, EpicRead, EpicUpdate
@@ -40,7 +41,7 @@ def _get_or_404(db: Session, epic_id: int) -> Epic:
 @router.get("", response_model=list[EpicRead])
 def list_epics(
     db: Session = Depends(get_db),
-    principal: Principal = Depends(get_principal),
+    principal: User = Depends(get_principal),
     board_id: int | None = None,
 ) -> list[Epic]:
     """List epics, owner-scoped (V8) and optionally scoped to one board. A
@@ -51,9 +52,7 @@ def list_epics(
         authorize_board(db, principal, board_id)
         query = query.where(Epic.board_id == board_id)
     else:
-        scope = visible_board_ids(principal)
-        if scope is not None:
-            query = query.where(Epic.board_id.in_(scope))
+        query = query.where(Epic.board_id.in_(visible_board_ids(principal)))
     return list(db.scalars(query).all())
 
 
@@ -61,7 +60,7 @@ def list_epics(
 def create_epic(
     payload: EpicCreate,
     db: Session = Depends(get_db),
-    principal: Principal = Depends(get_principal),
+    principal: User = Depends(get_principal),
 ) -> Epic:
     board_id = resolve_board_id(db, payload.board_id)
     authorize_board(db, principal, board_id)
@@ -81,7 +80,7 @@ def create_epic(
 def get_epic(
     epic_id: int,
     db: Session = Depends(get_db),
-    principal: Principal = Depends(get_principal),
+    principal: User = Depends(get_principal),
 ) -> Epic:
     epic = _get_or_404(db, epic_id)
     authorize_board(db, principal, epic.board_id)
@@ -93,7 +92,7 @@ def update_epic(
     epic_id: int,
     payload: EpicUpdate,
     db: Session = Depends(get_db),
-    principal: Principal = Depends(get_principal),
+    principal: User = Depends(get_principal),
 ) -> Epic:
     epic = _get_or_404(db, epic_id)
     authorize_board(db, principal, epic.board_id)
@@ -114,7 +113,7 @@ def update_epic(
 def delete_epic(
     epic_id: int,
     db: Session = Depends(get_db),
-    principal: Principal = Depends(get_principal),
+    principal: User = Depends(get_principal),
 ) -> Response:
     epic = _get_or_404(db, epic_id)
     authorize_board(db, principal, epic.board_id)

@@ -10,7 +10,7 @@ import {
 } from "./helpers";
 
 // /api/v1 is owner-gated (M3 V8): each test opens a real session on a fresh board.
-test.afterAll(cleanupE2eBoards);
+test.afterAll(() => cleanupE2eBoards());
 
 // Finding 2: a card in edit mode still sits inside the drag zone, so a pointer
 // drag that starts on a form field must NOT pick up and move the card — the user

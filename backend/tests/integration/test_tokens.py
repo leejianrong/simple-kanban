@@ -130,16 +130,9 @@ def test_bad_token_is_401(client):
 # --- token management is per-user --------------------------------------------
 
 
-def test_token_management_requires_auth(client, monkeypatch):
-    monkeypatch.delenv("API_TOKENS", raising=False)
+def test_token_management_requires_auth(client):
     assert client.post(TOKENS, json={"name": "x"}).status_code == 401
     assert client.get(TOKENS).status_code == 401
-
-
-def test_service_principal_cannot_manage_tokens(service_client):
-    # The SERVICE bypass is not a user, so it cannot manage per-user tokens → 403.
-    assert service_client.post(TOKENS, json={"name": "x"}).status_code == 403
-    assert service_client.get(TOKENS).status_code == 403
 
 
 def test_cannot_revoke_another_users_token(login_as):

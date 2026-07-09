@@ -1,14 +1,16 @@
 {
   "//": "Copy to .mcp.json (repo root) for Claude Code. See mcp/README.md.",
-  "//local": "Since V8 (ADR 0013) /api/v1 is auth-required. Preferred: create a personal access token in the SPA (Tokens tab, V9) and put the kanban_pat_... secret in KANBAN_TOKEN (owner-gated). Alternatively run the backend with API_TOKENS set and use one of those (transitional). An empty token yields 401.",
-  "//prod": "Set KANBAN_API_URL to https://simple-kanban-jian.fly.dev and KANBAN_TOKEN to one of the server's API_TOKENS.",
+  "//token": "Since V8 (ADR 0013) /api/v1 is auth-required, and V10 (ADR 0015) removed the shared API_TOKENS bypass. Create a personal access token in the SPA (Tokens tab, V9) and put the kanban_pat_... secret in KANBAN_TOKEN. It acts as your user and is owner-gated. An empty/invalid token yields 401.",
+  "//boards": "Call list_boards to discover the boards you own, then pass board_id per call. KANBAN_BOARD_ID (optional) sets a default board for calls that omit board_id; unset uses the API fallback (list = all your boards, create = earliest).",
+  "//prod": "Set KANBAN_API_URL to https://simple-kanban-jian.fly.dev and KANBAN_TOKEN to your kanban_pat_... secret.",
   "mcpServers": {
     "kanban": {
       "command": "uv",
       "args": ["run", "--directory", "./mcp", "python", "-m", "kanban_mcp"],
       "env": {
         "KANBAN_API_URL": "http://localhost:8000",
-        "KANBAN_TOKEN": ""
+        "KANBAN_TOKEN": "",
+        "KANBAN_BOARD_ID": ""
       }
     }
   }

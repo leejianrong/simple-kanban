@@ -111,20 +111,6 @@ def client():
 FAKE_ACCOUNT_ID = "gh-12345"
 FAKE_EMAIL = "octocat@example.com"
 
-# The transitional service token (V4 API_TOKENS → V8 SERVICE bypass, ADR 0013).
-SERVICE_TOKEN = "svc-token-for-tests"
-
-
-@pytest.fixture
-def service_client(client, monkeypatch):
-    """A TestClient acting as the SERVICE principal: ``API_TOKENS`` set and a
-    matching bearer on every request. Bypasses board ownership (the transitional
-    MCP/agent path), and — because no human has logged in — observes boards in
-    their unclaimed post-migration state."""
-    monkeypatch.setenv("API_TOKENS", SERVICE_TOKEN)
-    client.headers.update({"Authorization": f"Bearer {SERVICE_TOKEN}"})
-    return client
-
 
 @pytest.fixture
 def mock_github(monkeypatch):

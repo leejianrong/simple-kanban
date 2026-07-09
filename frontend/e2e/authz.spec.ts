@@ -1,11 +1,12 @@
 import { expect, test } from "@playwright/test";
-import { cleanupE2eBoards, createBoardViaSwitcher, login, uniqueTitle } from "./helpers";
+import { createBoardViaSwitcher, login, uniqueTitle } from "./helpers";
 
 // M3 V8 acceptance (ADR 0013): the isolation demo. A second logged-in user cannot
 // see or touch the first user's board — enforced server-side, so it holds in both
 // the UI (board switcher) and the raw API. Two separate browser contexts give two
-// independent cookie sessions (two distinct users).
-test.afterAll(cleanupE2eBoards);
+// independent cookie sessions (two distinct users). This spec uses per-run unique
+// emails, so it cleans up A's board in-test (as A) rather than via the shared
+// afterAll helper, which only knows the default e2e user (V10, ADR 0015).
 
 test("a second user cannot see or touch the first user's board", async ({ browser }) => {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
@@ -47,6 +48,9 @@ test("a second user cannot see or touch the first user's board", async ({ browse
     name: string;
   }[];
   expect(bBoards.map((b) => b.name)).not.toContain(boardA);
+
+  // Clean up A's board as A (owner-gated; cascades its cards/epics away).
+  await pageA.request.delete(`/api/v1/boards/${aBoardId}`);
 
   await ctxA.close();
   await ctxB.close();

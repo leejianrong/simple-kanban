@@ -1,6 +1,7 @@
 # ADR 0010 — Optional bearer-token auth on writes
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR 0014 (as the agent mechanism) and **fully retired by ADR 0015**
+  (the transitional `API_TOKENS` SERVICE bypass removed in V10). Kept for history.
 - **Date:** 2026-07-08
 - **Context source:** Milestone 2 (Agent-Driven Task Tracking), requirement R3.1; evolves the
   "no auth" stance of ADR 0007 (see `docs/milestone-2/`, part P2).

@@ -31,6 +31,28 @@ def capture(response):
     return handler, seen
 
 
+# --- boards (V10) ----------------------------------------------------------
+
+
+def test_list_boards_hits_boards_and_wraps_result():
+    handler, seen = capture(httpx.Response(200, json=[{"id": 1, "name": "A"}]))
+    out = make_client(handler).list_boards()
+    assert seen["method"] == "GET"
+    assert seen["path"] == "/api/v1/boards"
+    assert out == {"boards": [{"id": 1, "name": "A"}]}
+
+
+def test_create_board_posts_name():
+    import json
+
+    handler, seen = capture(httpx.Response(201, json={"id": 2, "name": "New"}))
+    out = make_client(handler).create_board("New")
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/api/v1/boards"
+    assert json.loads(seen["content"]) == {"name": "New"}
+    assert out == {"id": 2, "name": "New"}
+
+
 # --- reads -----------------------------------------------------------------
 
 
@@ -43,6 +65,27 @@ def test_list_cards_passes_filters_and_reads_cursor_header():
     assert seen["path"] == "/api/v1/cards"
     assert seen["params"] == {"column": "todo", "limit": "2"}
     assert out == {"cards": [{"id": 1}], "next_cursor": "abc"}
+
+
+def test_list_cards_scopes_by_board_id():
+    handler, seen = capture(httpx.Response(200, json=[]))
+    make_client(handler).list_cards(board_id=7)
+    assert seen["params"] == {"board_id": "7"}
+
+
+def test_list_epics_scopes_by_board_id_and_wraps_result():
+    handler, seen = capture(httpx.Response(200, json=[{"id": 3, "name": "E"}]))
+    out = make_client(handler).list_epics(board_id=7)
+    assert seen["method"] == "GET"
+    assert seen["path"] == "/api/v1/epics"
+    assert seen["params"] == {"board_id": "7"}
+    assert out == {"epics": [{"id": 3, "name": "E"}]}
+
+
+def test_list_epics_without_board_sends_no_params():
+    handler, seen = capture(httpx.Response(200, json=[]))
+    make_client(handler).list_epics()
+    assert seen["params"] == {}
 
 
 def test_list_cards_without_more_pages_has_no_cursor():
@@ -74,6 +117,14 @@ def test_create_card_posts_only_provided_fields():
     assert json.loads(seen["content"]) == {"title": "T", "column": "done"}
 
 
+def test_create_card_includes_board_id_when_given():
+    import json
+
+    handler, seen = capture(httpx.Response(201, json={"id": 1}))
+    make_client(handler).create_card("T", board_id=7)
+    assert json.loads(seen["content"]) == {"board_id": 7, "title": "T"}
+
+
 def test_create_epic_posts_name():
     import json
 
@@ -81,6 +132,14 @@ def test_create_epic_posts_name():
     make_client(handler).create_epic("E")
     assert seen["path"] == "/api/v1/epics"
     assert json.loads(seen["content"]) == {"name": "E"}
+
+
+def test_create_epic_includes_board_id_when_given():
+    import json
+
+    handler, seen = capture(httpx.Response(201, json={"id": 1, "name": "E"}))
+    make_client(handler).create_epic("E", board_id=7)
+    assert json.loads(seen["content"]) == {"board_id": 7, "name": "E"}
 
 
 def test_update_card_patches_provided_fields():
@@ -126,13 +185,26 @@ def test_no_token_means_no_authorization_header():
     assert "authorization" not in seen["headers"]
 
 
-def test_non_2xx_raises_with_api_detail():
-    handler, _ = capture(httpx.Response(401, json={"detail": "missing or invalid API token"}))
+def test_401_raises_with_friendly_hint_and_raw_detail():
+    handler, _ = capture(httpx.Response(401, json={"detail": "authentication required"}))
     with pytest.raises(KanbanApiError) as excinfo:
         make_client(handler).create_card("T")
     assert excinfo.value.status_code == 401
-    assert excinfo.value.detail == "missing or invalid API token"
+    # The raw server detail is preserved ...
+    assert excinfo.value.detail == "authentication required"
+    # ... and the agent-facing message frames it as a token problem (V10).
     assert "401" in str(excinfo.value)
+    assert "KANBAN_TOKEN" in str(excinfo.value)
+
+
+def test_403_raises_with_wrong_board_hint():
+    handler, _ = capture(
+        httpx.Response(403, json={"detail": "you do not have access to this board"})
+    )
+    with pytest.raises(KanbanApiError) as excinfo:
+        make_client(handler).create_card("T", board_id=99)
+    assert excinfo.value.status_code == 403
+    assert "list_boards" in str(excinfo.value)
 
 
 def test_error_without_json_body_falls_back_to_status():

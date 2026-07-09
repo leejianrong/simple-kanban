@@ -21,7 +21,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session
 
-from ..authz import Principal, authorize_board, get_principal, visible_board_ids
+from ..auth_models import User
+from ..authz import authorize_board, get_principal, visible_board_ids
 from ..db import get_db
 from ..models import Card, Epic
 from ..ordering import next_position, renumber_column
@@ -62,7 +63,7 @@ def _validate_epic(db: Session, epic_id: int | None, board_id: int) -> None:
 def list_cards(
     response: Response,
     db: Session = Depends(get_db),
-    principal: Principal = Depends(get_principal),
+    principal: User = Depends(get_principal),
     board_id: int | None = None,
     column: ColumnEnum | None = None,
     epic_id: int | None = None,
@@ -72,9 +73,9 @@ def list_cards(
 ) -> list[Card]:
     """List cards, optionally filtered and keyset-paginated (P4).
 
-    **Owner-scoped (V8):** results are limited to boards the caller owns (the
-    SERVICE principal sees all). A ``board_id`` naming a board you don't own is a
-    ``403`` (not a silently-empty list).
+    **Owner-scoped (V8):** results are limited to boards the caller owns. A
+    ``board_id`` naming a board you don't own is a ``403`` (not a silently-empty
+    list).
 
     Filters (all optional, AND-ed): ``board_id`` (cards on that board — the SPA
     always sends it to scope the view; omitted → all *your* boards); ``column``;
@@ -95,10 +96,8 @@ def list_cards(
         authorize_board(db, principal, board_id)
         query = query.where(Card.board_id == board_id)
     else:
-        # No board named → scope to every board the caller may see.
-        scope = visible_board_ids(principal)
-        if scope is not None:
-            query = query.where(Card.board_id.in_(scope))
+        # No board named → scope to every board the caller owns.
+        query = query.where(Card.board_id.in_(visible_board_ids(principal)))
     if column is not None:
         query = query.where(Card.column == column.value)
     if epic_id is not None:
@@ -134,7 +133,7 @@ def list_cards(
 def create_card(
     payload: CardCreate,
     db: Session = Depends(get_db),
-    principal: Principal = Depends(get_principal),
+    principal: User = Depends(get_principal),
 ) -> Card:
     board_id = resolve_board_id(db, payload.board_id)
     authorize_board(db, principal, board_id)
@@ -160,7 +159,7 @@ def create_card(
 def get_card(
     card_id: int,
     db: Session = Depends(get_db),
-    principal: Principal = Depends(get_principal),
+    principal: User = Depends(get_principal),
 ) -> Card:
     card = _get_or_404(db, card_id)
     authorize_board(db, principal, card.board_id)
@@ -172,7 +171,7 @@ def update_card(
     card_id: int,
     payload: CardUpdate,
     db: Session = Depends(get_db),
-    principal: Principal = Depends(get_principal),
+    principal: User = Depends(get_principal),
 ) -> Card:
     card = _get_or_404(db, card_id)
     authorize_board(db, principal, card.board_id)
@@ -196,7 +195,7 @@ def update_card(
 def delete_card(
     card_id: int,
     db: Session = Depends(get_db),
-    principal: Principal = Depends(get_principal),
+    principal: User = Depends(get_principal),
 ) -> Response:
     card = _get_or_404(db, card_id)
     authorize_board(db, principal, card.board_id)
@@ -211,7 +210,7 @@ def move_card(
     card_id: int,
     payload: CardMove,
     db: Session = Depends(get_db),
-    principal: Principal = Depends(get_principal),
+    principal: User = Depends(get_principal),
 ) -> Card:
     card = _get_or_404(db, card_id)
     authorize_board(db, principal, card.board_id)
