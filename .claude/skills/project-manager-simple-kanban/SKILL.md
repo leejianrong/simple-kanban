@@ -65,11 +65,14 @@ mcp__kanban__update_card(card_id=<id>, assignee="agent:<slug>")   # who's on it
 full card + the brief template below. Do **not** run a second implementer in parallel — the user
 wants one at a time, and it keeps `main`/CI serialized and reviewable.
 
-**c. Verify.** When it reports back: sanity-review the diff and the PR, then watch CI to green:
+**c. Verify.** When it reports back: sanity-review the diff and the PR, then poll CI to green (the
+installed `gh` has **no** `--watch`; loop until no `pending`):
 ```
-gh pr checks <pr-number> --watch
+until ! gh pr checks <pr-number> 2>&1 | grep -q pending; do sleep 20; done; gh pr checks <pr-number>
 ```
-CI is six jobs (lint, unit, integration, frontend build, e2e, mcp). Don't land on red or pending.
+CI is **7 jobs** (lint, unit, integration, frontend build, e2e, mcp, **client**). Don't land on red
+or pending — but check *why* a red is red: a whole run failing at the same round duration is infra
+(re-run), not your code (see UX log).
 
 **d. Land** (per agreed policy). On green CI, for auto-merge:
 ```
@@ -219,6 +222,20 @@ Dogfooding observations about driving this board as an agent PM. Seeded from the
   and KAN-11 (MCP read parity → PR #27, tools 14→16) both merged + `done`. Net: the MCP server now
   has full CRUD parity for cards, epics, and boards (16 tools) — the `delete_board` gap that
   triggered KAN-10 during dogfooding is closed.
+- **KAN-21 (Epic 6, kan CLI): shared `kanban_client` extracted** → PR #29, `done`. The httpx client
+  moved out of `mcp/` into a standalone `kanban-client/` uv package (path source, see gotcha above);
+  CI grew a 7th `client` job. Unblocks the CLI cards (KAN-22/23/24) and KAN-25.
+- **KAN-25 (Epic 7, cold-start): retry + generous timeout in the shared client** → PR #31, `done`.
+  35s read / 5s connect timeout, 1s backoff, one retry — connect/handshake errors retried for all
+  methods, `ReadTimeout` only for idempotent GET, never on 4xx/5xx (LWW → no double writes). Directly
+  targets the cold-start failures logged above.
+  - **Caveat: this does NOT fix cold starts for THIS session.** Claude Code loads the MCP server once
+    at session start, so its `kanban_client` is the pre-merge code until the user restarts the session
+    (and re-`uv sync`s `mcp/`). The retry benefits *future* sessions + the future CLI. Keep warming by
+    hand for the rest of this session. **KAN-27 (keep-alive cron) is the complementary server-side fix.**
+- **Known doc-drift to clean up (flagged by 2 sub-agents):** `CLAUDE.md`'s MCP section still says
+  "10 tools" (now 16) and references `mcp/kanban_mcp/api.py` (moved to `kanban-client/` in KAN-21).
+  Good PM hygiene: file it or fix it rather than let it rot.
 - **Backlog groomed from dogfooding.** The "board can't tell the whole story" friction (no
   dependency field; no PR-link/notes field; column = "an agent is on it" ≠ real work state) was turned
   into **EPIC-8 "M4: Board as an Agent-PM Surface"** with 7 vertical slices, **KAN-28…KAN-34**:
