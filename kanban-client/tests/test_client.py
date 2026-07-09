@@ -10,6 +10,10 @@ import httpx
 import pytest
 
 from kanban_client import KanbanApiError, KanbanClient
+from kanban_client.client import (
+    DEFAULT_CONNECT_TIMEOUT,
+    DEFAULT_TIMEOUT,
+)
 
 
 def make_client(handler, token=None):
@@ -266,3 +270,132 @@ def test_error_without_json_body_falls_back_to_status():
     with pytest.raises(KanbanApiError) as excinfo:
         make_client(handler).get_card(1)
     assert excinfo.value.status_code == 500
+
+
+# --- cold-start timeout + single retry (KAN-25) ----------------------------
+
+
+def retry_client(handler, token=None):
+    """A client whose retry sleep is disabled so tests don't actually wait."""
+    return KanbanClient(
+        "http://test",
+        token=token,
+        transport=httpx.MockTransport(handler),
+        retry_backoff=0,
+    )
+
+
+def flaky(errors, success):
+    """A handler that raises the given ``errors`` in turn, then returns ``success``.
+
+    Records how many times the transport was invoked so tests can assert the
+    retry actually re-sent the request.
+    """
+    calls = {"count": 0}
+    queue = list(errors)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["count"] += 1
+        if queue:
+            raise queue.pop(0)
+        return success
+
+    return handler, calls
+
+
+def test_timeout_defaults_are_generous_for_a_cold_start():
+    # The documented defaults: short connect, generous read to ride the wake.
+    assert DEFAULT_TIMEOUT == 35.0
+    assert DEFAULT_CONNECT_TIMEOUT == 5.0
+    client = KanbanClient("http://test")
+    assert client._client.timeout.read == 35.0
+    assert client._client.timeout.connect == 5.0
+
+
+def test_timeout_is_caller_configurable():
+    client = KanbanClient("http://test", timeout=60.0, connect_timeout=2.0)
+    assert client._client.timeout.read == 60.0
+    assert client._client.timeout.connect == 2.0
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        httpx.ConnectError("connection refused"),
+        httpx.ConnectTimeout("connect timed out"),
+        httpx.RemoteProtocolError("server disconnected / TLS UNEXPECTED_EOF"),
+    ],
+)
+def test_connection_error_retries_once_then_succeeds_for_any_method(error):
+    # A connection/handshake failure never reached the server, so even a write
+    # (POST) is safely retried. The retry returns the 201.
+    handler, calls = flaky([error], httpx.Response(201, json={"id": 1}))
+    out = retry_client(handler).create_card("T")
+    assert out == {"id": 1}
+    assert calls["count"] == 2  # original + one retry
+
+
+def test_get_read_timeout_retries_once_then_succeeds():
+    # GET is idempotent, so a ReadTimeout is safe to retry.
+    handler, calls = flaky(
+        [httpx.ReadTimeout("read timed out")], httpx.Response(200, json={"id": 7})
+    )
+    out = retry_client(handler).get_card(7)
+    assert out == {"id": 7}
+    assert calls["count"] == 2
+
+
+def test_post_read_timeout_does_not_retry_and_raises():
+    # A write that timed out on read MIGHT have applied server-side; with LWW and
+    # no idempotency keys we must not risk a double POST — so no retry.
+    handler, calls = flaky(
+        [httpx.ReadTimeout("read timed out")], httpx.Response(201, json={"id": 1})
+    )
+    with pytest.raises(httpx.ReadTimeout):
+        retry_client(handler).create_card("T")
+    assert calls["count"] == 1  # sent once, never retried
+
+
+def test_patch_read_timeout_does_not_retry_and_raises():
+    handler, calls = flaky(
+        [httpx.ReadTimeout("read timed out")], httpx.Response(200, json={"id": 3})
+    )
+    with pytest.raises(httpx.ReadTimeout):
+        retry_client(handler).update_card(3, title="new")
+    assert calls["count"] == 1
+
+
+def test_delete_read_timeout_does_not_retry_and_raises():
+    handler, calls = flaky([httpx.ReadTimeout("read timed out")], httpx.Response(204))
+    with pytest.raises(httpx.ReadTimeout):
+        retry_client(handler).delete_card(9)
+    assert calls["count"] == 1
+
+
+def test_only_one_retry_then_the_error_propagates():
+    # Two consecutive transport failures: original + one retry, then it gives up.
+    handler, calls = flaky(
+        [httpx.ConnectError("boom"), httpx.ConnectError("boom again")],
+        httpx.Response(200, json={"id": 1}),
+    )
+    with pytest.raises(httpx.ConnectError):
+        retry_client(handler).list_cards()
+    assert calls["count"] == 2
+
+
+def test_http_error_response_is_not_retried():
+    # A 404 is an error *response*, not a cold start — no retry, still maps to
+    # KanbanApiError (no regression to the existing error mapping).
+    handler, calls = flaky([], httpx.Response(404, json={"detail": "not found"}))
+    with pytest.raises(KanbanApiError) as excinfo:
+        retry_client(handler).get_card(1)
+    assert excinfo.value.status_code == 404
+    assert calls["count"] == 1
+
+
+def test_403_response_is_not_retried():
+    handler, calls = flaky([], httpx.Response(403, json={"detail": "not your board"}))
+    with pytest.raises(KanbanApiError) as excinfo:
+        retry_client(handler).create_card("T", board_id=99)
+    assert excinfo.value.status_code == 403
+    assert calls["count"] == 1

@@ -8,16 +8,41 @@ with no real server. Non-2xx responses become a ``KanbanApiError`` carrying the
 API's own ``detail`` string, so the caller sees a useful message (e.g. a 401 when
 a token is required).
 
-Config (base_url / token / timeout) is passed in by the caller — this module
-reads no environment, so each adapter (MCP, CLI) owns its own env parsing.
+Config (base_url / token / timeout / connect_timeout / retry_backoff) is passed
+in by the caller — this module reads no environment, so each adapter (MCP, CLI)
+owns its own env parsing.
+
+Cold-start resilience (KAN-25): the Fly free tier scales to zero, so the first
+request after idle fails while the machine wakes. The request path uses a
+generous read timeout plus a single automatic retry to ride that out; see
+``KanbanClient._send_with_retry`` for the exact policy.
 """
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import httpx
 
-DEFAULT_TIMEOUT = 10.0
+# The Fly free tier scales the app to zero, so the FIRST request after idle does
+# not just come back slow — the machine takes ~30-40s to wake and the request
+# fails mid-flight (connect/handshake error or a read timeout) before it serves
+# 200s normally. So we ride it out with a generous READ timeout and a short
+# CONNECT timeout (a dead host should fail fast; a waking one just reads slowly),
+# plus a single automatic retry (see ``_request``). Read timeout is deliberately
+# > the observed ~30s cold-start window. ``timeout`` is caller-configurable.
+DEFAULT_TIMEOUT = 35.0
+DEFAULT_CONNECT_TIMEOUT = 5.0
+
+# Fixed backoff before the single cold-start retry, giving the machine a moment
+# to finish waking. One retry, not a loop — caller-configurable (tests set 0).
+DEFAULT_RETRY_BACKOFF = 1.0
+
+# Transport failures where the request provably never reached the server (no
+# connection / broken handshake). Safe to retry for ANY method — nothing was
+# applied server-side. ``RemoteProtocolError`` is the raw symptom of Fly's
+# TLS "UNEXPECTED_EOF" mid-handshake while the machine wakes.
+_RETRY_ALWAYS_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.RemoteProtocolError)
 
 # Agent-facing hints for the auth failures V10 cares about (ADR 0015): a bad/
 # expired token vs. a board the caller's user doesn't own. The raw server detail
@@ -64,12 +89,17 @@ class KanbanClient:
         *,
         transport: httpx.BaseTransport | None = None,
         timeout: float = DEFAULT_TIMEOUT,
+        connect_timeout: float = DEFAULT_CONNECT_TIMEOUT,
+        retry_backoff: float = DEFAULT_RETRY_BACKOFF,
     ) -> None:
         headers = {"Authorization": f"Bearer {token}"} if token else {}
+        self._retry_backoff = retry_backoff
         self._client = httpx.Client(
             base_url=base_url.rstrip("/") + "/api/v1",
             headers=headers,
-            timeout=timeout,
+            # Generous read/write/pool timeout to ride out a cold start, but a
+            # short connect timeout so a genuinely-down host fails fast.
+            timeout=httpx.Timeout(timeout, connect=connect_timeout),
             transport=transport,
         )
 
@@ -83,10 +113,41 @@ class KanbanClient:
         self.close()
 
     def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
-        response = self._client.request(method, path, **kwargs)
+        response = self._send_with_retry(method, path, **kwargs)
         if not response.is_success:
+            # An HTTP error *response* (4xx/5xx) is not a cold start — never
+            # retried; the existing error mapping is unchanged.
             raise KanbanApiError(response.status_code, _detail(response))
         return response
+
+    def _send_with_retry(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+        """Send once, with a single cold-start retry on transient transport errors.
+
+        A scale-to-zero cold start surfaces as a transport-level exception, not an
+        error response, so the retry lives here and never fires on 4xx/5xx:
+
+        - connection/handshake errors (``_RETRY_ALWAYS_ERRORS``) mean the request
+          never reached the server, so retry is safe for **any** method;
+        - a ``ReadTimeout`` means the request *may* have been applied server-side,
+          so we only retry **idempotent** ``GET``s. This app is last-write-wins
+          with no idempotency keys (ADR 0007), so we never risk a double
+          POST/PATCH/DELETE.
+
+        Exactly one retry — if the retry also fails, the exception propagates.
+        """
+        try:
+            return self._client.request(method, path, **kwargs)
+        except _RETRY_ALWAYS_ERRORS:
+            return self._retry(method, path, **kwargs)
+        except httpx.ReadTimeout:
+            if method.upper() != "GET":
+                raise
+            return self._retry(method, path, **kwargs)
+
+    def _retry(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+        if self._retry_backoff > 0:
+            time.sleep(self._retry_backoff)
+        return self._client.request(method, path, **kwargs)
 
     # --- boards (discovery — V10) -------------------------------------------
 
