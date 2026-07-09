@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { LogOut } from "lucide-svelte";
   import Board from "./lib/components/Board.svelte";
   import Epics from "./lib/components/Epics.svelte";
   import Landing from "./lib/components/Landing.svelte";
@@ -53,7 +54,10 @@
   <Landing />
 {:else}
   <header class="topbar">
-    <h1>Simple Kanban</h1>
+    <div class="brand">
+      <span class="brand-glyph" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <h1>Simple Kanban</h1>
+    </div>
     <nav class="topbar-nav">
       <button class:active={view === "board"} onclick={() => show("board")}>Board</button>
       <button class:active={view === "epics"} onclick={() => show("epics")}>Epics</button>
@@ -61,8 +65,13 @@
     </nav>
     <BoardSwitcher />
     <div class="topbar-user">
+      <span class="user-avatar" title={user.email} aria-hidden="true">
+        {user.email.charAt(0).toUpperCase()}
+      </span>
       <span class="user-email" title={user.email}>{user.email}</span>
-      <button class="link" onclick={handleLogout}>Log out</button>
+      <button class="icon-btn" title="Log out" aria-label="Log out" onclick={handleLogout}>
+        <LogOut size={16} />
+      </button>
     </div>
   </header>
 

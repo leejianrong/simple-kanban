@@ -46,7 +46,7 @@ export async function login(page: Page, email = E2E_USER.email): Promise<void> {
 // the board view to settle. Returns the name used.
 export async function createBoardViaSwitcher(page: Page, name: string): Promise<string> {
   const switcher = page.locator(".board-switcher");
-  await switcher.getByRole("button", { name: "+ New board" }).click();
+  await switcher.getByRole("button", { name: "New board" }).click();
   await page.getByLabel("Board name").fill(name);
   await switcher.getByRole("button", { name: "Create", exact: true }).click();
   await expect(page.getByLabel("Board", { exact: true })).toBeVisible();
