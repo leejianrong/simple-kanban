@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session, aliased
 from ..auth_models import User
 from ..authz import authorize_board, get_principal, visible_board_ids
 from ..db import get_db
-from ..models import Card, CardDependency, Epic
+from ..models import Card, CardDependency, CardLink, Epic
 from ..ordering import next_position, renumber_column
 from ..pagination import NEXT_CURSOR_HEADER, decode_cursor, encode_cursor
 from ..schemas import (
@@ -36,6 +36,7 @@ from ..schemas import (
     CardUpdate,
     ColumnEnum,
     DependencyCreate,
+    LinkCreate,
 )
 from .boards import resolve_board_id
 
@@ -113,11 +114,33 @@ def _attach_dependencies(db: Session, cards: Sequence[Card]) -> Sequence[Card]:
         card.blocked_by = sorted(blocked_by.get(card.id, []))
         card.blocks = sorted(blocks.get(card.id, []))
         card.blocked = active_blockers.get(card.id, 0) > 0
+    _attach_links(db, cards)
     return cards
 
 
+def _attach_links(db: Session, cards: Sequence[Card]) -> None:
+    """Populate the transient ``links`` list on each card from the ``card_link``
+    table (KAN-32), ordered by id (creation order). One grouped query over all the
+    given cards, so a list of N cards costs a single round-trip — no per-card N+1
+    (mirrors ``_attach_dependencies``). Called from ``_attach_dependencies`` so every
+    card-returning route carries its work-links.
+    """
+    ids = [c.id for c in cards]
+    if not ids:
+        return
+    rows = db.scalars(
+        select(CardLink).where(CardLink.card_id.in_(ids)).order_by(CardLink.id)
+    ).all()
+    by_card: dict[int, list[CardLink]] = defaultdict(list)
+    for link in rows:
+        by_card[link.card_id].append(link)
+    for card in cards:
+        card.links = by_card.get(card.id, [])
+
+
 def _attach_one(db: Session, card: Card) -> Card:
-    """Attach dependency arrays to a single card (thin wrapper on the batch helper)."""
+    """Attach dependency arrays + work-links to a single card (thin wrapper on the
+    batch helper)."""
     _attach_dependencies(db, [card])
     return card
 
@@ -463,5 +486,59 @@ def remove_dependency(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dependency not found"
         )
     db.delete(edge)
+    db.commit()
+    return _attach_one(db, card)
+
+
+# --- card work-links (PR / branch / CI) (KAN-32) ---------------------------
+
+
+@router.post(
+    "/{card_id}/links",
+    response_model=CardRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_link(
+    card_id: int,
+    payload: LinkCreate,
+    db: Session = Depends(get_db),
+    principal: User = Depends(get_principal),
+) -> Card:
+    """Attach a work-link (``label`` + ``url`` — e.g. a PR URL, branch, or CI run) to
+    card ``{card_id}``, closing the board↔git gap (KAN-32). Returns the card with its
+    refreshed ``links`` array. **404** if the card doesn't exist; owner-gated on the
+    card's board.
+    """
+    card = _get_or_404(db, card_id)
+    authorize_board(db, principal, card.board_id)
+    db.add(CardLink(card_id=card.id, label=payload.label, url=payload.url))
+    db.commit()
+    return _attach_one(db, card)
+
+
+@router.delete("/{card_id}/links/{link_id}", response_model=CardRead)
+def remove_link(
+    card_id: int,
+    link_id: int,
+    db: Session = Depends(get_db),
+    principal: User = Depends(get_principal),
+) -> Card:
+    """Detach work-link ``{link_id}`` from card ``{card_id}`` (KAN-32). **404** if no
+    such link belongs to the card. Returns the card with its refreshed ``links``.
+    Owner-gated on the card's board.
+    """
+    card = _get_or_404(db, card_id)
+    authorize_board(db, principal, card.board_id)
+    link = db.scalars(
+        select(CardLink).where(
+            CardLink.id == link_id,
+            CardLink.card_id == card.id,
+        )
+    ).first()
+    if link is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Link not found"
+        )
+    db.delete(link)
     db.commit()
     return _attach_one(db, card)

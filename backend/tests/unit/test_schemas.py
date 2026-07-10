@@ -16,6 +16,7 @@ from app.schemas import (
     ColumnEnum,
     DependencyCreate,
     EpicCreate,
+    LinkCreate,
 )
 
 
@@ -98,3 +99,40 @@ def test_dependency_create_requires_blocker_id():
     assert DependencyCreate(blocker_id=5).blocker_id == 5
     with pytest.raises(ValidationError):
         DependencyCreate()
+
+
+# --- card work-links (KAN-32) ----------------------------------------------
+
+
+def test_card_read_links_default_empty():
+    # The router populates ``links`` from the card_link table; when there are none
+    # it defaults to empty rather than error out.
+    card = CardRead(
+        id=1,
+        ticket_number="KAN-1",
+        board_id=1,
+        title="t",
+        description=None,
+        column=ColumnEnum.todo,
+        position=0,
+        story_points=None,
+        assignee=None,
+        epic_id=None,
+        created_at="2026-07-10T00:00:00Z",
+        updated_at="2026-07-10T00:00:00Z",
+    )
+    assert card.links == []
+
+
+def test_link_create_requires_non_empty_label_and_url():
+    link = LinkCreate(label="PR", url="https://github.com/x/y/pull/1")
+    assert link.label == "PR"
+    assert link.url == "https://github.com/x/y/pull/1"
+    for bad in ("", "   ", "\t\n"):
+        with pytest.raises(ValidationError):
+            LinkCreate(label=bad, url="https://example.com")
+        with pytest.raises(ValidationError):
+            LinkCreate(label="PR", url=bad)
+    # Both fields are required.
+    with pytest.raises(ValidationError):
+        LinkCreate(label="PR")
