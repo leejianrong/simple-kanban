@@ -1,13 +1,25 @@
 <script lang="ts">
-  import { Pencil, Trash2 } from "lucide-svelte";
+  import { Ban, Pencil, Trash2 } from "lucide-svelte";
   import type { Card } from "../api";
-  import { epicFor, removeCard } from "../board.svelte";
+  import { cardById, epicFor, removeCard } from "../board.svelte";
   import CardForm from "./CardForm.svelte";
 
   let { card }: { card: Card } = $props();
 
   // The epic this story belongs to (if any) — rendered as a tag on the face.
   const epic = $derived(epicFor(card.epic_id));
+
+  // Dependency references, resolved to cards for their ticket + title. A ref that
+  // isn't on the loaded board falls back to a bare `#id` (shouldn't happen —
+  // dependencies are same-board — but keeps the render total).
+  function ref(id: number): { ticket: string; title: string } {
+    const c = cardById(id);
+    return c
+      ? { ticket: c.ticket_number, title: c.title }
+      : { ticket: `#${id}`, title: `card ${id}` };
+  }
+  const blockedBy = $derived(card.blocked_by.map(ref));
+  const blocks = $derived(card.blocks.map(ref));
 
   // Assignee avatar: first initial of the name/handle.
   const initials = $derived(card.assignee?.trim().charAt(0).toUpperCase() ?? "");
@@ -54,6 +66,12 @@
   <article class="card">
     <div class="card-top">
       <span class="ticket">{card.ticket_number}</span>
+      {#if card.blocked}
+        <span class="blocked-badge" title="Blocked by an unfinished card">
+          <Ban size={11} aria-hidden="true" />
+          Blocked
+        </span>
+      {/if}
       {#if epic}
         <span class="epic-tag" title="{epic.ticket_number} · {epic.name}">{epic.name}</span>
       {/if}
@@ -62,6 +80,26 @@
       {/if}
     </div>
     <p class="card-title">{card.title}</p>
+    {#if blockedBy.length > 0 || blocks.length > 0}
+      <div class="deps">
+        {#if blockedBy.length > 0}
+          <p class="dep-line">
+            <span class="dep-label">Blocked by</span>
+            {#each blockedBy as b (b.ticket)}
+              <span class="dep-ref" title={b.title}>{b.ticket}</span>
+            {/each}
+          </p>
+        {/if}
+        {#if blocks.length > 0}
+          <p class="dep-line">
+            <span class="dep-label">Blocks</span>
+            {#each blocks as b (b.ticket)}
+              <span class="dep-ref" title={b.title}>{b.ticket}</span>
+            {/each}
+          </p>
+        {/if}
+      </div>
+    {/if}
     <div class="card-foot">
       {#if card.assignee}
         <span class="who">

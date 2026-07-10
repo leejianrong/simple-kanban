@@ -18,6 +18,12 @@ export interface Card {
   story_points: number | null;
   assignee: string | null;
   epic_id: number | null;
+  // Card-to-card dependencies (KAN-28/KAN-30): ids of cards that block this one
+  // (blocked_by) and ids of cards this one blocks (blocks). `blocked` is the
+  // derived signal — true when >=1 blocker is not yet done (KAN-29).
+  blocked_by: number[];
+  blocks: number[];
+  blocked: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -146,6 +152,30 @@ export async function moveCard(id: number, payload: CardMove): Promise<Card> {
 export async function deleteCard(id: number): Promise<void> {
   const res = await fetch(`${API}/cards/${id}`, { method: "DELETE" });
   if (!res.ok) throw new ApiError(res.status, await parseError(res));
+}
+
+// --- Card dependencies (KAN-28 API, surfaced in the UI by KAN-30) -----------
+// `addDependency(cardId, blockerId)` records that `cardId` is blocked-by
+// `blockerId`; `removeDependency` clears that edge. Both return the (refreshed)
+// blocked card. The server enforces same-board / no-self / no-dup / no-cycle
+// (422) and owner-gating — surfaced via ApiError like every other call.
+
+export async function addDependency(cardId: number, blockerId: number): Promise<Card> {
+  const res = await fetch(`${API}/cards/${cardId}/dependencies`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ blocker_id: blockerId }),
+  });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function removeDependency(cardId: number, blockerId: number): Promise<Card> {
+  const res = await fetch(`${API}/cards/${cardId}/dependencies/${blockerId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
 }
 
 export async function listEpics(boardId?: number): Promise<Epic[]> {
