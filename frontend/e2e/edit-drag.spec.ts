@@ -22,7 +22,7 @@ test("dragging from within a card's edit form must not move the card", async ({ 
   await createCard(page, "Todo", title);
 
   // Open the edit form for this card.
-  await cardInColumn(page, "Todo", title).getByRole("button", { name: "Edit" }).click();
+  await cardInColumn(page, "Todo", title).getByRole("button", { name: "Edit", exact: true }).click();
   const form = page.locator(".card-form");
   await expect(form).toBeVisible();
   const titleInput = form.getByPlaceholder("Title (required)");
@@ -44,7 +44,7 @@ test("dragging from a card's edit-form chrome must not move the card", async ({ 
   const title = uniqueTitle("editchrome");
   await createCard(page, "Todo", title);
 
-  await cardInColumn(page, "Todo", title).getByRole("button", { name: "Edit" }).click();
+  await cardInColumn(page, "Todo", title).getByRole("button", { name: "Edit", exact: true }).click();
   const form = page.locator(".card-form");
   await expect(form).toBeVisible();
 

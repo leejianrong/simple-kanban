@@ -1,7 +1,7 @@
 <script lang="ts">
   // Agent personal-access-token management (M3 V9, ADR 0014): create a named
   // token (secret revealed once), see your tokens' metadata, and revoke them.
-  import { Plus, Trash2 } from "lucide-svelte";
+  import { KeyRound, Plus, Trash2 } from "lucide-svelte";
   import {
     addToken,
     dismissRevealed,
@@ -60,7 +60,7 @@
   }
 </script>
 
-<div class="tokens-view">
+<div class="tokens-view page-view">
   {#if tokenStore.error}
     <div class="banner error" role="alert">
       <span>{tokenStore.error}</span>
@@ -68,8 +68,11 @@
     </div>
   {/if}
 
-  <div class="epics-head">
-    <h2>Agent tokens</h2>
+  <div class="page-head">
+    <div>
+      <h2>Agent tokens</h2>
+      <p class="page-sub">Personal access tokens for the MCP server, CLI and CI.</p>
+    </div>
     {#if !adding}
       <button class="btn-add" onclick={() => (adding = true)}>
         <Plus size={15} /> New token
@@ -77,9 +80,9 @@
     {/if}
   </div>
 
-  <p class="hint">
+  <p class="page-intro">
     A token lets an agent (e.g. the MCP server) act as you — it can reach the same
-    boards you can. The secret is shown once; store it somewhere safe.
+    boards you can. The secret is shown once, so store it somewhere safe.
   </p>
 
   {#if adding}
@@ -123,17 +126,20 @@
     <p class="empty">No tokens yet. Create one to let an agent work on your boards.</p>
   {/if}
 
-  <div class="epics-list">
+  <div class="token-list">
     {#each tokenStore.tokens as token (token.id)}
       <div class="token-row card">
-        <div class="token-main">
-          <span class="token-name">{token.name}</span>
-          <code class="token-prefix">{token.token_prefix}…</code>
-        </div>
-        <div class="token-meta">
-          <span>created {fmt(token.created_at)}</span>
-          <span>last used {fmt(token.last_used_at)}</span>
-          <span>expires {fmt(token.expires_at)}</span>
+        <div class="token-info">
+          <div class="token-main">
+            <span class="token-icon" aria-hidden="true"><KeyRound size={16} /></span>
+            <span class="token-name">{token.name}</span>
+            <code class="token-prefix">{token.token_prefix}…</code>
+          </div>
+          <div class="token-meta">
+            <span>created <b>{fmt(token.created_at)}</b></span>
+            <span>last used <b>{fmt(token.last_used_at)}</b></span>
+            <span>expires <b>{fmt(token.expires_at)}</b></span>
+          </div>
         </div>
         {#if confirmingId === token.id}
           <div class="token-actions">

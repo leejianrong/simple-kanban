@@ -4,7 +4,10 @@
   // richer palette is kept but scoped to `.landing` (light + dark), reusing the
   // app's accent colours — so the landing is themable without retrofitting dark
   // mode onto the rest of the (light-only) app.
+  import { Moon, Sun } from "lucide-svelte";
   import { startGitHubLogin } from "../api";
+  import { themeStore, toggleTheme } from "../theme.svelte";
+  import Brand from "./Brand.svelte";
 
   let signingIn = $state(false);
   let error = $state<string | null>(null);
@@ -25,17 +28,24 @@
 
 <div class="landing">
   <header class="topbar">
-    <span class="wordmark">
-      <svg class="glyph" width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
-        <rect x="1" y="3" width="5" height="16" rx="1.5" fill="var(--accent)"></rect>
-        <rect x="8.5" y="3" width="5" height="11" rx="1.5" fill="var(--accent-2)"></rect>
-        <rect x="16" y="3" width="5" height="7" rx="1.5" fill="var(--muted)"></rect>
-      </svg>
-      Simple Kanban
-    </span>
-    <a class="demo-link" href="https://simple-kanban-jian.fly.dev" target="_blank" rel="noopener"
-      >Live demo &rarr;</a
-    >
+    <Brand size="lg" />
+    <div class="top-actions">
+      <button
+        class="theme-toggle"
+        title={themeStore.theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+        aria-label={themeStore.theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+        onclick={toggleTheme}
+      >
+        {#if themeStore.theme === "dark"}
+          <Sun size={16} />
+        {:else}
+          <Moon size={16} />
+        {/if}
+      </button>
+      <a class="demo-link" href="https://simple-kanban-jian.fly.dev" target="_blank" rel="noopener"
+        >Live demo &rarr;</a
+      >
+    </div>
   </header>
 
   <main class="hero">
@@ -121,8 +131,11 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  /* Dark palette. Two triggers, mirroring app.css so the user's toggle wins over
+     the OS in both directions: the OS prefers dark (unless the toggle forced
+     light), or the toggle set data-theme="dark" on <html>. */
   @media (prefers-color-scheme: dark) {
-    .landing {
+    :global(html:not([data-theme="light"])) .landing {
       --ground: #101315;
       --surface: #1a1f23;
       --line: #2b3238;
@@ -136,6 +149,20 @@
       --btn-on: #101315;
       --shadow: 0 1px 0 rgba(0, 0, 0, 0.4), 0 10px 30px -14px rgba(0, 0, 0, 0.7);
     }
+  }
+  :global(html[data-theme="dark"]) .landing {
+    --ground: #101315;
+    --surface: #1a1f23;
+    --line: #2b3238;
+    --ink: #e8ebed;
+    --muted: #99a2ab;
+    --accent: #2dd4bf;
+    --accent-soft: #0f312d;
+    --accent-2: #b794f6;
+    --accent-2-soft: #241a3d;
+    --btn-ink: #e8ebed;
+    --btn-on: #101315;
+    --shadow: 0 1px 0 rgba(0, 0, 0, 0.4), 0 10px 30px -14px rgba(0, 0, 0, 0.7);
   }
 
   .topbar {
@@ -151,16 +178,30 @@
     background: none;
     border-bottom: none;
   }
-  .wordmark {
+  .top-actions {
     display: flex;
     align-items: center;
-    gap: 0.55rem;
-    font-weight: 700;
-    font-size: 1.05rem;
-    letter-spacing: -0.01em;
+    gap: 0.75rem;
   }
-  .glyph {
-    display: block;
+  .theme-toggle {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .theme-toggle:hover {
+    color: var(--ink);
+    border-color: var(--muted);
+  }
+  .theme-toggle:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
   .demo-link {
     font-size: 0.85rem;

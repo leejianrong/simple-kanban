@@ -1,6 +1,9 @@
-:root {
+:root,
+:root[data-theme="light"] {
   /* Board redesign palette — Graphite (Zinc & Teal), light theme.
-     Teal primary; violet reserved for epics + agents; green/red stay semantic. */
+     Teal primary; violet reserved for epics + agents; green/red stay semantic.
+     The explicit [data-theme="light"] selector lets the in-app toggle force light
+     even when the OS prefers dark (it wins over the media query below). */
   --bg: #f6f7f8;
   --col-bg: #eceef1;
   --card-bg: #ffffff;
@@ -20,6 +23,10 @@
   --shadow-md: 0 1px 1px rgba(20, 25, 30, 0.08), 0 8px 20px -12px rgba(20, 25, 30, 0.28);
   --radius: 8px;
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Modal system (KAN-65/66) — a larger radius + scrim + elevation for dialogs. */
+  --radius-lg: 14px;
+  --scrim: rgba(18, 22, 26, 0.42);
+  --shadow-lg: 0 24px 60px -18px rgba(15, 20, 25, 0.45), 0 4px 12px -6px rgba(15, 20, 25, 0.25);
 
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color: var(--text);
@@ -46,6 +53,8 @@
     --hover: rgba(255, 255, 255, 0.06);
     --shadow-sm: 0 1px 0 rgba(0, 0, 0, 0.5);
     --shadow-md: 0 10px 28px -14px rgba(0, 0, 0, 0.8);
+    --scrim: rgba(0, 0, 0, 0.62);
+    --shadow-lg: 0 24px 60px -18px rgba(0, 0, 0, 0.85), 0 4px 14px -6px rgba(0, 0, 0, 0.7);
   }
 }
 :root[data-theme="dark"] {
@@ -66,6 +75,8 @@
   --hover: rgba(255, 255, 255, 0.06);
   --shadow-sm: 0 1px 0 rgba(0, 0, 0, 0.5);
   --shadow-md: 0 10px 28px -14px rgba(0, 0, 0, 0.8);
+  --scrim: rgba(0, 0, 0, 0.62);
+  --shadow-lg: 0 24px 60px -18px rgba(0, 0, 0, 0.85), 0 4px 14px -6px rgba(0, 0, 0, 0.7);
 }
 
 * {
@@ -86,15 +97,20 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
-.topbar h1 {
-  margin: 0;
-  font-size: 1.1rem;
-  letter-spacing: -0.01em;
-}
 .brand {
   display: flex;
   align-items: center;
   gap: 0.55rem;
+}
+.brand-name {
+  font-weight: 700;
+  font-size: 1.1rem;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+/* Larger lockup for the landing header. */
+.brand-lg .brand-name {
+  font-size: 1.15rem;
 }
 .brand-glyph {
   display: grid;
@@ -740,9 +756,10 @@ button.primary:disabled {
   cursor: not-allowed;
 }
 
-/* --- Epics view (ADR 0009) --- */
-.epics-view {
-  max-width: 640px;
+/* --- Epics & Tokens pages: centered, max-width container (KAN-66/67) --- */
+.page-view {
+  max-width: 860px;
+  margin: 0 auto;
 }
 .epics-head {
   display: flex;
@@ -818,10 +835,7 @@ button.primary:disabled {
   margin-right: 0.3rem;
 }
 
-/* --- Agent tokens view (M3 V9, ADR 0014) --- */
-.tokens-view {
-  max-width: 640px;
-}
+/* --- Agent tokens view (M3 V9, ADR 0014) — layout in the KAN-67 block below --- */
 /* Token "shown once" box. NOT ".reveal" — that name collides with the landing's
    entrance-animation class and leaks this border/background onto its hero. */
 .token-reveal {
@@ -884,4 +898,587 @@ button.primary:disabled {
   align-items: center;
   gap: 0.5rem;
   margin-top: 0.25rem;
+}
+
+/* =====================================================================
+   UI polish (KAN-65/66/67): card + epic detail modals, centered Epics /
+   Tokens pages, board-switcher styling. Reuses the tokens above.
+   ===================================================================== */
+
+/* ---- Shared select caret (board switcher + modal rail) ---- */
+.board-switcher select,
+.rail-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237a828b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.55rem center;
+  padding-right: 1.7rem;
+}
+
+/* ---- Board switcher (top bar) ---- */
+.board-switcher select {
+  padding-top: 0.35rem;
+  padding-bottom: 0.35rem;
+  padding-left: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background-color: var(--card-bg);
+  color: var(--text);
+  max-width: 12rem;
+  text-overflow: ellipsis;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+.board-switcher select:hover {
+  border-color: var(--muted);
+  background-color: var(--hover);
+}
+.board-switcher select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+.board-switcher input {
+  border-radius: 7px;
+}
+.board-switcher input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+
+/* ---- Clickable card / epic face (opens the modal) ---- */
+.card[role="button"] {
+  cursor: pointer;
+}
+.card[role="button"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.card.is-blocked {
+  border-left: 3px solid var(--danger);
+}
+
+/* ---- Modal shell ---- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: start center;
+  overflow-y: auto;
+  padding: clamp(1rem, 5vh, 3rem) 1rem;
+  background: var(--scrim);
+}
+.modal {
+  position: relative;
+  width: min(760px, 100%);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 2rem);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .modal-backdrop {
+    animation: modal-fade 0.14s ease both;
+  }
+  .modal {
+    animation: modal-rise 0.16s ease both;
+  }
+  @keyframes modal-fade {
+    from { opacity: 0; }
+  }
+  @keyframes modal-rise {
+    from { opacity: 0; transform: translateY(8px); }
+  }
+}
+
+/* The modal body is a form; neutralize the inline .card-form chrome. */
+.card-form.card-modal,
+.card-form.epic-modal {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  padding: 0.9rem 1.15rem;
+  border-bottom: 1px solid var(--border);
+}
+.modal-head .ticket {
+  font-size: 0.72rem;
+}
+.modal-close {
+  margin-left: auto;
+}
+.epic-ticket {
+  color: var(--agent);
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+}
+.status-pill .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.status-pill.status-todo .dot {
+  background: #97a0af;
+}
+.status-pill.status-done .dot {
+  background: var(--success);
+}
+
+.modal-scroll {
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+}
+.modal-grid {
+  display: grid;
+  grid-template-columns: 1fr 250px;
+}
+.modal-main {
+  padding: 1.25rem 1.4rem 1.5rem;
+  min-width: 0;
+}
+.modal-rail {
+  padding: 1.25rem 1.25rem 1.5rem;
+  border-left: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-2) 55%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.card-modal .field-label,
+.epic-modal .field-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+/* Title as an edit-in-place heading. */
+.modal-title-input {
+  font: inherit;
+  font-size: 1.3rem;
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: -0.015em;
+  color: var(--text);
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 0.2rem 0.45rem;
+  margin: -0.2rem 0 0.75rem -0.45rem;
+  background: none;
+}
+.modal-title-input:hover {
+  border-color: var(--border);
+}
+.modal-title-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--card-bg);
+}
+.desc-input {
+  width: 100%;
+  font: inherit;
+  font-size: 0.92rem;
+  line-height: 1.6;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.55rem 0.65rem;
+  margin-top: 0.4rem;
+  background: var(--card-bg);
+  resize: vertical;
+  min-height: 5.5rem;
+}
+.desc-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Rail fields */
+.rail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.rail-field input,
+.rail-field select {
+  width: 100%;
+  border-radius: 7px;
+}
+.rail-field input:focus-visible,
+.rail-field select:focus-visible,
+.desc-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+/* Blockers / links in the rail */
+.card-modal .blocker-item {
+  gap: 0.35rem;
+}
+.card-modal .blocker-ref {
+  flex: 1;
+}
+.card-modal .link-item {
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--accent);
+}
+.card-modal .link-ref {
+  flex: 1;
+}
+.card-modal .link-add {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.card-modal .link-add .link-label-input {
+  max-width: none;
+}
+.card-modal .link-add .row {
+  gap: 0.3rem;
+}
+
+/* Notes / activity thread */
+.notes {
+  margin-top: 1.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.card-modal .comment-list {
+  gap: 0.9rem;
+  margin-top: 0.25rem;
+}
+.card-modal .comment-item {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0;
+  background: none;
+  border-radius: 0;
+}
+.comment-body-wrap {
+  flex: 1;
+  min-width: 0;
+}
+.card-modal .comment-meta {
+  justify-content: flex-start;
+  gap: 0.5rem;
+  margin-bottom: 0.2rem;
+}
+.card-modal .comment-body {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px 10px 10px 10px;
+  padding: 0.5rem 0.65rem;
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+.comment-add {
+  margin-top: 0.6rem;
+  gap: 0.5rem;
+}
+.comment-add input {
+  flex: 1;
+  border-radius: 8px;
+}
+
+/* Modal footer */
+.modal-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.85rem 1.15rem;
+  border-top: 1px solid var(--border);
+  background: var(--card-bg);
+  flex-wrap: wrap;
+}
+.modal-delete {
+  margin-left: auto;
+}
+.modal-foot .confirm-msg {
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+/* Epic modal main column */
+.epic-modal-main {
+  padding: 1.25rem 1.4rem 1.5rem;
+}
+.epic-rollup-block {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* ---- Progress bar (epic card + epic modal) ---- */
+.progress {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+.progress .bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.progress .bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 6px;
+}
+.progress .bar i.full {
+  background: var(--success);
+}
+.progress .pct {
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ---- Shared page header (Epics + Tokens) ---- */
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.35rem;
+}
+.page-head h2 {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--text);
+}
+.page-sub {
+  margin: 0.15rem 0 0;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+.page-intro {
+  margin: 0.35rem 0 1.4rem;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: var(--muted);
+  max-width: 62ch;
+}
+
+/* ---- Section headers (Active / Completed) ---- */
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 1.6rem 0 0.85rem;
+}
+.section-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+.section-dot.active {
+  background: var(--accent);
+}
+.section-dot.done {
+  background: var(--success);
+}
+.section-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+}
+.section-count {
+  font-size: 0.72rem;
+  color: var(--muted);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.05rem 0.5rem;
+}
+.section-rule {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ---- Epic grid + card ---- */
+.epic-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.85rem;
+  align-items: start;
+}
+.card.epic-card {
+  padding: 1rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.card.epic-card:hover {
+  transform: none;
+}
+.epic-card .card-top {
+  margin-bottom: 0;
+}
+.epic-name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+.epic-card.completed {
+  opacity: 0.92;
+}
+.epic-card .card-actions {
+  margin-left: auto;
+}
+
+/* Rollup with per-story status dots + strike-through for done stories. */
+.epic-stories {
+  margin: 0.2rem 0 0;
+  padding-left: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.epic-stories li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.83rem;
+  color: var(--text);
+}
+.epic-stories .sdot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+.epic-stories .sdot.todo {
+  background: #97a0af;
+}
+.epic-stories .sdot.in_progress {
+  background: var(--accent);
+}
+.epic-stories .sdot.done {
+  background: var(--success);
+}
+.epic-stories .stitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.epic-stories li.is-done .stitle {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--muted) 55%, transparent);
+}
+
+/* ---- Tokens page ---- */
+.token-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  margin-top: 0.5rem;
+}
+.token-row.card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  padding: 0.9rem 1.1rem;
+}
+.token-info {
+  min-width: 0;
+}
+.token-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--agent-soft);
+  color: var(--agent);
+  flex: none;
+}
+.token-main {
+  align-items: center;
+  flex-wrap: wrap;
+}
+.token-prefix {
+  background: var(--surface-2);
+  border-radius: 4px;
+  padding: 0.1rem 0.4rem;
+}
+.token-meta {
+  margin-top: 0.4rem;
+  gap: 0.35rem 1.1rem;
+}
+.token-meta b {
+  font-weight: 600;
+  color: color-mix(in srgb, var(--text) 75%, var(--muted));
+}
+
+@media (max-width: 720px) {
+  .modal-grid {
+    grid-template-columns: 1fr;
+  }
+  .modal-rail {
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+  .epic-grid {
+    grid-template-columns: 1fr;
+  }
 }
