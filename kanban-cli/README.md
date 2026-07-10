@@ -82,9 +82,31 @@ can only touch boards you own. A `board_id` you don't own returns exit `4`
 
 ## Install
 
+**Prebuilt standalone binary — no Python needed (recommended, KAN-46).** Each
+release ships a single self-contained executable (built with PyInstaller
+`--onefile`, which freezes the interpreter + `kanban_cli` + the bundled
+`kanban-client` + `httpx` into one file). Download the asset for your OS/arch from
+the [latest GitHub Release](https://github.com/leejianrong/simple-kanban/releases/latest),
+mark it executable, and put it on your `PATH`:
+
+```bash
+# macOS (Apple Silicon) — swap in kan-macos-x86_64 (Intel) or kan-linux-x86_64
+curl -L -o kan https://github.com/leejianrong/simple-kanban/releases/latest/download/kan-macos-arm64
+chmod +x kan
+sudo mv kan /usr/local/bin/kan     # or anywhere on your PATH
+kan --help
+```
+
+Assets: `kan-linux-x86_64`, `kan-macos-arm64`, `kan-macos-x86_64` (Windows is not
+built yet). On macOS, Gatekeeper may quarantine an unsigned download — clear it
+with `xattr -d com.apple.quarantine kan` if it refuses to run. The binary reads
+the same env vars as below.
+
+### From source (uv)
+
 The CLI depends on the sibling `kanban-client` package by **path**
 (`../kanban-client`, see `[tool.uv.sources]` in `pyproject.toml`), which shapes
-the realistic install options.
+the realistic source-install options.
 
 **From a checkout (supported):**
 
@@ -116,9 +138,6 @@ uv sync                              # install deps (incl. the dev group)
 uv run kan --help                    # run without installing
 ```
 
-> A standalone, no-Python single binary is planned (KAN-46) for a zero-install
-> path; until then the checkout install above is the supported route.
-
 ## Usage examples
 
 ```bash
@@ -149,3 +168,22 @@ uv run pytest -q       # unit tests — mocked httpx + argparse dispatch, no DB
 The tests mock the shared `KanbanClient`, so no backend or database is needed. CI
 runs this as the `cli` job (see `.github/workflows/ci.yml`), mirroring the `mcp`
 and `client` jobs.
+
+### Build the standalone binary locally
+
+PyInstaller lives in the `build` dependency group. From `kanban-cli/`:
+
+```bash
+uv sync --group build
+uv run --group build pyinstaller --onefile \
+  --name "kan-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)" \
+  --collect-submodules kanban_cli --collect-submodules kanban_client \
+  packaging/pyinstaller_entry.py
+./dist/kan-*                        # the frozen executable
+```
+
+PyInstaller can't cross-compile, so the release matrix builds one asset per OS on
+its native runner (`.github/workflows/release-cli.yml`, tag-triggered on `v*`).
+`packaging/pyinstaller_entry.py` is the freeze entry point — it imports the
+console entry (`kanban_cli.__main__:main`) *absolutely*, since PyInstaller freezes
+a script (not a module) and the package's own `__main__.py` uses a relative import.

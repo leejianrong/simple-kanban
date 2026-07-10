@@ -1,0 +1,79 @@
+name: Release CLI binary
+
+# Build the `kan` CLI as a single self-contained executable (PyInstaller
+# --onefile: freezes the interpreter + kanban_cli + the sibling kanban-client
+# path dep + httpx into one file) so users can run it with no Python/uv
+# installed (KAN-46). PyInstaller can't cross-compile, so we build natively on
+# each target OS in a matrix and attach the results to the GitHub Release.
+#
+# TRIGGER: version tags only (e.g. `git tag v0.2.0 && git push origin v0.2.0`).
+# This never runs on a PR or a branch push — publishing is a deliberate,
+# tag-gated ops action (mirrors the repo's tag convention; v0.1.0 already exists).
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Needed for softprops/action-gh-release to create/update the Release and
+# upload assets with the built-in GITHUB_TOKEN.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One red target shouldn't cancel the others — collect what we can.
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest   # x86_64 Linux
+            asset: kan-linux-x86_64
+          - os: macos-14        # Apple Silicon (arm64)
+            asset: kan-macos-arm64
+          - os: macos-13        # Intel macOS (x86_64)
+            asset: kan-macos-x86_64
+      # Windows is intentionally omitted for now — the .exe packaging + smoke
+      # step differ enough to defer; add a `windows-latest` row (asset
+      # `kan-windows-x86_64.exe`) when there's demand.
+    defaults:
+      run:
+        working-directory: kanban-cli
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # Installs the CLI, its runtime deps (httpx, the ../kanban-client path
+      # dep, resolved at build time), and the `build` group (PyInstaller).
+      - name: Install deps (incl. build group)
+        run: uv sync --frozen --group build
+
+      - name: Build --onefile binary
+        run: >-
+          uv run --frozen --group build pyinstaller --onefile
+          --name "${{ matrix.asset }}"
+          --collect-submodules kanban_cli
+          --collect-submodules kanban_client
+          packaging/pyinstaller_entry.py
+
+      # Prove the frozen binary actually runs on the target OS before we ship it.
+      - name: Smoke-test the binary
+        run: |
+          ./dist/${{ matrix.asset }} --help
+          KANBAN_API_URL=https://simple-kanban-jian.fly.dev ./dist/${{ matrix.asset }} warmup
+
+      - name: Attach binary to the Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: kanban-cli/dist/${{ matrix.asset }}
+          fail_on_unmatched_files: true
