@@ -374,10 +374,53 @@ main {
   border-radius: 4px;
   padding: 0.08rem 0.4rem;
 }
+/* Blocked signal (KAN-30): a card with >=1 unfinished blocker. */
+.blocked-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-radius: 4px;
+  padding: 0.08rem 0.4rem;
+}
 .card-title {
   margin: 0;
   font-size: 0.875rem;
   line-height: 1.35;
+}
+/* Dependency references on the card face (KAN-30): tickets this card is blocked
+   by / blocks, each hover-titled with the referenced card's full title. */
+.deps {
+  margin-top: 0.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.dep-line {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+.dep-label {
+  font-weight: 600;
+}
+.dep-ref {
+  font-family: var(--mono);
+  font-size: 0.64rem;
+  font-weight: 600;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 4px;
+  padding: 0.05rem 0.35rem;
 }
 .card-foot {
   display: flex;
@@ -540,6 +583,39 @@ button.danger {
   margin: 0;
   color: var(--danger);
   font-size: 0.8rem;
+}
+
+/* Blocker editor in the card form (KAN-30, edit mode). */
+.blockers-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.field-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+.blocker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.blocker-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.blocker-ref {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.72rem;
 }
 
 button {

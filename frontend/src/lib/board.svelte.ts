@@ -3,6 +3,7 @@
 // authoritative — no optimistic UI (BREADBOARD §7).
 
 import {
+  addDependency,
   createBoard,
   createCard,
   createEpic,
@@ -13,6 +14,7 @@ import {
   listCards,
   listEpics,
   moveCard as apiMoveCard,
+  removeDependency,
   updateBoard,
   updateCard,
   updateEpic,
@@ -126,6 +128,13 @@ export function cardsFor(column: Column): Card[] {
     .sort((a, b) => a.position - b.position);
 }
 
+// A card by id, for rendering dependency references (blocked_by / blocks) by
+// their ticket number + title (KAN-30). Null if it isn't in the loaded board —
+// callers fall back to a bare id.
+export function cardById(id: number): Card | null {
+  return board.cards.find((c) => c.id === id) ?? null;
+}
+
 // Epics live in their own store (they are not board cards — ADR 0009). Loaded
 // alongside cards so both the Board (story epic-tags) and the Epics view can read
 // them.
@@ -176,6 +185,20 @@ export async function editCard(id: number, payload: CardUpdate): Promise<void> {
 
 export async function removeCard(id: number): Promise<void> {
   await deleteCard(id);
+  await refetch();
+}
+
+// Dependency edits (KAN-30). Like every other mutation these are
+// server-authoritative: the endpoint enforces the same-board / no-cycle rules
+// and we refetch() to pick up the refreshed blocked_by/blocks/blocked on every
+// affected card (a blocker moving in/out of a card also flips `blocked`).
+export async function addBlocker(cardId: number, blockerId: number): Promise<void> {
+  await addDependency(cardId, blockerId);
+  await refetch();
+}
+
+export async function removeBlocker(cardId: number, blockerId: number): Promise<void> {
+  await removeDependency(cardId, blockerId);
   await refetch();
 }
 

@@ -1,7 +1,15 @@
 <script lang="ts">
   import { untrack } from "svelte";
+  import { X } from "lucide-svelte";
   import type { Card, Column } from "../api";
-  import { addCard, editCard, epicStore } from "../board.svelte";
+  import {
+    addBlocker,
+    addCard,
+    board,
+    editCard,
+    epicStore,
+    removeBlocker,
+  } from "../board.svelte";
 
   // Create mode: pass `column`. Edit mode: pass `card` (P3). `onrequestdelete`
   // is shown only in edit mode and routes to the delete confirmation (P4).
@@ -42,6 +50,52 @@
 
   // Epics this story can be linked to (create + edit).
   const epicOptions = $derived(epicStore.epics);
+
+  // --- Blockers (KAN-30, edit mode only) ---------------------------------
+  // Read straight off the (reactive) card prop, NOT a snapshot: add/remove are
+  // their own server calls followed by refetch(), so `card.blocked_by` reflects
+  // the latest edges without reopening the form. Candidates to add = same-board
+  // cards, excluding this card and its existing blockers (the server also rejects
+  // self / dup / cross-board / cycles with a 422, surfaced below).
+  const blockers = $derived(
+    isEdit ? card!.blocked_by.map((id) => board.cards.find((c) => c.id === id)) : [],
+  );
+  const blockerCandidates = $derived(
+    isEdit
+      ? board.cards.filter(
+          (c) => c.id !== card!.id && !card!.blocked_by.includes(c.id),
+        )
+      : [],
+  );
+  let addBlockerId = $state<string>("");
+  let depBusy = $state(false);
+  let depError = $state<string | null>(null);
+
+  async function onAddBlocker(blockerId: string) {
+    if (!blockerId) return;
+    depBusy = true;
+    depError = null;
+    try {
+      await addBlocker(card!.id, Number(blockerId));
+    } catch (e) {
+      depError = e instanceof Error ? e.message : "Failed to add blocker";
+    } finally {
+      addBlockerId = ""; // reset the picker whether it succeeded or not
+      depBusy = false;
+    }
+  }
+
+  async function onRemoveBlocker(blockerId: number) {
+    depBusy = true;
+    depError = null;
+    try {
+      await removeBlocker(card!.id, blockerId);
+    } catch (e) {
+      depError = e instanceof Error ? e.message : "Failed to remove blocker";
+    } finally {
+      depBusy = false;
+    }
+  }
 
   const dirty = $derived(
     title.trim() !== iTitle ||
@@ -106,6 +160,51 @@
       <option value={String(epic.id)}>{epic.ticket_number} · {epic.name}</option>
     {/each}
   </select>
+
+  {#if isEdit}
+    <div class="blockers-edit">
+      <span class="field-label">Blocked by</span>
+      {#if blockers.length > 0}
+        <ul class="blocker-list">
+          {#each blockers as b}
+            {#if b}
+              <li class="blocker-item">
+                <span class="blocker-ref" title={b.title}>
+                  {b.ticket_number} · {b.title}
+                </span>
+                <button
+                  type="button"
+                  class="icon-btn danger"
+                  title="Remove blocker"
+                  aria-label="Remove blocker {b.ticket_number}"
+                  disabled={depBusy}
+                  onclick={() => onRemoveBlocker(b.id)}
+                >
+                  <X size={14} />
+                </button>
+              </li>
+            {/if}
+          {/each}
+        </ul>
+      {/if}
+      <select
+        bind:value={addBlockerId}
+        aria-label="Add blocker"
+        disabled={depBusy || blockerCandidates.length === 0}
+        onchange={() => onAddBlocker(addBlockerId)}
+      >
+        <option value="">
+          {blockerCandidates.length === 0 ? "— no cards to add" : "— add a blocker"}
+        </option>
+        {#each blockerCandidates as c (c.id)}
+          <option value={String(c.id)}>{c.ticket_number} · {c.title}</option>
+        {/each}
+      </select>
+      {#if depError}
+        <p class="form-error" role="alert">{depError}</p>
+      {/if}
+    </div>
+  {/if}
 
   {#if error}
     <p class="form-error" role="alert">{error}</p>
