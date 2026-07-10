@@ -32,13 +32,17 @@ class Config:
     board_id: int | None
 
 
-def load_config() -> Config:
+def load_config(*, require_token: bool = True) -> Config:
     """Read config from the environment. Raises ``ConfigError`` (mapped to a clean
     stderr message + non-zero exit by the CLI) when ``KANBAN_TOKEN`` is missing or
-    ``KANBAN_BOARD_ID`` is not an integer."""
+    ``KANBAN_BOARD_ID`` is not an integer.
+
+    ``require_token=False`` skips the token check for commands that only hit the
+    public, unauthenticated ``/api/health`` endpoint (``warmup``), so they work as
+    a CI pre-step before any PAT is configured."""
     api_url = os.environ.get("KANBAN_API_URL", DEFAULT_API_URL).strip() or DEFAULT_API_URL
     token = os.environ.get("KANBAN_TOKEN", "").strip()
-    if not token:
+    if require_token and not token:
         raise ConfigError(
             "KANBAN_TOKEN is required (a personal access token 'kanban_pat_…'; "
             "create one in the Tokens UI). The /api/v1 API is auth-required."

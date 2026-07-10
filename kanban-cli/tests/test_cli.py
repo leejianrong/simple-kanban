@@ -41,6 +41,9 @@ class FakeClient:
             raise self._error
         return self._result
 
+    def warmup(self):
+        return self._call("warmup")
+
     def list_cards(self, **kw):
         return self._call("list_cards", **kw)
 
@@ -371,6 +374,57 @@ def test_epic_missing_subcommand_is_usage_error(env):
     assert exc.value.code == cli.EXIT_USAGE
 
 
+# --- warmup -----------------------------------------------------------------
+
+
+def test_warmup_calls_client(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"status": "ok", "health": {}}))
+    assert cli.run(["warmup"]) == cli.EXIT_OK
+    assert fake.calls == [("warmup", {})]
+
+
+def test_warmup_ok_exits_zero(monkeypatch, env):
+    patch_client(monkeypatch, FakeClient(result={"status": "ok", "health": {"status": "ok"}}))
+    assert cli.run(["warmup"]) == cli.EXIT_OK
+
+
+@pytest.mark.parametrize(
+    "status", ["waking", "error"]
+)
+def test_warmup_not_ok_exits_nonzero(monkeypatch, env, status):
+    patch_client(monkeypatch, FakeClient(result={"status": status, "detail": "not yet"}))
+    assert cli.run(["warmup"]) == cli.EXIT_ERROR
+
+
+def test_warmup_needs_no_token(monkeypatch, capsys):
+    # No KANBAN_TOKEN set — warmup hits the public /api/health, so it must not
+    # error out on a missing token like the other (auth-required) commands do.
+    monkeypatch.delenv("KANBAN_TOKEN", raising=False)
+    monkeypatch.delenv("KANBAN_BOARD_ID", raising=False)
+    monkeypatch.delenv("KANBAN_API_URL", raising=False)
+    patch_client(monkeypatch, FakeClient(result={"status": "ok", "health": {}}))
+    assert cli.run(["warmup"]) == cli.EXIT_OK
+
+
+def test_warmup_human_output_ok(monkeypatch, env, capsys):
+    patch_client(monkeypatch, FakeClient(result={"status": "ok", "health": {}}))
+    cli.run(["warmup"])
+    assert capsys.readouterr().out.strip() == "ok\tAPI is awake"
+
+
+def test_warmup_human_output_waking(monkeypatch, env, capsys):
+    patch_client(monkeypatch, FakeClient(result={"status": "waking", "detail": "retry shortly"}))
+    cli.run(["warmup"])
+    assert capsys.readouterr().out.strip() == "waking\tretry shortly"
+
+
+def test_warmup_json_output(monkeypatch, env, capsys):
+    result = {"status": "ok", "health": {"status": "ok"}}
+    patch_client(monkeypatch, FakeClient(result=result))
+    assert cli.run(["warmup", "--json"]) == cli.EXIT_OK
+    assert json.loads(capsys.readouterr().out) == result
+
+
 # --- real client over a MockTransport (HTTP wiring) -------------------------
 
 
@@ -398,3 +452,32 @@ def test_real_client_hits_move_endpoint(monkeypatch, env):
     assert seen["path"] == "/api/v1/cards/7/move"
     assert seen["content"] == {"column": "done", "position": 1}
     assert seen["auth"] == "Bearer kanban_pat_test"
+
+
+def test_real_client_warmup_hits_unversioned_health(monkeypatch):
+    # No token in the env: warmup must still reach the unversioned /api/health
+    # (not /api/v1/...) and send no Authorization header.
+    monkeypatch.delenv("KANBAN_TOKEN", raising=False)
+    monkeypatch.delenv("KANBAN_BOARD_ID", raising=False)
+    monkeypatch.delenv("KANBAN_API_URL", raising=False)
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        seen["auth"] = request.headers.get("Authorization")
+        return httpx.Response(200, json={"status": "ok"})
+
+    from kanban_client import KanbanClient
+
+    monkeypatch.setattr(
+        cli,
+        "KanbanClient",
+        lambda url, token, **k: KanbanClient(
+            url, token, transport=httpx.MockTransport(handler)
+        ),
+    )
+    assert cli.run(["warmup"]) == cli.EXIT_OK
+    assert seen["method"] == "GET"
+    assert seen["path"] == "/api/health"
+    assert seen["auth"] is None

@@ -79,6 +79,8 @@ def _humanize(result: Any, *, noun: str = "card") -> str:
         return "\n".join(_epic_line(e) for e in epics) if epics else "(no epics)"
     if isinstance(result, dict) and "deleted" in result:  # delete_{card,epic}
         return f"deleted {noun} {result['deleted']}"
+    if isinstance(result, dict) and "status" in result:  # warmup
+        return _warmup_line(result)
     # A single entity: epics/boards carry ``name`` (no ``title``); cards carry
     # ``title``. Epics additionally have a ``ticket_number`` (``EPIC-…``).
     if isinstance(result, dict) and "name" in result and "title" not in result:
@@ -112,6 +114,18 @@ def _epic_line(epic: dict[str, Any]) -> str:
 def _board_line(board: dict[str, Any]) -> str:
     """One concise line for a board: id, name (tab-separated)."""
     return "\t".join((str(board.get("id", "?")), str(board.get("name", ""))))
+
+
+def _warmup_line(result: dict[str, Any]) -> str:
+    """One concise line for a warmup result: the status, plus any detail.
+
+    ``ok`` → the API is awake; ``waking``/``error`` carry a ``detail`` explaining
+    what to do next (call again shortly / what failed)."""
+    status = str(result.get("status", "?"))
+    if status == "ok":
+        return "ok\tAPI is awake"
+    detail = result.get("detail")
+    return f"{status}\t{detail}" if detail else status
 
 
 # --- board resolution -------------------------------------------------------
@@ -173,6 +187,16 @@ def _cmd_delete(client: KanbanClient, config: Config, args: argparse.Namespace) 
             f"refusing to delete card {args.card_id} without confirmation; pass --yes"
         )
     return client.delete_card(args.card_id)
+
+
+# --- ops handlers -----------------------------------------------------------
+
+
+def _cmd_warmup(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    # The shared client's warmup() pings the public /api/health, rides a cold
+    # start via the shared retry/timeout, and never throws — it returns a status
+    # dict the caller maps to an exit code (see run()).
+    return client.warmup()
 
 
 # --- board handlers ---------------------------------------------------------
@@ -257,6 +281,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     sub = parser.add_subparsers(dest="command", metavar="<command>", required=True)
+
+    # ``warmup`` pings the public /api/health to wake a scaled-to-zero Fly+Neon
+    # deploy before a batch of work (handy as a CI pre-step). It needs no token
+    # (require_token=False) and maps its non-throwing status to an exit code
+    # (is_warmup=True): 0 when awake, 1 while still waking / on error.
+    p_warmup = sub.add_parser(
+        "warmup",
+        parents=[common],
+        help="wake the API (ping /api/health) before a batch of work",
+    )
+    p_warmup.set_defaults(func=_cmd_warmup, require_token=False, is_warmup=True)
 
     p_list = sub.add_parser("list", parents=[common], help="list / query cards")
     p_list.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
@@ -353,7 +388,8 @@ def run(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        config = load_config()
+        # warmup hits the public /api/health, so it doesn't need a token.
+        config = load_config(require_token=getattr(args, "require_token", True))
     except ConfigError as exc:
         print(f"kan: {exc}", file=sys.stderr)
         return EXIT_ERROR
@@ -374,4 +410,9 @@ def run(argv: Sequence[str] | None = None) -> int:
     # ``noun`` defaults to "card" (card verbs are top-level and set no noun);
     # the board/epic subparsers set it so the delete summary reads correctly.
     _emit(result, as_json=args.as_json, noun=getattr(args, "noun", "card"))
+    # warmup never throws (a still-waking/failed server is a status, not an
+    # exception), so it maps that status to a scripting-friendly exit code:
+    # 0 when awake, 1 otherwise (retry the CI pre-step / investigate).
+    if getattr(args, "is_warmup", False):
+        return EXIT_OK if result.get("status") == "ok" else EXIT_ERROR
     return EXIT_OK
