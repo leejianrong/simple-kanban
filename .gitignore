@@ -5,6 +5,11 @@ __pycache__/
 backend/.venv/
 *.egg-info/
 
+# PyInstaller (KAN-46: standalone `kan` binary build outputs)
+kanban-cli/build/
+kanban-cli/dist/
+kanban-cli/*.spec
+
 # Node / Vite
 node_modules/
 frontend/dist/

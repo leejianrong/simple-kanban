@@ -16,6 +16,9 @@ dependencies = [
 kanban-client = { path = "../kanban-client", editable = true }
 
 [dependency-groups]
+build = [
+    "pyinstaller>=6.21.0",
+]
 dev = [
     "pytest>=8.3",
     "ruff>=0.8",
