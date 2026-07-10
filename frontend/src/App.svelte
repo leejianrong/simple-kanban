@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { LogOut } from "lucide-svelte";
+  import { LogOut, Moon, Sun } from "lucide-svelte";
   import Board from "./lib/components/Board.svelte";
+  import Brand from "./lib/components/Brand.svelte";
   import Epics from "./lib/components/Epics.svelte";
   import Landing from "./lib/components/Landing.svelte";
   import BoardSwitcher from "./lib/components/BoardSwitcher.svelte";
@@ -9,6 +10,7 @@
   import { refetch, refetchBoards, refetchEpics } from "./lib/board.svelte";
   import { refetchTokens } from "./lib/tokens.svelte";
   import { setSessionUser } from "./lib/session.svelte";
+  import { initTheme, themeStore, toggleTheme } from "./lib/theme.svelte";
   import { getCurrentUser, logout, type CurrentUser } from "./lib/api";
 
   // The board shows stories; epics + agent tokens are managed in their own views.
@@ -28,6 +30,7 @@
   let user = $state<CurrentUser | null | undefined>(undefined);
 
   onMount(async () => {
+    initTheme();
     try {
       user = await getCurrentUser();
     } catch {
@@ -58,10 +61,7 @@
   <Landing />
 {:else}
   <header class="topbar">
-    <div class="brand">
-      <span class="brand-glyph" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-      <h1>Simple Kanban</h1>
-    </div>
+    <Brand />
     <nav class="topbar-nav">
       <button class:active={view === "board"} onclick={() => show("board")}>Board</button>
       <button class:active={view === "epics"} onclick={() => show("epics")}>Epics</button>
@@ -69,6 +69,18 @@
     </nav>
     <BoardSwitcher />
     <div class="topbar-user">
+      <button
+        class="icon-btn theme-toggle"
+        title={themeStore.theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+        aria-label={themeStore.theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+        onclick={toggleTheme}
+      >
+        {#if themeStore.theme === "dark"}
+          <Sun size={16} />
+        {:else}
+          <Moon size={16} />
+        {/if}
+      </button>
       <span class="user-avatar" title={user.email} aria-hidden="true">
         {user.email.charAt(0).toUpperCase()}
       </span>
