@@ -32,6 +32,15 @@ source of truth (API-first, ADR 0005). Milestone 2 slice **V5**; board-scoped in
 | `add_dependency(card_id, blocker_id)` | `POST /cards/{id}/dependencies` | — (by card id) |
 | `remove_dependency(card_id, blocker_id)` | `DELETE /cards/{id}/dependencies/{blocker_id}` | — (by card id) |
 | `list_dependencies(card_id)` | `GET /cards/{id}` (shapes `blocked_by`/`blocks`) | — (by card id) |
+| `add_link(card_id, label, url)` | `POST /cards/{id}/links` | — (by card id) |
+| `remove_link(card_id, link_id)` | `DELETE /cards/{id}/links/{link_id}` | — (by card id) |
+| `add_comment(card_id, body)` | `POST /cards/{id}/comments` | — (by card id) |
+| `list_comments(card_id)` | `GET /cards/{id}/comments` (wraps in `comments`) | — (by card id) |
+
+> Work-links (KAN-32) are also inlined on every card read — `list_cards`/`get_card`
+> already return each card's `links` array — so `add_link`/`remove_link` are just the
+> write path. Comments (KAN-33) are a thread, so they live behind `list_comments`
+> rather than on the card body.
 
 **Board scoping (V10, ADR 0015).** Call `list_boards` to discover the boards you
 own, then target any of them per call:

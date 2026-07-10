@@ -24,8 +24,28 @@ export interface Card {
   blocked_by: number[];
   blocks: number[];
   blocked: boolean;
+  // Work-links (KAN-32/KAN-34): PR / branch / CI URLs, inlined on every card read.
+  links: CardLink[];
   created_at: string;
   updated_at: string;
+}
+
+// A work-link on a card (KAN-32): a label (e.g. "PR", "branch", "CI") + a url.
+export interface CardLink {
+  id: number;
+  label: string;
+  url: string;
+  created_at: string;
+}
+
+// A note/comment on a card (KAN-33): a body authored by a user. Not inlined on
+// card reads — fetched on demand via listComments. `author_id` is null once the
+// authoring user is deleted (SET NULL).
+export interface Comment {
+  id: number;
+  body: string;
+  author_id: string | null;
+  created_at: string;
 }
 
 export interface CardCreate {
@@ -176,6 +196,56 @@ export async function removeDependency(cardId: number, blockerId: number): Promi
   });
   if (!res.ok) throw new ApiError(res.status, await parseError(res));
   return res.json();
+}
+
+// --- Card work-links (KAN-32 API, surfaced in the UI by KAN-34) -------------
+// `addLink` attaches a label+url to a card; `removeLink` detaches one by id. Both
+// return the (refreshed) card with its `links` array. Owner-gated like every call.
+
+export async function addLink(cardId: number, label: string, url: string): Promise<Card> {
+  const res = await fetch(`${API}/cards/${cardId}/links`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ label, url }),
+  });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function removeLink(cardId: number, linkId: number): Promise<Card> {
+  const res = await fetch(`${API}/cards/${cardId}/links/${linkId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+// --- Card notes / comments (KAN-33 API, surfaced in the UI by KAN-34) --------
+// Comments are a thread, so unlike links they aren't inlined on card reads —
+// `listComments` fetches them on demand (oldest-first). `addComment` posts one
+// (author is the session user); `deleteComment` removes your own (403 otherwise).
+
+export async function listComments(cardId: number): Promise<Comment[]> {
+  const res = await fetch(`${API}/cards/${cardId}/comments`);
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function addComment(cardId: number, body: string): Promise<Comment> {
+  const res = await fetch(`${API}/cards/${cardId}/comments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ body }),
+  });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function deleteComment(cardId: number, commentId: number): Promise<void> {
+  const res = await fetch(`${API}/cards/${cardId}/comments/${commentId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
 }
 
 export async function listEpics(boardId?: number): Promise<Epic[]> {

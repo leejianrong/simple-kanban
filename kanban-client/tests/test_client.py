@@ -275,6 +275,56 @@ def test_list_dependencies_defaults_missing_arrays_to_empty():
     assert out == {"card_id": 5, "blocked_by": [], "blocks": []}
 
 
+# --- card work-links (KAN-32 API / KAN-34) ---------------------------------
+
+
+def test_add_link_posts_label_and_url_and_returns_card():
+    import json
+
+    handler, seen = capture(
+        httpx.Response(201, json={"id": 5, "links": [{"id": 1, "label": "PR", "url": "u"}]})
+    )
+    out = make_client(handler).add_link(5, "PR", "https://example/pr/1")
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/api/v1/cards/5/links"
+    assert json.loads(seen["content"]) == {"label": "PR", "url": "https://example/pr/1"}
+    # The whole card body (with refreshed links) is returned unchanged.
+    assert out == {"id": 5, "links": [{"id": 1, "label": "PR", "url": "u"}]}
+
+
+def test_remove_link_deletes_link_and_returns_card_body():
+    # The DELETE responds with the refreshed card body (not 204), so it is parsed.
+    handler, seen = capture(httpx.Response(200, json={"id": 5, "links": []}))
+    out = make_client(handler).remove_link(5, 2)
+    assert seen["method"] == "DELETE"
+    assert seen["path"] == "/api/v1/cards/5/links/2"
+    assert out == {"id": 5, "links": []}
+
+
+# --- card notes / comments (KAN-33 API / KAN-34) ---------------------------
+
+
+def test_add_comment_posts_body_and_returns_comment():
+    import json
+
+    handler, seen = capture(
+        httpx.Response(201, json={"id": 3, "body": "hi", "author_id": None})
+    )
+    out = make_client(handler).add_comment(5, "hi")
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/api/v1/cards/5/comments"
+    assert json.loads(seen["content"]) == {"body": "hi"}
+    assert out == {"id": 3, "body": "hi", "author_id": None}
+
+
+def test_list_comments_reads_and_wraps_result():
+    handler, seen = capture(httpx.Response(200, json=[{"id": 3, "body": "hi"}]))
+    out = make_client(handler).list_comments(5)
+    assert seen["method"] == "GET"
+    assert seen["path"] == "/api/v1/cards/5/comments"
+    assert out == {"comments": [{"id": 3, "body": "hi"}]}
+
+
 # --- health / warmup (KAN-39) ----------------------------------------------
 
 

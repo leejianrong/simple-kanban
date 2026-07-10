@@ -379,3 +379,34 @@ class KanbanClient:
             "blocked_by": card.get("blocked_by", []),
             "blocks": card.get("blocks", []),
         }
+
+    # --- card work-links (KAN-32 API / KAN-34 adapter) ----------------------
+
+    def add_link(self, card_id: int, label: str, url: str) -> dict[str, Any]:
+        """Attach a work-link (``label`` + ``url`` — e.g. a PR URL, branch, or CI
+        run) to card ``card_id``. Returns the card with its refreshed ``links``
+        array (the POST responds with the card body, not 204)."""
+        return self._request(
+            "POST", f"/cards/{card_id}/links", json={"label": label, "url": url}
+        ).json()
+
+    def remove_link(self, card_id: int, link_id: int) -> dict[str, Any]:
+        """Detach work-link ``link_id`` from card ``card_id``. Returns the card with
+        its refreshed ``links`` array (the DELETE responds with the card body, not
+        204)."""
+        return self._request("DELETE", f"/cards/{card_id}/links/{link_id}").json()
+
+    # --- card notes / comments (KAN-33 API / KAN-34 adapter) ----------------
+
+    def add_comment(self, card_id: int, body: str) -> dict[str, Any]:
+        """Post a note to card ``card_id``. Returns the created comment (id, body,
+        author_id, created_at). The author is the acting principal, never the
+        body."""
+        return self._request(
+            "POST", f"/cards/{card_id}/comments", json={"body": body}
+        ).json()
+
+    def list_comments(self, card_id: int) -> dict[str, Any]:
+        """List a card's notes, oldest-first (creation order). Returns
+        ``{"comments": [<comment>, ...]}``."""
+        return {"comments": self._request("GET", f"/cards/{card_id}/comments").json()}

@@ -4,6 +4,7 @@
 
 import {
   addDependency,
+  addLink,
   createBoard,
   createCard,
   createEpic,
@@ -15,6 +16,7 @@ import {
   listEpics,
   moveCard as apiMoveCard,
   removeDependency,
+  removeLink,
   updateBoard,
   updateCard,
   updateEpic,
@@ -199,6 +201,23 @@ export async function addBlocker(cardId: number, blockerId: number): Promise<voi
 
 export async function removeBlocker(cardId: number, blockerId: number): Promise<void> {
   await removeDependency(cardId, blockerId);
+  await refetch();
+}
+
+// Work-link edits (KAN-34). Links are inlined on every card read, so like the
+// other mutations these are server-authoritative: add/remove then refetch() to
+// pick up the card's refreshed `links` array.
+export async function addCardLink(
+  cardId: number,
+  label: string,
+  url: string,
+): Promise<void> {
+  await addLink(cardId, label, url);
+  await refetch();
+}
+
+export async function removeCardLink(cardId: number, linkId: number): Promise<void> {
+  await removeLink(cardId, linkId);
   await refetch();
 }
 

@@ -8,6 +8,7 @@
   import Tokens from "./lib/components/Tokens.svelte";
   import { refetch, refetchBoards, refetchEpics } from "./lib/board.svelte";
   import { refetchTokens } from "./lib/tokens.svelte";
+  import { setSessionUser } from "./lib/session.svelte";
   import { getCurrentUser, logout, type CurrentUser } from "./lib/api";
 
   // The board shows stories; epics + agent tokens are managed in their own views.
@@ -34,6 +35,8 @@
       // rather than getting stuck on a blank screen.
       user = null;
     }
+    // Expose the user id for delete-own affordances deep in the tree (comments).
+    setSessionUser(user?.id ?? null);
     // Load boards first (picks the active board), then that board's cards + epics.
     if (user) {
       await refetchBoards();
@@ -45,6 +48,7 @@
   async function handleLogout() {
     await logout();
     user = null;
+    setSessionUser(null);
   }
 </script>
 

@@ -33,6 +33,10 @@ EXPECTED_TOOLS = {
     "add_dependency",
     "remove_dependency",
     "list_dependencies",
+    "add_link",
+    "remove_link",
+    "add_comment",
+    "list_comments",
 }
 
 
@@ -143,3 +147,47 @@ def test_list_dependencies_shapes_card_arrays(monkeypatch):
     assert seen["method"] == "GET"
     assert seen["path"] == "/api/v1/cards/5"
     assert out == {"card_id": 5, "blocked_by": [2, 3], "blocks": [9]}
+
+
+# --- work-link + comment tools (KAN-34) ------------------------------------
+
+
+def test_add_link_posts_label_and_url(monkeypatch):
+    seen = _capture_client(
+        monkeypatch,
+        httpx.Response(201, json={"id": 5, "links": [{"id": 1, "label": "PR", "url": "u"}]}),
+    )
+    out = server.add_link(5, "PR", "https://example/pr/1")
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/api/v1/cards/5/links"
+    assert json.loads(seen["content"]) == {"label": "PR", "url": "https://example/pr/1"}
+    assert out == {"id": 5, "links": [{"id": 1, "label": "PR", "url": "u"}]}
+
+
+def test_remove_link_deletes_link_path(monkeypatch):
+    seen = _capture_client(monkeypatch, httpx.Response(200, json={"id": 5, "links": []}))
+    out = server.remove_link(5, 2)
+    assert seen["method"] == "DELETE"
+    assert seen["path"] == "/api/v1/cards/5/links/2"
+    assert out == {"id": 5, "links": []}
+
+
+def test_add_comment_posts_body(monkeypatch):
+    seen = _capture_client(
+        monkeypatch, httpx.Response(201, json={"id": 3, "body": "hi", "author_id": None})
+    )
+    out = server.add_comment(5, "hi")
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/api/v1/cards/5/comments"
+    assert json.loads(seen["content"]) == {"body": "hi"}
+    assert out == {"id": 3, "body": "hi", "author_id": None}
+
+
+def test_list_comments_reads_and_wraps(monkeypatch):
+    seen = _capture_client(
+        monkeypatch, httpx.Response(200, json=[{"id": 3, "body": "hi"}])
+    )
+    out = server.list_comments(5)
+    assert seen["method"] == "GET"
+    assert seen["path"] == "/api/v1/cards/5/comments"
+    assert out == {"comments": [{"id": 3, "body": "hi"}]}

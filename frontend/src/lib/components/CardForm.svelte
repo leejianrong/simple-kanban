@@ -1,15 +1,18 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { X } from "lucide-svelte";
-  import type { Card, Column } from "../api";
+  import { addComment, deleteComment, listComments, type Card, type Column, type Comment } from "../api";
   import {
     addBlocker,
     addCard,
+    addCardLink,
     board,
     editCard,
     epicStore,
     removeBlocker,
+    removeCardLink,
   } from "../board.svelte";
+  import { session } from "../session.svelte";
 
   // Create mode: pass `column`. Edit mode: pass `card` (P3). `onrequestdelete`
   // is shown only in edit mode and routes to the delete confirmation (P4).
@@ -95,6 +98,110 @@
     } finally {
       depBusy = false;
     }
+  }
+
+  // --- Work-links (KAN-34, edit mode only) --------------------------------
+  // Read straight off the (reactive) card prop: add/remove are their own server
+  // calls followed by refetch(), so `card.links` reflects the latest links without
+  // reopening the form (links are inlined on card reads).
+  const links = $derived(isEdit ? card!.links : []);
+  let linkLabel = $state("");
+  let linkUrl = $state("");
+  let linkBusy = $state(false);
+  let linkError = $state<string | null>(null);
+
+  const canAddLink = $derived(
+    linkLabel.trim().length > 0 && linkUrl.trim().length > 0 && !linkBusy,
+  );
+
+  async function onAddLink() {
+    if (!canAddLink) return;
+    linkBusy = true;
+    linkError = null;
+    try {
+      await addCardLink(card!.id, linkLabel.trim(), linkUrl.trim());
+      linkLabel = "";
+      linkUrl = "";
+    } catch (e) {
+      linkError = e instanceof Error ? e.message : "Failed to add link";
+    } finally {
+      linkBusy = false;
+    }
+  }
+
+  async function onRemoveLink(linkId: number) {
+    linkBusy = true;
+    linkError = null;
+    try {
+      await removeCardLink(card!.id, linkId);
+    } catch (e) {
+      linkError = e instanceof Error ? e.message : "Failed to remove link";
+    } finally {
+      linkBusy = false;
+    }
+  }
+
+  // --- Comments / notes (KAN-34, edit mode only) --------------------------
+  // Comments aren't inlined on card reads, so they get their own on-demand fetch
+  // (loaded once when the edit form opens) and stay server-authoritative: after a
+  // post/delete we re-list the thread rather than mutating it locally.
+  let comments = $state<Comment[]>([]);
+  let commentsLoaded = $state(false);
+  let newComment = $state("");
+  let commentBusy = $state(false);
+  let commentError = $state<string | null>(null);
+
+  async function loadComments() {
+    if (!isEdit) return;
+    try {
+      comments = await listComments(card!.id);
+    } catch (e) {
+      commentError = e instanceof Error ? e.message : "Failed to load comments";
+    } finally {
+      commentsLoaded = true;
+    }
+  }
+
+  onMount(loadComments);
+
+  const canPostComment = $derived(newComment.trim().length > 0 && !commentBusy);
+
+  async function onPostComment() {
+    if (!canPostComment) return;
+    commentBusy = true;
+    commentError = null;
+    try {
+      await addComment(card!.id, newComment.trim());
+      newComment = "";
+      await loadComments();
+    } catch (e) {
+      commentError = e instanceof Error ? e.message : "Failed to post comment";
+    } finally {
+      commentBusy = false;
+    }
+  }
+
+  async function onDeleteComment(commentId: number) {
+    commentBusy = true;
+    commentError = null;
+    try {
+      await deleteComment(card!.id, commentId);
+      await loadComments();
+    } catch (e) {
+      commentError = e instanceof Error ? e.message : "Failed to delete comment";
+    } finally {
+      commentBusy = false;
+    }
+  }
+
+  // A comment is deletable only by its author (the server also enforces this, 403).
+  function ownComment(c: Comment): boolean {
+    return session.userId != null && c.author_id === session.userId;
+  }
+
+  function formatWhen(iso: string): string {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
   }
 
   const dirty = $derived(
@@ -202,6 +309,98 @@
       </select>
       {#if depError}
         <p class="form-error" role="alert">{depError}</p>
+      {/if}
+    </div>
+
+    <div class="links-edit">
+      <span class="field-label">Links</span>
+      {#if links.length > 0}
+        <ul class="link-list">
+          {#each links as l (l.id)}
+            <li class="link-item">
+              <a
+                class="link-ref"
+                href={l.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={l.url}
+              >
+                {l.label}
+              </a>
+              <button
+                type="button"
+                class="icon-btn danger"
+                title="Remove link"
+                aria-label="Remove link {l.label}"
+                disabled={linkBusy}
+                onclick={() => onRemoveLink(l.id)}
+              >
+                <X size={14} />
+              </button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+      <div class="row link-add">
+        <input
+          type="text"
+          class="link-label-input"
+          placeholder="Label (e.g. PR)"
+          bind:value={linkLabel}
+          disabled={linkBusy}
+        />
+        <input
+          type="url"
+          placeholder="https://…"
+          bind:value={linkUrl}
+          disabled={linkBusy}
+        />
+        <button type="button" disabled={!canAddLink} onclick={onAddLink}>Add</button>
+      </div>
+      {#if linkError}
+        <p class="form-error" role="alert">{linkError}</p>
+      {/if}
+    </div>
+
+    <div class="comments-edit">
+      <span class="field-label">Notes</span>
+      {#if commentsLoaded && comments.length > 0}
+        <ul class="comment-list">
+          {#each comments as c (c.id)}
+            <li class="comment-item">
+              <div class="comment-body">{c.body}</div>
+              <div class="comment-meta">
+                <time datetime={c.created_at}>{formatWhen(c.created_at)}</time>
+                {#if ownComment(c)}
+                  <button
+                    type="button"
+                    class="icon-btn danger"
+                    title="Delete note"
+                    aria-label="Delete note"
+                    disabled={commentBusy}
+                    onclick={() => onDeleteComment(c.id)}
+                  >
+                    <X size={13} />
+                  </button>
+                {/if}
+              </div>
+            </li>
+          {/each}
+        </ul>
+      {:else if commentsLoaded}
+        <p class="comment-empty">No notes yet.</p>
+      {/if}
+      <div class="row comment-add">
+        <input
+          type="text"
+          placeholder="Add a note…"
+          bind:value={newComment}
+          disabled={commentBusy}
+        />
+        <button type="button" disabled={!canPostComment} onclick={onPostComment}>Post</button>
+      </div>
+      {#if commentError}
+        <p class="form-error" role="alert">{commentError}</p>
       {/if}
     </div>
   {/if}
