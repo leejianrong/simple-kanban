@@ -313,6 +313,52 @@ def list_dependencies(card_id: int) -> dict[str, Any]:
     return _client_instance().list_dependencies(card_id)
 
 
+# --- card work-links (KAN-32 API / KAN-34 tools) ---------------------------
+
+
+@mcp.tool()
+def add_link(card_id: int, label: str, url: str) -> dict[str, Any]:
+    """Attach a work-link to story ``card_id`` — a ``label`` (e.g. "PR", "branch",
+    "CI") and a ``url`` (the PR URL, branch, CI run, …) — closing the board↔git gap.
+    Returns the card with its refreshed ``links`` array. Authorized via the card's
+    own board — no ``board_id`` needed. 404 if the card doesn't exist.
+    """
+    return _client_instance().add_link(card_id, label, url)
+
+
+@mcp.tool()
+def remove_link(card_id: int, link_id: int) -> dict[str, Any]:
+    """Detach work-link ``link_id`` from story ``card_id``. Returns the card with its
+    refreshed ``links`` array. Authorized via the card's own board — no ``board_id``
+    needed. 404 if no such link belongs to the card.
+    """
+    return _client_instance().remove_link(card_id, link_id)
+
+
+# --- card notes / comments (KAN-33 API / KAN-34 tools) ---------------------
+
+
+@mcp.tool()
+def add_comment(card_id: int, body: str) -> dict[str, Any]:
+    """Post a note (comment) to story ``card_id`` — human/agent-authored context
+    like a decision, a handoff, or why something is blocked. The author is the
+    acting user (your PAT's owner), never the body. Returns the created comment.
+    Authorized via the card's own board — no ``board_id`` needed. 404 if the card
+    doesn't exist.
+    """
+    return _client_instance().add_comment(card_id, body)
+
+
+@mcp.tool()
+def list_comments(card_id: int) -> dict[str, Any]:
+    """List a story's notes (comments), oldest-first: ``{"comments": [...]}``. Each
+    comment carries id, body, author_id, and created_at. Comments are not inlined on
+    card reads (a card can accumulate many), so this is a dedicated read. Authorized
+    via the card's own board — no ``board_id`` needed.
+    """
+    return _client_instance().list_comments(card_id)
+
+
 def main() -> None:
     """Entry point — run the server over stdio."""
     mcp.run()

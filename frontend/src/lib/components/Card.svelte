@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Ban, Pencil, Trash2 } from "lucide-svelte";
+  import { Ban, Link as LinkIcon, Pencil, Trash2 } from "lucide-svelte";
   import type { Card } from "../api";
   import { cardById, epicFor, removeCard } from "../board.svelte";
   import CardForm from "./CardForm.svelte";
@@ -98,6 +98,22 @@
             {/each}
           </p>
         {/if}
+      </div>
+    {/if}
+    {#if card.links.length > 0}
+      <div class="links">
+        {#each card.links as link (link.id)}
+          <a
+            class="link-chip"
+            href={link.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="{link.label} · {link.url}"
+          >
+            <LinkIcon size={11} aria-hidden="true" />
+            <span class="link-label">{link.label}</span>
+          </a>
+        {/each}
       </div>
     {/if}
     <div class="card-foot">

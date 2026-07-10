@@ -422,6 +422,35 @@ main {
   border-radius: 4px;
   padding: 0.05rem 0.35rem;
 }
+/* Work-link chips on the card face (KAN-34): a labelled link to the PR / branch /
+   CI, opening in a new tab. Styled like the epic tag but clickable. */
+.links {
+  margin-top: 0.4rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.link-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  max-width: 16ch;
+  font-size: 0.64rem;
+  font-weight: 600;
+  text-decoration: none;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 4px;
+  padding: 0.08rem 0.4rem;
+}
+.link-chip:hover {
+  text-decoration: underline;
+}
+.link-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .card-foot {
   display: flex;
   align-items: center;
@@ -616,6 +645,80 @@ button.danger {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 0.72rem;
+}
+
+/* Work-link editor in the card form (KAN-34, edit mode). */
+.links-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.link-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.link-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.link-ref {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.72rem;
+  color: var(--accent);
+}
+.link-add .link-label-input {
+  max-width: 9ch;
+}
+
+/* Comment/notes thread in the card form (KAN-34, edit mode). */
+.comments-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.comment-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.comment-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.35rem 0.5rem;
+  background: var(--accent-soft);
+  border-radius: 4px;
+}
+.comment-body {
+  font-size: 0.78rem;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.comment-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  font-size: 0.64rem;
+  color: var(--muted);
+}
+.comment-empty {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--muted);
 }
 
 button {
