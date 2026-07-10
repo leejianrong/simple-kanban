@@ -1,0 +1,536 @@
+<script lang="ts">
+  import { onMount, untrack } from "svelte";
+  import { Ban, Link as LinkIcon, Plus, Trash2, X } from "lucide-svelte";
+  import {
+    addComment,
+    deleteComment,
+    listComments,
+    type Column,
+    type Comment,
+  } from "../api";
+  import {
+    addBlocker,
+    addCardLink,
+    board,
+    cardById,
+    COLUMNS,
+    editCard,
+    epicFor,
+    epicStore,
+    moveCard,
+    removeBlocker,
+    removeCard,
+    removeCardLink,
+  } from "../board.svelte";
+  import { session } from "../session.svelte";
+  import Modal from "./Modal.svelte";
+
+  // The card is read live from the store by id (not a snapshot): every mutation
+  // refetches board state, and this modal must reflect the fresh card without
+  // being reopened. If the card vanishes (deleted elsewhere), close.
+  let { cardId, onclose }: { cardId: number; onclose: () => void } = $props();
+
+  const card = $derived(cardById(cardId));
+  $effect(() => {
+    if (card == null) onclose();
+  });
+
+  const STORY_POINTS = [1, 2, 3, 5, 8, 13];
+
+  // Editable fields (title/description/story_points/assignee/epic) are batched
+  // behind "Save changes" (PATCH). Snapshot the initial values once so a refetch
+  // while the modal is open doesn't clobber in-progress edits; the snapshot also
+  // drives change detection. Status is NOT here — it moves the card immediately
+  // via the dedicated move endpoint (see onStatusChange).
+  const initial = untrack(() => ({
+    title: card?.title ?? "",
+    desc: card?.description ?? "",
+    assignee: card?.assignee ?? "",
+    pts: card?.story_points != null ? String(card.story_points) : "",
+    epic: card?.epic_id != null ? String(card.epic_id) : "",
+  }));
+
+  let title = $state(initial.title);
+  let description = $state(initial.desc);
+  let assignee = $state(initial.assignee);
+  let storyPoints = $state<string>(initial.pts);
+  let epicId = $state<string>(initial.epic);
+  let submitting = $state(false);
+  let error = $state<string | null>(null);
+
+  const epicOptions = $derived(epicStore.epics);
+  const epic = $derived(card ? epicFor(card.epic_id) : null);
+  const ticket = $derived(card?.ticket_number ?? "");
+  const columnLabel = $derived(
+    COLUMNS.find((c) => c.key === card?.column)?.label ?? "",
+  );
+
+  // --- Status → move (dedicated endpoint, immediate) ----------------------
+  let moving = $state(false);
+  async function onStatusChange(e: Event) {
+    const next = (e.currentTarget as HTMLSelectElement).value as Column;
+    if (!card || next === card.column) return;
+    moving = true;
+    try {
+      await moveCard(card.id, { column: next });
+    } finally {
+      moving = false;
+    }
+  }
+
+  // --- Blockers (immediate) ------------------------------------------------
+  const blockers = $derived(
+    card ? card.blocked_by.map((id) => board.cards.find((c) => c.id === id)) : [],
+  );
+  const blockerCandidates = $derived(
+    card
+      ? board.cards.filter(
+          (c) => c.id !== card.id && !card.blocked_by.includes(c.id),
+        )
+      : [],
+  );
+  const blocks = $derived(
+    card ? card.blocks.map((id) => cardById(id)) : [],
+  );
+  let addBlockerId = $state<string>("");
+  let depBusy = $state(false);
+  let depError = $state<string | null>(null);
+
+  async function onAddBlocker(blockerId: string) {
+    if (!blockerId || !card) return;
+    depBusy = true;
+    depError = null;
+    try {
+      await addBlocker(card.id, Number(blockerId));
+    } catch (e) {
+      depError = e instanceof Error ? e.message : "Failed to add blocker";
+    } finally {
+      addBlockerId = "";
+      depBusy = false;
+    }
+  }
+  async function onRemoveBlocker(blockerId: number) {
+    if (!card) return;
+    depBusy = true;
+    depError = null;
+    try {
+      await removeBlocker(card.id, blockerId);
+    } catch (e) {
+      depError = e instanceof Error ? e.message : "Failed to remove blocker";
+    } finally {
+      depBusy = false;
+    }
+  }
+
+  // --- Work-links (immediate) ---------------------------------------------
+  const links = $derived(card ? card.links : []);
+  let linkLabel = $state("");
+  let linkUrl = $state("");
+  let linkBusy = $state(false);
+  let linkError = $state<string | null>(null);
+  const canAddLink = $derived(
+    linkLabel.trim().length > 0 && linkUrl.trim().length > 0 && !linkBusy,
+  );
+  async function onAddLink() {
+    if (!canAddLink || !card) return;
+    linkBusy = true;
+    linkError = null;
+    try {
+      await addCardLink(card.id, linkLabel.trim(), linkUrl.trim());
+      linkLabel = "";
+      linkUrl = "";
+    } catch (e) {
+      linkError = e instanceof Error ? e.message : "Failed to add link";
+    } finally {
+      linkBusy = false;
+    }
+  }
+  async function onRemoveLink(linkId: number) {
+    if (!card) return;
+    linkBusy = true;
+    linkError = null;
+    try {
+      await removeCardLink(card.id, linkId);
+    } catch (e) {
+      linkError = e instanceof Error ? e.message : "Failed to remove link";
+    } finally {
+      linkBusy = false;
+    }
+  }
+
+  // --- Comments / notes (immediate; fetched on open) ----------------------
+  let comments = $state<Comment[]>([]);
+  let commentsLoaded = $state(false);
+  let newComment = $state("");
+  let commentBusy = $state(false);
+  let commentError = $state<string | null>(null);
+
+  async function loadComments() {
+    try {
+      comments = await listComments(cardId);
+    } catch (e) {
+      commentError = e instanceof Error ? e.message : "Failed to load comments";
+    } finally {
+      commentsLoaded = true;
+    }
+  }
+  onMount(loadComments);
+
+  const canPostComment = $derived(newComment.trim().length > 0 && !commentBusy);
+  async function onPostComment() {
+    if (!canPostComment) return;
+    commentBusy = true;
+    commentError = null;
+    try {
+      await addComment(cardId, newComment.trim());
+      newComment = "";
+      await loadComments();
+    } catch (e) {
+      commentError = e instanceof Error ? e.message : "Failed to post comment";
+    } finally {
+      commentBusy = false;
+    }
+  }
+  async function onDeleteComment(commentId: number) {
+    commentBusy = true;
+    commentError = null;
+    try {
+      await deleteComment(cardId, commentId);
+      await loadComments();
+    } catch (e) {
+      commentError = e instanceof Error ? e.message : "Failed to delete comment";
+    } finally {
+      commentBusy = false;
+    }
+  }
+  function ownComment(c: Comment): boolean {
+    return session.userId != null && c.author_id === session.userId;
+  }
+  function formatWhen(iso: string): string {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+  }
+  function initialOf(name: string | null | undefined): string {
+    return name?.trim().charAt(0).toUpperCase() ?? "•";
+  }
+
+  // --- Field edits (batched behind Save) ----------------------------------
+  const dirty = $derived(
+    title.trim() !== initial.title ||
+      description.trim() !== initial.desc ||
+      assignee.trim() !== initial.assignee ||
+      storyPoints !== initial.pts ||
+      epicId !== initial.epic,
+  );
+  const canSubmit = $derived(title.trim().length > 0 && dirty && !submitting);
+
+  async function submit(e: SubmitEvent) {
+    e.preventDefault();
+    if (!canSubmit || !card) return;
+    submitting = true;
+    error = null;
+    try {
+      await editCard(card.id, {
+        title: title.trim(),
+        description: description.trim() || null,
+        assignee: assignee.trim() || null,
+        story_points: storyPoints ? Number(storyPoints) : null,
+        epic_id: epicId ? Number(epicId) : null,
+      });
+      onclose();
+    } catch (e) {
+      error = e instanceof Error ? e.message : "Failed to save card";
+    } finally {
+      submitting = false;
+    }
+  }
+
+  // --- Delete (confirm inline in the footer) ------------------------------
+  let confirming = $state(false);
+  let deleting = $state(false);
+  let deleteError = $state<string | null>(null);
+  async function confirmDelete() {
+    if (!card) return;
+    deleting = true;
+    deleteError = null;
+    try {
+      await removeCard(card.id);
+      onclose();
+    } catch (e) {
+      deleteError = e instanceof Error ? e.message : "Failed to delete card";
+      deleting = false;
+    }
+  }
+</script>
+
+{#if card}
+  <Modal label="Card {ticket}: {card.title}" {onclose}>
+    <form class="card-form card-modal" onsubmit={submit}>
+      <header class="modal-head">
+        <span class="ticket">{ticket}</span>
+        <span class="status-pill status-{card.column}">
+          <span class="dot" aria-hidden="true"></span>{columnLabel}
+        </span>
+        {#if card.blocked}
+          <span class="blocked-badge" title="Blocked by an unfinished card">
+            <Ban size={11} aria-hidden="true" /> Blocked
+          </span>
+        {/if}
+        {#if epic}
+          <span class="epic-tag" title="{epic.ticket_number} · {epic.name}">{epic.name}</span>
+        {/if}
+        <button
+          type="button"
+          class="icon-btn modal-close"
+          title="Close"
+          aria-label="Close"
+          onclick={onclose}
+        >
+          <X size={18} />
+        </button>
+      </header>
+
+      <div class="modal-scroll">
+        <div class="modal-grid">
+          <div class="modal-main">
+            <input
+              class="modal-title-input"
+              type="text"
+              placeholder="Title (required)"
+              aria-label="Title"
+              bind:value={title}
+            />
+            <span class="field-label">Description</span>
+            <textarea
+              class="desc-input"
+              placeholder="Description (optional)"
+              rows="4"
+              bind:value={description}
+            ></textarea>
+
+            <div class="notes">
+              <span class="field-label">Notes &amp; activity</span>
+              {#if commentsLoaded && comments.length > 0}
+                <ul class="comment-list">
+                  {#each comments as c (c.id)}
+                    <li class="comment-item">
+                      <span class="avatar-sm" aria-hidden="true">{initialOf(c.author_id)}</span>
+                      <div class="comment-body-wrap">
+                        <div class="comment-meta">
+                          <time datetime={c.created_at}>{formatWhen(c.created_at)}</time>
+                          {#if ownComment(c)}
+                            <button
+                              type="button"
+                              class="icon-btn danger"
+                              title="Delete note"
+                              aria-label="Delete note"
+                              disabled={commentBusy}
+                              onclick={() => onDeleteComment(c.id)}
+                            >
+                              <X size={13} />
+                            </button>
+                          {/if}
+                        </div>
+                        <div class="comment-body">{c.body}</div>
+                      </div>
+                    </li>
+                  {/each}
+                </ul>
+              {:else if commentsLoaded}
+                <p class="comment-empty">No notes yet.</p>
+              {/if}
+              <div class="row comment-add">
+                <input
+                  type="text"
+                  placeholder="Add a note…"
+                  bind:value={newComment}
+                  disabled={commentBusy}
+                />
+                <button type="button" disabled={!canPostComment} onclick={onPostComment}>Post</button>
+              </div>
+              {#if commentError}
+                <p class="form-error" role="alert">{commentError}</p>
+              {/if}
+            </div>
+          </div>
+
+          <aside class="modal-rail">
+            <div class="rail-field">
+              <span class="field-label">Status</span>
+              <select
+                class="rail-select"
+                aria-label="Status"
+                value={card.column}
+                disabled={moving}
+                onchange={onStatusChange}
+              >
+                {#each COLUMNS as col (col.key)}
+                  <option value={col.key}>{col.label}</option>
+                {/each}
+              </select>
+            </div>
+
+            <div class="rail-field">
+              <span class="field-label">Story points</span>
+              <select class="rail-select" bind:value={storyPoints} aria-label="Story points">
+                <option value="">— unestimated</option>
+                {#each STORY_POINTS as p}
+                  <option value={String(p)}>{p}</option>
+                {/each}
+              </select>
+            </div>
+
+            <div class="rail-field">
+              <span class="field-label">Assignee</span>
+              <input type="text" placeholder="Assignee" bind:value={assignee} />
+            </div>
+
+            <div class="rail-field">
+              <span class="field-label">Epic</span>
+              <select class="rail-select" bind:value={epicId} aria-label="Epic">
+                <option value="">— no epic</option>
+                {#each epicOptions as e (e.id)}
+                  <option value={String(e.id)}>{e.ticket_number} · {e.name}</option>
+                {/each}
+              </select>
+            </div>
+
+            <div class="rail-field blockers-edit">
+              <span class="field-label">Blocked by</span>
+              {#if blockers.length > 0}
+                <ul class="blocker-list">
+                  {#each blockers as b}
+                    {#if b}
+                      <li class="blocker-item">
+                        <span class="dep-ref" title={b.title}>{b.ticket_number}</span>
+                        <span class="blocker-ref" title={b.title}>{b.title}</span>
+                        <button
+                          type="button"
+                          class="icon-btn danger"
+                          title="Remove blocker"
+                          aria-label="Remove blocker {b.ticket_number}"
+                          disabled={depBusy}
+                          onclick={() => onRemoveBlocker(b.id)}
+                        >
+                          <X size={14} />
+                        </button>
+                      </li>
+                    {/if}
+                  {/each}
+                </ul>
+              {/if}
+              <select
+                class="rail-select"
+                bind:value={addBlockerId}
+                aria-label="Add blocker"
+                disabled={depBusy || blockerCandidates.length === 0}
+                onchange={() => onAddBlocker(addBlockerId)}
+              >
+                <option value="">
+                  {blockerCandidates.length === 0 ? "— no cards to add" : "— add a blocker"}
+                </option>
+                {#each blockerCandidates as c (c.id)}
+                  <option value={String(c.id)}>{c.ticket_number} · {c.title}</option>
+                {/each}
+              </select>
+              {#if depError}
+                <p class="form-error" role="alert">{depError}</p>
+              {/if}
+            </div>
+
+            {#if blocks.length > 0}
+              <div class="rail-field">
+                <span class="field-label">Blocks</span>
+                <div class="chip-row">
+                  {#each blocks as b}
+                    {#if b}
+                      <span class="dep-ref" title={b.title}>{b.ticket_number}</span>
+                    {/if}
+                  {/each}
+                </div>
+              </div>
+            {/if}
+
+            <div class="rail-field links-edit">
+              <span class="field-label">Links</span>
+              {#if links.length > 0}
+                <ul class="link-list">
+                  {#each links as l (l.id)}
+                    <li class="link-item">
+                      <LinkIcon size={12} aria-hidden="true" />
+                      <a
+                        class="link-ref"
+                        href={l.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={l.url}
+                      >
+                        {l.label}
+                      </a>
+                      <button
+                        type="button"
+                        class="icon-btn danger"
+                        title="Remove link"
+                        aria-label="Remove link {l.label}"
+                        disabled={linkBusy}
+                        onclick={() => onRemoveLink(l.id)}
+                      >
+                        <X size={14} />
+                      </button>
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+              <div class="link-add">
+                <input
+                  type="text"
+                  class="link-label-input"
+                  placeholder="Label (e.g. PR)"
+                  bind:value={linkLabel}
+                  disabled={linkBusy}
+                />
+                <div class="row">
+                  <input
+                    type="url"
+                    placeholder="https://…"
+                    bind:value={linkUrl}
+                    disabled={linkBusy}
+                  />
+                  <button type="button" disabled={!canAddLink} onclick={onAddLink}>Add</button>
+                </div>
+              </div>
+              {#if linkError}
+                <p class="form-error" role="alert">{linkError}</p>
+              {/if}
+            </div>
+          </aside>
+        </div>
+      </div>
+
+      <footer class="modal-foot">
+        {#if confirming}
+          <span class="confirm-msg">Delete {ticket}? This can't be undone.</span>
+          <button type="button" class="danger" onclick={confirmDelete} disabled={deleting}>
+            Delete
+          </button>
+          <button type="button" class="link" onclick={() => (confirming = false)} disabled={deleting}>
+            Keep
+          </button>
+        {:else}
+          <button type="submit" class="primary" disabled={!canSubmit}>Save changes</button>
+          <button type="button" class="link" onclick={onclose}>Cancel</button>
+          <button
+            type="button"
+            class="btn-inline-danger modal-delete"
+            onclick={() => (confirming = true)}
+          >
+            <Trash2 size={15} /> Delete
+          </button>
+        {/if}
+      </footer>
+
+      {#if error}<p class="form-error" role="alert">{error}</p>{/if}
+      {#if deleteError}<p class="form-error" role="alert">{deleteError}</p>{/if}
+    </form>
+  </Modal>
+{/if}

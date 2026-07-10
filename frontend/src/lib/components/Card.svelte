@@ -2,16 +2,14 @@
   import { Ban, Link as LinkIcon, Pencil, Trash2 } from "lucide-svelte";
   import type { Card } from "../api";
   import { cardById, epicFor, removeCard } from "../board.svelte";
-  import CardForm from "./CardForm.svelte";
+  import CardModal from "./CardModal.svelte";
 
   let { card }: { card: Card } = $props();
 
   // The epic this story belongs to (if any) — rendered as a tag on the face.
   const epic = $derived(epicFor(card.epic_id));
 
-  // Dependency references, resolved to cards for their ticket + title. A ref that
-  // isn't on the loaded board falls back to a bare `#id` (shouldn't happen —
-  // dependencies are same-board — but keeps the render total).
+  // Dependency references, resolved to cards for their ticket + title.
   function ref(id: number): { ticket: string; title: string } {
     const c = cardById(id);
     return c
@@ -21,20 +19,43 @@
   const blockedBy = $derived(card.blocked_by.map(ref));
   const blocks = $derived(card.blocks.map(ref));
 
-  // Assignee avatar: first initial of the name/handle.
   const initials = $derived(card.assignee?.trim().charAt(0).toUpperCase() ?? "");
 
-  // view (P1 face) · edit (P3) · confirmDelete (P4)
-  let mode = $state<"view" | "edit" | "confirmDelete">("view");
+  // view (P1 face) · confirmDelete (P4 quick-delete). Full view/edit is the modal.
+  let mode = $state<"view" | "confirmDelete">("view");
+  let showModal = $state(false);
   let deleting = $state(false);
   let deleteError = $state<string | null>(null);
+
+  // Click-vs-drag: svelte-dnd-action owns the drag. A press that barely moves and
+  // doesn't land on an inner control is a real click → open the detail modal.
+  let downX = 0;
+  let downY = 0;
+  function onPointerDown(e: PointerEvent) {
+    downX = e.clientX;
+    downY = e.clientY;
+  }
+  function isInteractive(t: EventTarget | null): boolean {
+    return t instanceof Element && !!t.closest("button, a");
+  }
+  function openFromClick(e: MouseEvent) {
+    if (isInteractive(e.target)) return; // let buttons / links handle themselves
+    if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return; // it was a drag
+    showModal = true;
+  }
+  function onKeydown(e: KeyboardEvent) {
+    if (e.target !== e.currentTarget) return; // ignore keys from inner controls
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      showModal = true;
+    }
+  }
 
   async function confirmDelete() {
     deleting = true;
     deleteError = null;
     try {
       await removeCard(card.id);
-      // On success the card is gone from board state and this component unmounts.
     } catch (e) {
       deleteError = e instanceof Error ? e.message : "Failed to delete card";
       deleting = false;
@@ -42,13 +63,7 @@
   }
 </script>
 
-{#if mode === "edit"}
-  <CardForm
-    {card}
-    onclose={() => (mode = "view")}
-    onrequestdelete={() => (mode = "confirmDelete")}
-  />
-{:else if mode === "confirmDelete"}
+{#if mode === "confirmDelete"}
   <div class="card confirm">
     <p class="confirm-msg">
       Delete <strong>{card.ticket_number}</strong> — “{card.title}”? This can't be
@@ -63,7 +78,16 @@
     </div>
   </div>
 {:else}
-  <article class="card">
+  <div
+    class="card"
+    class:is-blocked={card.blocked}
+    role="button"
+    tabindex="0"
+    aria-label="Open {card.ticket_number}: {card.title}"
+    onpointerdown={onPointerDown}
+    onclick={openFromClick}
+    onkeydown={onKeydown}
+  >
     <div class="card-top">
       <span class="ticket">{card.ticket_number}</span>
       {#if card.blocked}
@@ -124,7 +148,7 @@
         </span>
       {/if}
       <div class="card-actions">
-        <button class="icon-btn" title="Edit" aria-label="Edit" onclick={() => (mode = "edit")}>
+        <button class="icon-btn" title="Edit" aria-label="Edit" onclick={() => (showModal = true)}>
           <Pencil size={15} />
         </button>
         <button
@@ -137,5 +161,9 @@
         </button>
       </div>
     </div>
-  </article>
+  </div>
+{/if}
+
+{#if showModal}
+  <CardModal cardId={card.id} onclose={() => (showModal = false)} />
 {/if}
