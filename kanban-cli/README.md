@@ -29,9 +29,21 @@ collide with the card verbs (parity with the `/api/v1` surface).
 | `kan epic create <name> [--board N] [--description D] [--json]` | `POST /epics` |
 | `kan epic update <epic_id> [--name N] [--description D] [--json]` | `PATCH /epics/{id}` |
 | `kan epic delete <epic_id> --yes [--json]` | `DELETE /epics/{id}` |
+| `kan warmup [--json]` | `GET /api/health` |
 
 Valid columns are `todo`, `in_progress`, `done`. `delete` requires `--yes` as a
 guard against accidental destruction.
+
+`kan warmup` pings the public health endpoint to wake a scaled-to-zero Fly + Neon
+deploy (the first request after idle is slow — a documented cold start), riding it
+out via the shared client's cold-start retry/timeout. Handy as a **CI pre-step**
+before a batch of `kan` calls so the wake cost is paid once. It needs **no
+`KANBAN_TOKEN`** (health is unauthenticated) and exits `0` once the API is awake,
+`1` while it's still waking or on error — so a CI step can loop until it succeeds:
+
+```bash
+until kan warmup; do sleep 2; done   # block until the API is awake
+```
 
 Every command takes `--json` to print the API's raw response (for piping, e.g.
 `kan list --json | jq`); without it you get a concise tab-separated summary
