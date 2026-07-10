@@ -1,0 +1,64 @@
+name: Publish MCP image
+
+# Build the MCP server (mcp/) as an OCI image and push it to the GitHub
+# Container Registry (ghcr.io) so agents can `docker run` it with no local
+# Python/uv (KAN-47). The image bundles the sibling `kanban-client` path dep, so
+# the build CONTEXT is the REPO ROOT with `-f mcp/Dockerfile` (see mcp/Dockerfile).
+#
+# TRIGGER: version tags only (e.g. `git tag v0.2.0 && git push origin v0.2.0`).
+# Never runs on a PR or a branch push — publishing is a deliberate, tag-gated ops
+# action (mirrors the repo's tag convention; v0.1.0 already exists).
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  # ghcr.io/<owner>/simple-kanban-mcp — owner comes from the repo so a fork
+  # publishes under its own namespace without edits.
+  IMAGE: ghcr.io/${{ github.repository_owner }}/simple-kanban-mcp
+
+jobs:
+  publish:
+    name: Build & push to ghcr.io
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # required to push to ghcr.io with the built-in token
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          # Full semver (v1.2.3 -> 1.2.3, 1.2, 1), plus `latest` on the newest.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          # Build context is the repo root; the Dockerfile COPYs both mcp/ and
+          # the sibling kanban-client/, so it MUST NOT be the mcp/ subdir.
+          context: .
+          file: mcp/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
