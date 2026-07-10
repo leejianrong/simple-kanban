@@ -87,6 +87,31 @@ class CardMove(BaseModel):
     position: int | None = Field(default=None, ge=0)
 
 
+class LinkCreate(BaseModel):
+    """Attach a work-link to a card (KAN-32): ``POST /cards/{id}/links`` with a
+    ``label`` (e.g. "PR", "branch", "CI") and a ``url`` (the PR URL, branch, CI run,
+    …). Both are required and non-empty."""
+
+    label: Annotated[str, Field(min_length=1)]
+    url: Annotated[str, Field(min_length=1)]
+
+    @field_validator("label", "url")
+    @classmethod
+    def non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty")
+        return v
+
+
+class LinkRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    label: str
+    url: str
+    created_at: datetime
+
+
 class CardRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -110,6 +135,10 @@ class CardRead(BaseModel):
     # with no blockers, or whose every blocker is done, is ``blocked = False``
     # (ready). Computed by the router, not an ORM column; see ``GET /api/v1/cards``.
     blocked: bool = False
+    # Work-links (KAN-32) — PR / branch / CI URLs pointing at the card's real work
+    # state. Populated by the router from the card_link table (not ORM-mapped
+    # columns). Empty when there are none.
+    links: list[LinkRead] = []
     created_at: datetime
     updated_at: datetime
 

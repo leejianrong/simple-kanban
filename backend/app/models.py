@@ -125,6 +125,29 @@ class CardDependency(Base):
     )
 
 
+class CardLink(Base):
+    """A work-link on a card (KAN-32): a ``label`` (e.g. "PR", "branch", "CI") and
+    a ``url`` pointing at the card's real work state, so the board reflects git
+    reality without manual reconciliation.
+
+    ``card_id`` FK ``ON DELETE CASCADE`` — deleting a card removes its links
+    (consistent with the app's hard-delete model). The non-empty ``label``/``url``
+    rule is enforced by the Pydantic schema (``schemas.LinkCreate``), not the table.
+    """
+
+    __tablename__ = "card_link"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    card_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("card.id", ondelete="CASCADE"), nullable=False
+    )
+    label: Mapped[str] = mapped_column(String(255), nullable=False)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class Card(Base):
     __tablename__ = "card"
     __table_args__ = (
