@@ -112,6 +112,32 @@ class LinkRead(BaseModel):
     created_at: datetime
 
 
+class CommentCreate(BaseModel):
+    """Post a note to a card (KAN-33): ``POST /cards/{id}/comments`` with a
+    ``body``. Human/agent-authored intentional context — distinct from Epic 4's
+    SYSTEM activity log. Required and non-empty; the author is taken from the
+    request principal, never the body."""
+
+    body: Annotated[str, Field(min_length=1)]
+
+    @field_validator("body")
+    @classmethod
+    def non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("body must not be empty")
+        return v
+
+
+class CommentRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    body: str
+    # The authoring user (UUID), or null once that user is deleted (SET NULL).
+    author_id: uuid.UUID | None
+    created_at: datetime
+
+
 class CardRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

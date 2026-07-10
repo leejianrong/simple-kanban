@@ -148,6 +148,36 @@ class CardLink(Base):
     )
 
 
+class CardComment(Base):
+    """A human/agent-authored note on a card (KAN-33): intentional context — a
+    decision, a handoff, "why this is blocked". **Distinct from Epic 4's SYSTEM
+    activity log** (KAN-17..20, not yet built): those are machine-generated audit
+    events; a ``CardComment`` is a deliberate note written by a real principal.
+
+    ``card_id`` FK ``ON DELETE CASCADE`` — deleting a card removes its comments
+    (consistent with the app's hard-delete model). ``author_id`` FK → ``user`` is
+    nullable with ``ON DELETE SET NULL``, so deleting the author keeps the note
+    (mirrors ``Board.owner_id``). The non-empty ``body`` rule is enforced by the
+    Pydantic schema (``schemas.CommentCreate``), not the table.
+    """
+
+    __tablename__ = "card_comment"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    card_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("card.id", ondelete="CASCADE"), nullable=False
+    )
+    # The authoring user (a UUID). Nullable + SET NULL so a deleted author leaves
+    # the note in place, unattributed (mirrors Board.owner_id).
+    author_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class Card(Base):
     __tablename__ = "card"
     __table_args__ = (

@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session, aliased
 from ..auth_models import User
 from ..authz import authorize_board, get_principal, visible_board_ids
 from ..db import get_db
-from ..models import Card, CardDependency, CardLink, Epic
+from ..models import Card, CardComment, CardDependency, CardLink, Epic
 from ..ordering import next_position, renumber_column
 from ..pagination import NEXT_CURSOR_HEADER, decode_cursor, encode_cursor
 from ..schemas import (
@@ -35,6 +35,8 @@ from ..schemas import (
     CardRead,
     CardUpdate,
     ColumnEnum,
+    CommentCreate,
+    CommentRead,
     DependencyCreate,
     LinkCreate,
 )
@@ -542,3 +544,89 @@ def remove_link(
     db.delete(link)
     db.commit()
     return _attach_one(db, card)
+
+
+# --- card notes / comments (KAN-33) ----------------------------------------
+#
+# Human/agent-authored intentional notes (a decision, a handoff, "why this is
+# blocked") — **distinct from Epic 4's SYSTEM activity log** (KAN-17..20, not yet
+# built), which will record machine-generated audit events. No activity-log
+# machinery here. Comments are a thread, so — unlike KAN-32's small ``links`` array
+# which is inlined on every card read — they get a dedicated list endpoint rather
+# than being serialized onto CardRead (a card could accumulate many).
+
+
+@router.get("/{card_id}/comments", response_model=list[CommentRead])
+def list_comments(
+    card_id: int,
+    db: Session = Depends(get_db),
+    principal: User = Depends(get_principal),
+) -> Sequence[CardComment]:
+    """List a card's notes (KAN-33), oldest-first (creation order). **404** if the
+    card doesn't exist; owner-gated on the card's board."""
+    card = _get_or_404(db, card_id)
+    authorize_board(db, principal, card.board_id)
+    return list(
+        db.scalars(
+            select(CardComment)
+            .where(CardComment.card_id == card.id)
+            .order_by(CardComment.created_at, CardComment.id)
+        ).all()
+    )
+
+
+@router.post(
+    "/{card_id}/comments",
+    response_model=CommentRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_comment(
+    card_id: int,
+    payload: CommentCreate,
+    db: Session = Depends(get_db),
+    principal: User = Depends(get_principal),
+) -> CardComment:
+    """Post a note to a card (KAN-33). ``author_id`` is the acting principal (never
+    the request body). Returns the created comment. **404** if the card doesn't
+    exist; owner-gated on the card's board."""
+    card = _get_or_404(db, card_id)
+    authorize_board(db, principal, card.board_id)
+    comment = CardComment(card_id=card.id, author_id=principal.id, body=payload.body)
+    db.add(comment)
+    db.commit()
+    db.refresh(comment)
+    return comment
+
+
+@router.delete(
+    "/{card_id}/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+def remove_comment(
+    card_id: int,
+    comment_id: int,
+    db: Session = Depends(get_db),
+    principal: User = Depends(get_principal),
+) -> Response:
+    """Delete **your own** note (KAN-33). **404** if no such comment belongs to the
+    card; **403** if the comment was authored by someone else (delete-own-only).
+    Owner-gated on the card's board."""
+    card = _get_or_404(db, card_id)
+    authorize_board(db, principal, card.board_id)
+    comment = db.scalars(
+        select(CardComment).where(
+            CardComment.id == comment_id,
+            CardComment.card_id == card.id,
+        )
+    ).first()
+    if comment is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found"
+        )
+    if comment.author_id != principal.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="you can only delete your own comments",
+        )
+    db.delete(comment)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

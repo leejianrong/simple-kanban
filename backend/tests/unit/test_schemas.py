@@ -14,6 +14,7 @@ from app.schemas import (
     CardRead,
     CardUpdate,
     ColumnEnum,
+    CommentCreate,
     DependencyCreate,
     EpicCreate,
     LinkCreate,
@@ -136,3 +137,17 @@ def test_link_create_requires_non_empty_label_and_url():
     # Both fields are required.
     with pytest.raises(ValidationError):
         LinkCreate(label="PR")
+
+
+# --- card notes / comments (KAN-33) ----------------------------------------
+
+
+def test_comment_create_requires_non_empty_body():
+    comment = CommentCreate(body="why this is blocked: waiting on infra")
+    assert comment.body == "why this is blocked: waiting on infra"
+    for bad in ("", "   ", "\t\n"):
+        with pytest.raises(ValidationError):
+            CommentCreate(body=bad)
+    # body is required.
+    with pytest.raises(ValidationError):
+        CommentCreate()
