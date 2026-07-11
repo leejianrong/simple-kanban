@@ -7,6 +7,9 @@ call — so the API stays the single source of truth (API-first, ADR 0005).
 Milestone 2 follow-on; card commands **KAN-22**, board + epic commands
 **KAN-23**, packaging + this README + the CI job **KAN-24**.
 
+> **New here?** The [Agent onboarding guide](../docs/guides/agent-onboarding.md)
+> covers getting access, minting a token, and using this CLI in CI end to end.
+
 It uses only the standard library's `argparse` (no `click`/`typer`) — consistent
 with the repo's thin ethos.
 
@@ -82,27 +85,10 @@ can only touch boards you own. A `board_id` you don't own returns exit `4`
 
 ## Install
 
-**Prebuilt standalone binary — no Python needed (recommended, KAN-46).** Each
-release ships a single self-contained executable (built with PyInstaller
-`--onefile`, which freezes the interpreter + `kanban_cli` + the bundled
-`kanban-client` + `httpx` into one file). Download the asset for your OS/arch from
-the [latest GitHub Release](https://github.com/leejianrong/simple-kanban/releases/latest),
-mark it executable, and put it on your `PATH`:
+The **from-source (`uv`)** paths below work today. A **prebuilt standalone binary**
+is also wired up but **not published yet** — see the note at the end of this section.
 
-```bash
-# macOS (Apple Silicon) — swap in kan-macos-x86_64 (Intel) or kan-linux-x86_64
-curl -L -o kan https://github.com/leejianrong/simple-kanban/releases/latest/download/kan-macos-arm64
-chmod +x kan
-sudo mv kan /usr/local/bin/kan     # or anywhere on your PATH
-kan --help
-```
-
-Assets: `kan-linux-x86_64`, `kan-macos-arm64`, `kan-macos-x86_64` (Windows is not
-built yet). On macOS, Gatekeeper may quarantine an unsigned download — clear it
-with `xattr -d com.apple.quarantine kan` if it refuses to run. The binary reads
-the same env vars as below.
-
-### From source (uv)
+### From source (uv) — works today
 
 The CLI depends on the sibling `kanban-client` package by **path**
 (`../kanban-client`, see `[tool.uv.sources]` in `pyproject.toml`), which shapes
@@ -137,6 +123,35 @@ cd kanban-cli
 uv sync                              # install deps (incl. the dev group)
 uv run kan --help                    # run without installing
 ```
+
+### Prebuilt standalone binary (KAN-46) — available once a release is published
+
+> **Not available yet.** The binaries are built and attached to a GitHub Release
+> only by the tag-triggered `.github/workflows/release-cli.yml` workflow, and no
+> versioned release has been cut that runs it — there are no release assets to
+> download today, so the `curl …/releases/latest/download/…` below would `404`.
+> Install **from source (uv)** above until a release ships the binaries (tracked as
+> KAN-79). The instructions below are what will work once it's published.
+
+Once released, each version ships a single self-contained executable — no Python
+needed (built with PyInstaller `--onefile`, which freezes the interpreter +
+`kanban_cli` + the bundled `kanban-client` + `httpx` into one file). Download the
+asset for your OS/arch from the
+[latest GitHub Release](https://github.com/leejianrong/simple-kanban/releases/latest),
+mark it executable, and put it on your `PATH`:
+
+```bash
+# macOS (Apple Silicon) — swap in kan-macos-x86_64 (Intel) or kan-linux-x86_64
+curl -L -o kan https://github.com/leejianrong/simple-kanban/releases/latest/download/kan-macos-arm64
+chmod +x kan
+sudo mv kan /usr/local/bin/kan     # or anywhere on your PATH
+kan --help
+```
+
+Assets: `kan-linux-x86_64`, `kan-macos-arm64`, `kan-macos-x86_64` (Windows is not
+built yet). On macOS, Gatekeeper may quarantine an unsigned download — clear it
+with `xattr -d com.apple.quarantine kan` if it refuses to run. The binary reads
+the same env vars as the source install.
 
 ## Usage examples
 
