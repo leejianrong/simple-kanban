@@ -6,6 +6,10 @@ REST API (`/api/v1`) as tools an agent (e.g. Claude Code) can call. It is a thin
 source of truth (API-first, ADR 0005). Milestone 2 slice **V5**; board-scoped in
 **V10** (ADR 0015).
 
+> **New here?** The [Agent onboarding guide](../docs/guides/agent-onboarding.md)
+> walks through getting access, minting a token, and wiring this server into Claude
+> Code end to end.
+
 ## Tools
 
 | Tool | Endpoint | Board target |

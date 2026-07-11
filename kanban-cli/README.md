@@ -7,6 +7,9 @@ call — so the API stays the single source of truth (API-first, ADR 0005).
 Milestone 2 follow-on; card commands **KAN-22**, board + epic commands
 **KAN-23**, packaging + this README + the CI job **KAN-24**.
 
+> **New here?** The [Agent onboarding guide](../docs/guides/agent-onboarding.md)
+> covers getting access, minting a token, and using this CLI in CI end to end.
+
 It uses only the standard library's `argparse` (no `click`/`typer`) — consistent
 with the repo's thin ethos.
 
