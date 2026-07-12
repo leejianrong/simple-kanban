@@ -297,7 +297,7 @@ wheels = [
 
 [[package]]
 name = "kanban-client"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "../kanban-client" }
 dependencies = [
     { name = "httpx" },
@@ -681,7 +681,7 @@ wheels = [
 
 [[package]]
 name = "simple-kanban-mcp"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
