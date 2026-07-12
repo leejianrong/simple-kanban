@@ -85,10 +85,10 @@ can only touch boards you own. A `board_id` you don't own returns exit `4`
 
 ## Install
 
-The **from-source (`uv`)** paths below work today. A **prebuilt standalone binary**
-is also wired up but **not published yet** — see the note at the end of this section.
+The CLI installs two ways: **from source with `uv`**, or as a **prebuilt standalone
+binary** (no Python needed). Both work today — pick whichever fits.
 
-### From source (uv) — works today
+### From source (uv)
 
 The CLI depends on the sibling `kanban-client` package by **path**
 (`../kanban-client`, see `[tool.uv.sources]` in `pyproject.toml`), which shapes
@@ -124,34 +124,37 @@ uv sync                              # install deps (incl. the dev group)
 uv run kan --help                    # run without installing
 ```
 
-### Prebuilt standalone binary (KAN-46) — available once a release is published
+### Prebuilt standalone binary (KAN-46)
 
-> **Not available yet.** The binaries are built and attached to a GitHub Release
-> only by the tag-triggered `.github/workflows/release-cli.yml` workflow, and no
-> versioned release has been cut that runs it — there are no release assets to
-> download today, so the `curl …/releases/latest/download/…` below would `404`.
-> Install **from source (uv)** above until a release ships the binaries (tracked as
-> KAN-79). The instructions below are what will work once it's published.
+Each version ships a single self-contained executable — no Python needed (built with
+PyInstaller `--onefile`, which freezes the interpreter + `kanban_cli` + the bundled
+`kanban-client` + `httpx` into one file). The latest release is **v0.2.2**. Grab the
+asset for your OS/arch, mark it executable, and put it on your `PATH`.
 
-Once released, each version ships a single self-contained executable — no Python
-needed (built with PyInstaller `--onefile`, which freezes the interpreter +
-`kanban_cli` + the bundled `kanban-client` + `httpx` into one file). Download the
-asset for your OS/arch from the
-[latest GitHub Release](https://github.com/leejianrong/simple-kanban/releases/latest),
-mark it executable, and put it on your `PATH`:
+The `releases/latest/download/…` URL always resolves to the newest release's asset,
+so it needs no editing per version:
 
 ```bash
-# macOS (Apple Silicon) — swap in kan-macos-x86_64 (Intel) or kan-linux-x86_64
-curl -L -o kan https://github.com/leejianrong/simple-kanban/releases/latest/download/kan-macos-arm64
+# Linux x86_64 — no sudo; installs to ~/.local/bin (make sure that's on your PATH)
+curl -L -o kan https://github.com/leejianrong/simple-kanban/releases/latest/download/kan-linux-x86_64
 chmod +x kan
-sudo mv kan /usr/local/bin/kan     # or anywhere on your PATH
+mv kan ~/.local/bin/               # or: sudo mv kan /usr/local/bin/ for system-wide
 kan --help
 ```
 
-Assets: `kan-linux-x86_64`, `kan-macos-arm64`, `kan-macos-x86_64` (Windows is not
-built yet). On macOS, Gatekeeper may quarantine an unsigned download — clear it
-with `xattr -d com.apple.quarantine kan` if it refuses to run. The binary reads
-the same env vars as the source install.
+On macOS (Apple Silicon), swap the asset for `kan-macos-arm64`. If you have the
+GitHub CLI, `gh release download` pulls a pinned version instead:
+
+```bash
+gh release download v0.2.2 --pattern kan-linux-x86_64
+```
+
+`kan-linux-x86_64` and `kan-macos-arm64` ship today; browse them on the
+[latest GitHub Release](https://github.com/leejianrong/simple-kanban/releases/latest).
+The Intel `kan-macos-x86_64` may follow (it builds on a slower free-tier runner), and
+Windows isn't built. On macOS, Gatekeeper may quarantine an unsigned download — clear
+it with `xattr -d com.apple.quarantine kan` if it refuses to run. The binary reads the
+same env vars as the source install.
 
 **Linux glibc floor (`kan-linux-x86_64`):** the linux binary is built in a
 glibc-2.28 environment (`manylinux_2_28`), so it needs **glibc ≥ 2.28** — it runs
