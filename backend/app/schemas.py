@@ -10,7 +10,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class ColumnEnum(str, Enum):
@@ -254,6 +254,55 @@ class BoardRead(BaseModel):
     # The owning user (UUID), or null for an unclaimed board (e.g. the migrated
     # default board). Server-enforced ownership checks arrive in V8.
     owner_id: uuid.UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class RoleEnum(str, Enum):
+    viewer = "viewer"
+    editor = "editor"
+    owner = "owner"
+
+
+class MemberCreate(BaseModel):
+    """Add a member to a board (KAN-12): identify the user by **either** ``user_id``
+    or ``email`` (exactly one), with a ``role`` (defaults to ``viewer``). The user
+    must already exist; the router resolves the identity and returns 404 otherwise."""
+
+    user_id: uuid.UUID | None = None
+    email: str | None = None
+    role: RoleEnum = RoleEnum.viewer
+
+    @field_validator("email")
+    @classmethod
+    def email_non_empty(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            raise ValueError("email must not be empty")
+        return v
+
+    @model_validator(mode="after")
+    def exactly_one_identity(self) -> MemberCreate:
+        if (self.user_id is None) == (self.email is None):
+            raise ValueError("provide exactly one of user_id or email")
+        return self
+
+
+class MemberUpdate(BaseModel):
+    """Change a member's role (KAN-12)."""
+
+    role: RoleEnum
+
+
+class MemberRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    board_id: int
+    user_id: uuid.UUID
+    # The member's email, populated by the router from the user table (not an ORM
+    # column on board_member) so the list is human-readable for the coming UI.
+    email: str | None = None
+    role: RoleEnum
     created_at: datetime
     updated_at: datetime
 

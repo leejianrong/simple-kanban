@@ -37,6 +37,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 from .db import Base
 
 VALID_COLUMNS = ("todo", "in_progress", "done")
+# Board-membership roles (KAN-12), aligned with ADR 0013's ownership language.
+# A plain varchar guarded by a CHECK constraint (the same pattern as ``card.column``)
+# so adding a role later needs no ``ALTER TYPE`` migration.
+VALID_ROLES = ("viewer", "editor", "owner")
 
 
 class Board(Base):
@@ -53,6 +57,49 @@ class Board(Base):
     owner_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("user.id", ondelete="SET NULL"), nullable=True
     )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class BoardMember(Base):
+    """A user's membership of a board with a role (KAN-12).
+
+    Grants a user (other than the board owner) some access to a board. Roles are
+    ``viewer`` / ``editor`` / ``owner`` (``VALID_ROLES``), guarded by a CHECK
+    constraint in the ``card.column`` varchar style. A ``UNIQUE(board_id, user_id)``
+    keeps a user's membership of a board singular.
+
+    Both FKs ``ON DELETE CASCADE`` — deleting a board or a user removes the
+    membership row (consistent with the app's hard-delete model). **This table only
+    records membership; role-based read/write enforcement is a later slice (KAN-13),
+    so ``authorize_board`` still owner-gates every board-scoped route for now.**
+    """
+
+    __tablename__ = "board_member"
+    __table_args__ = (
+        UniqueConstraint("board_id", "user_id", name="uq_board_member"),
+        CheckConstraint(
+            "role IN ('viewer', 'editor', 'owner')",
+            name="ck_board_member_role",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    board_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("board.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # The member user (a UUID). CASCADE: deleting a user removes their memberships.
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("user.id", ondelete="CASCADE"), nullable=False
+    )
+    role: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
