@@ -6,6 +6,15 @@ name: Release CLI binary
 # installed (KAN-46). PyInstaller can't cross-compile, so we build natively on
 # each target OS in a matrix and attach the results to the GitHub Release.
 #
+# LINUX GLIBC FLOOR (KAN-81): the linux leg builds inside the
+# `quay.io/pypa/manylinux_2_28_x86_64` container (AlmaLinux 8 = glibc 2.28) so
+# the bundled libpython requires no symbol newer than GLIBC_2.28 and the binary
+# runs on Ubuntu 20.04+, Debian 11+, RHEL 8+. Building on `ubuntu-latest`
+# (Ubuntu 24.04 = glibc 2.39) previously baked in a GLIBC_2.38 requirement that
+# broke every older-but-supported distro; the in-job smoke test missed it
+# because it ran on the same fresh image it built on. The macOS legs are
+# unaffected and build on their native runners exactly as before.
+#
 # TRIGGER: version tags only (e.g. `git tag v0.2.0 && git push origin v0.2.0`).
 # This never runs on a PR or a branch push — publishing is a deliberate,
 # tag-gated ops action (mirrors the repo's tag convention; v0.1.0 already exists).
@@ -23,16 +32,22 @@ jobs:
   build:
     name: Build ${{ matrix.asset }}
     runs-on: ${{ matrix.os }}
+    # Linux builds inside a glibc-2.28 container (KAN-81); macOS legs set an
+    # empty string, which GitHub treats as "no container" (build on the host).
+    container: ${{ matrix.container }}
     strategy:
       # One red target shouldn't cancel the others — collect what we can.
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest   # x86_64 Linux
+          - os: ubuntu-latest   # x86_64 Linux — built in a glibc-2.28 container
+            container: quay.io/pypa/manylinux_2_28_x86_64
             asset: kan-linux-x86_64
           - os: macos-14        # Apple Silicon (arm64)
+            container: ''
             asset: kan-macos-arm64
           - os: macos-13        # Intel macOS (x86_64)
+            container: ''
             asset: kan-macos-x86_64
       # Windows is intentionally omitted for now — the .exe packaging + smoke
       # step differ enough to defer; add a `windows-latest` row (asset
@@ -43,7 +58,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # manylinux ships CPython 3.12 at /opt/python/cp312-cp312/bin — use it
+      # instead of actions/setup-python (which can misbehave inside manylinux).
+      - name: Use preinstalled CPython 3.12 (manylinux)
+        if: matrix.container != ''
+        run: echo "/opt/python/cp312-cp312/bin" >> "$GITHUB_PATH"
+
+      # macOS legs still get Python from setup-python on the host.
       - name: Set up Python 3.12
+        if: matrix.container == ''
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -55,8 +78,10 @@ jobs:
 
       # Installs the CLI, its runtime deps (httpx, the ../kanban-client path
       # dep, resolved at build time), and the `build` group (PyInstaller).
+      # --python 3.12 pins the interpreter (the manylinux cp312 on PATH, or uv's
+      # managed 3.12 as a fallback) so the freeze targets the right version.
       - name: Install deps (incl. build group)
-        run: uv sync --frozen --group build
+        run: uv sync --frozen --group build --python 3.12
 
       - name: Build --onefile binary
         run: >-
@@ -66,7 +91,49 @@ jobs:
           --collect-submodules kanban_client
           packaging/pyinstaller_entry.py
 
+      # Regression guard (KAN-81, linux only): assert the built onefile requires
+      # no GLIBC symbol newer than 2.28. `strings` only sees the outer bootloader
+      # (not the extracted libpython), so this is a cheap tripwire — the real
+      # proof is the smoke-test step below, which actually RUNS the binary inside
+      # this glibc-2.28 container. If someone reverts the linux leg to a newer
+      # runner, the bootloader itself starts requiring a newer GLIBC and this
+      # trips before we ever ship.
+      - name: Guard — binary requires GLIBC <= 2.28
+        if: matrix.container != ''
+        run: |
+          set -euo pipefail
+          bin="dist/${{ matrix.asset }}"
+          maxglibc=$(strings "$bin" | grep -oE 'GLIBC_2\.[0-9]+' | sort -V | tail -1)
+          echo "Highest GLIBC symbol required by $bin bootloader: ${maxglibc:-none}"
+          if [ -n "${maxglibc:-}" ]; then
+            minor=${maxglibc#GLIBC_2.}
+            if [ "$minor" -gt 28 ]; then
+              echo "::error::$bin requires $maxglibc (> GLIBC_2.28) — it will not run on Ubuntu 20.04 / Debian 11 / RHEL 8."
+              exit 1
+            fi
+          fi
+          # Best-effort second signal: PyInstaller onefile extracts its bundle to
+          # a temp dir at run time. Run the binary with $TMPDIR pinned and inspect
+          # the extracted libpython with readelf. Never fail the job on extraction
+          # trouble — the "runs under glibc 2.28" smoke test below is the
+          # authoritative check; this is just extra evidence in the log.
+          if command -v readelf >/dev/null 2>&1; then
+            extract=$(mktemp -d)
+            TMPDIR="$extract" ./"$bin" --help >/dev/null 2>&1 || true
+            so=$(find "$extract" -name 'libpython3.12.so*' 2>/dev/null | head -1 || true)
+            if [ -n "$so" ]; then
+              echo "readelf GLIBC versions required by bundled $(basename "$so"):"
+              readelf -V "$so" 2>/dev/null | grep -oE 'GLIBC_2\.[0-9]+' | sort -V | uniq || true
+            else
+              echo "note: could not capture extracted libpython for readelf (onefile cleans up its temp dir); relying on the run test."
+            fi
+            rm -rf "$extract"
+          fi
+
       # Prove the frozen binary actually runs on the target OS before we ship it.
+      # For linux this executes INSIDE the glibc-2.28 container, so a clean run
+      # here is direct evidence the onefile (bootloader + extracted libpython)
+      # loads under glibc 2.28 — the KAN-81 regression signal.
       - name: Smoke-test the binary
         run: |
           ./dist/${{ matrix.asset }} --help
