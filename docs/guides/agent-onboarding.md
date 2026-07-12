@@ -60,7 +60,7 @@ Claude Code discovers project-scoped MCP servers from a `.mcp.json` at the repo 
 [`.mcp.json.example`](../../.mcp.json.example) to `.mcp.json` and keep the server entry you
 want. Full details are in [`mcp/README.md`](../../mcp/README.md); the essentials follow.
 
-### The way that works today: run from source with `uv`
+### Run from source with `uv`
 
 This needs a checkout of the repo and [`uv`](https://docs.astral.sh/uv/) installed. It runs
 the server straight from `mcp/`, so there's nothing to download or build:
@@ -94,7 +94,7 @@ Three env vars carry the config:
 `--directory ./mcp` is relative to where Claude Code launches the server (the repo root); use
 an absolute path if you run the client from elsewhere.
 
-### The way that will work once a release is cut: the ghcr.io image
+### Run the prebuilt ghcr.io image
 
 `.mcp.json.example` also ships a `kanban-docker` entry that runs a prebuilt image with no
 Python, no `uv`, and no checkout:
@@ -121,11 +121,11 @@ Python, no `uv`, and no checkout:
 }
 ```
 
-**This is not available yet.** The image is published only by the tag-triggered
-`publish-mcp-image.yml` workflow, and no versioned release has been cut that runs it — the
-`ghcr.io/leejianrong/simple-kanban-mcp` package does not exist today. Use the `uv` entry above
-until a `v*` tag ships the image. (The `-e NAME` flags with no `=value` forward values from the
-`env` block into the container, keeping the token out of the argument list.)
+The image is **public**, so `docker pull ghcr.io/leejianrong/simple-kanban-mcp:latest` works
+with no `docker login` and no GitHub account. Tags track the release — `latest`, plus the
+semver `0.2.2`, `0.2`, and `0`; pin `:0.2.2` for a fixed version. The `-e NAME` flags with no
+`=value` forward values from the `env` block into the container, keeping the token out of the
+argument list.
 
 ## 4. Verify it works
 
@@ -185,16 +185,28 @@ If your automation isn't an MCP client — a CI job, a shell script, an agent th
 use the `kan` CLI. It's the same thin adapter over `/api/v1`, exposed as subcommands. Full
 reference: [`kanban-cli/README.md`](../../kanban-cli/README.md).
 
-**Install from git (works today):**
+**Prebuilt binary (no Python needed).** Download the asset for your platform from the
+[latest GitHub Release](https://github.com/leejianrong/simple-kanban/releases/latest) — the
+`releases/latest/download/…` URL always resolves to the newest one:
+
+```bash
+curl -L -o kan https://github.com/leejianrong/simple-kanban/releases/latest/download/kan-linux-x86_64
+chmod +x kan && mv kan ~/.local/bin/      # or: sudo mv kan /usr/local/bin/
+```
+
+`kan-linux-x86_64` and `kan-macos-arm64` ship today; the linux binary needs glibc ≥ 2.28
+(Ubuntu 20.04+, Debian 11+, RHEL/Rocky/Alma 8+). See
+[`kanban-cli/README.md`](../../kanban-cli/README.md) for the full asset list and the macOS
+Gatekeeper note.
+
+**Install from git (needs Python + `uv`):**
 
 ```bash
 uv tool install "git+https://github.com/leejianrong/simple-kanban.git#subdirectory=kanban-cli"
 ```
 
 `uv` clones the repo and resolves the sibling `kanban-client` path dependency from the same
-checkout, so `kan` lands on your `PATH` with no manual clone. A prebuilt standalone binary
-(no Python needed) is planned but, like the MCP image, is produced only by a versioned release,
-so it isn't downloadable yet — install from git for now.
+checkout, so `kan` lands on your `PATH` with no manual clone.
 
 It reads the same env vars as the MCP server:
 

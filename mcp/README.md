@@ -76,15 +76,12 @@ MCP with `401`.
 
 ## Run it
 
-Run the server **from source with `uv`** (needs a checkout + uv) — this is the way
-that works today. A **prebuilt container from ghcr.io** (KAN-47 — no
-Python/uv/checkout, just Docker) is also wired up but **not published yet** (see the
-note below). Both speak MCP over **stdio**, so you normally don't run them by hand —
-a client (Claude Code) launches them.
+Two ways to run the server: **from source with `uv`** (needs a checkout + uv), or a
+**prebuilt container from ghcr.io** (KAN-47 — no Python/uv/checkout, just Docker).
+Both speak MCP over **stdio**, so you normally don't run them by hand — a client
+(Claude Code) launches them.
 
-### From source (uv) — works today
-
-This is the primary, working-today path.
+### From source (uv)
 
 Uses [`uv`](https://docs.astral.sh/uv/) like the backend (Python 3.12+):
 
@@ -100,19 +97,19 @@ To smoke-test the tools without a client, run the test suite:
 uv run pytest -q          # unit tests (mocked httpx) + a tool-list smoke test
 ```
 
-### As a container (ghcr.io, KAN-47) — available once a versioned release is published
+### As a container (ghcr.io, KAN-47)
 
-> **Not available yet.** The image is published only by the tag-triggered
-> `.github/workflows/publish-mcp-image.yml` workflow, and no versioned release has
-> been cut that runs it — the `ghcr.io/leejianrong/simple-kanban-mcp` package does
-> not exist today. Use the **from-source (uv)** path above until a release ships the
-> image (tracked as KAN-79). The instructions below are what will work once it's
-> published; you can also build the image yourself right now (see *Build it
-> yourself*).
+The image is public at `ghcr.io/leejianrong/simple-kanban-mcp`, pushed on every
+version tag by `.github/workflows/publish-mcp-image.yml`. Being public, it pulls with
+no `docker login` and no GitHub account:
 
-Once published, a prebuilt image lands at
-`ghcr.io/leejianrong/simple-kanban-mcp` on every version tag. Run it with `-i` (the
-stdio transport needs stdin open) and pass config via `-e`:
+```bash
+docker pull ghcr.io/leejianrong/simple-kanban-mcp:latest
+```
+
+Tags follow the release: `latest` on the newest, plus the semver `0.2.2`, `0.2`, and
+`0` (pin `:0.2.2` for a reproducible run). Run it with `-i` (the stdio transport
+needs stdin open) and pass config via `-e`:
 
 ```bash
 docker run -i --rm \
@@ -137,11 +134,10 @@ docker build -f mcp/Dockerfile -t simple-kanban-mcp .   # run from the REPO ROOT
 
 Copy [`.mcp.json.example`](../.mcp.json.example) to `.mcp.json` at the repo root
 and adjust the env. It ships **two** server entries — `kanban` (runs from source
-with `uv`, **works today**) and `kanban-docker` (runs the prebuilt ghcr.io image,
-KAN-47, **available once a release is published** — the image doesn't exist yet).
-Use the `uv` entry for now; keep the one you want and delete the other. Claude Code
-discovers project-scoped servers there and will ask you to approve it. In every case
-set `KANBAN_TOKEN` to a `kanban_pat_…` you created in the SPA Tokens tab.
+with `uv`) and `kanban-docker` (runs the prebuilt ghcr.io image, KAN-47, no
+Python/uv/checkout). Both work today; keep the one you want and delete the other.
+Claude Code discovers project-scoped servers there and will ask you to approve it. In
+every case set `KANBAN_TOKEN` to a `kanban_pat_…` you created in the SPA Tokens tab.
 
 **Local dev** (backend on :8000):
 
@@ -179,7 +175,7 @@ set `KANBAN_TOKEN` to a `kanban_pat_…` you created in the SPA Tokens tab.
 }
 ```
 
-**Docker (prebuilt image, no Python/uv) — available once a release is published (KAN-79):**
+**Docker (prebuilt image, no Python/uv):**
 
 ```json
 {
@@ -204,7 +200,7 @@ set `KANBAN_TOKEN` to a `kanban_pat_…` you created in the SPA Tokens tab.
 ```
 
 The `-e NAME` flags (no `=value`) forward the values from the `env` block into the
-container, keeping the token out of the argument list. Pin `:0.1` etc. instead of
+container, keeping the token out of the argument list. Pin `:0.2.2` instead of
 `:latest` for a reproducible pull.
 
 `KANBAN_BOARD_ID` pins the default board for calls that omit `board_id`; the

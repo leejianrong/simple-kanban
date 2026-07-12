@@ -34,10 +34,15 @@ This board is built to be driven by agents, not just clicked. Because everything
 straight at it:
 
 - **[MCP server](mcp/)** — one tool per endpoint, so an agent gets full CRUD over boards, cards,
-  epics, dependencies, links, and comments. Wire it into Claude Code via `.mcp.json` (see
-  [`.mcp.json.example`](.mcp.json.example)) and ask it to *"list my boards"*.
+  epics, dependencies, links, and comments. Run it from source with `uv`, or pull the public
+  [ghcr.io image](https://github.com/leejianrong/simple-kanban/pkgs/container/simple-kanban-mcp)
+  (`docker pull ghcr.io/leejianrong/simple-kanban-mcp:latest`, no `docker login` needed). Wire it
+  into Claude Code via `.mcp.json` (see [`.mcp.json.example`](.mcp.json.example)) and ask it to
+  *"list my boards"*.
 - **[`kan` CLI](kanban-cli/)** — the same adapter as subcommands, for CI jobs and non-MCP
-  automation, with a token-free `kan warmup` you can loop on as a pre-step.
+  automation, with a token-free `kan warmup` you can loop on as a pre-step. Install from source, or
+  download a prebuilt binary (`kan-linux-x86_64`, `kan-macos-arm64`) from the
+  [latest release](https://github.com/leejianrong/simple-kanban/releases/latest).
 
 Both authenticate with a personal access token you mint in the **Tokens** tab; a PAT acts as you
 and is owner-gated exactly like your session.
