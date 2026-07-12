@@ -58,13 +58,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # manylinux ships CPython 3.12 at /opt/python/cp312-cp312/bin — use it
-      # instead of actions/setup-python (which can misbehave inside manylinux).
-      - name: Use preinstalled CPython 3.12 (manylinux)
-        if: matrix.container != ''
-        run: echo "/opt/python/cp312-cp312/bin" >> "$GITHUB_PATH"
-
-      # macOS legs still get Python from setup-python on the host.
+      # macOS legs get Python from setup-python on the host.
       - name: Set up Python 3.12
         if: matrix.container == ''
         uses: actions/setup-python@v5
@@ -76,10 +70,26 @@ jobs:
         with:
           enable-cache: true
 
+      # LINUX (KAN-81 follow-up): the manylinux-preinstalled CPython at
+      # /opt/python/cp312-cp312 is built STATIC (no shared libpython), which
+      # PyInstaller can't freeze ("Python was built without a shared library").
+      # Install uv's managed standalone CPython instead — python-build-standalone
+      # ships a *shared* libpython AND is built against old glibc (~2.17), so it
+      # freezes cleanly and keeps the container's glibc-2.28 floor. Export
+      # UV_PYTHON_PREFERENCE=only-managed for all *subsequent* steps (via
+      # $GITHUB_ENV, linux-only) so uv picks this managed interpreter — never the
+      # static system python — for both `uv sync` and `uv run pyinstaller`. Doing
+      # it here (not job-level env) keeps the macOS legs completely untouched.
+      - name: Install uv-managed CPython 3.12 (linux)
+        if: matrix.container != ''
+        run: |
+          echo "UV_PYTHON_PREFERENCE=only-managed" >> "$GITHUB_ENV"
+          uv python install 3.12
+
       # Installs the CLI, its runtime deps (httpx, the ../kanban-client path
       # dep, resolved at build time), and the `build` group (PyInstaller).
-      # --python 3.12 pins the interpreter (the manylinux cp312 on PATH, or uv's
-      # managed 3.12 as a fallback) so the freeze targets the right version.
+      # --python 3.12 pins the interpreter version; on linux UV_PYTHON_PREFERENCE
+      # forces uv's managed (shared-libpython) build.
       - name: Install deps (incl. build group)
         run: uv sync --frozen --group build --python 3.12
 
