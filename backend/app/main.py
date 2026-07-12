@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .routers import boards, cards, epics, tokens
+from .routers import boards, cards, epics, tokens, webhooks
 from .users import register_auth_routes
 
 app = FastAPI(title="Simple Kanban API", version="0.1.0")
@@ -29,6 +29,9 @@ app.include_router(boards.router, prefix="/api/v1")
 app.include_router(cards.router, prefix="/api/v1")
 app.include_router(epics.router, prefix="/api/v1")
 app.include_router(tokens.router, prefix="/api/v1")  # M3 V9 (ADR 0014): agent PATs
+# GitHub webhook receiver (KAN-42): standalone — auth is the HMAC signature, NOT
+# the cookie/PAT principal resolver, so it is intentionally not owner-gated.
+app.include_router(webhooks.router, prefix="/api/v1")
 
 # Human auth (M3 V6, ADR 0011): /auth/* + /users/*, unversioned like /api/health
 # (session/identity plumbing, not versioned API resources). The GitHub OAuth
