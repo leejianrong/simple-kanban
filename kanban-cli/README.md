@@ -153,6 +153,12 @@ built yet). On macOS, Gatekeeper may quarantine an unsigned download — clear i
 with `xattr -d com.apple.quarantine kan` if it refuses to run. The binary reads
 the same env vars as the source install.
 
+**Linux glibc floor (`kan-linux-x86_64`):** the linux binary is built in a
+glibc-2.28 environment (`manylinux_2_28`), so it needs **glibc ≥ 2.28** — it runs
+on **Ubuntu 20.04+, Debian 11+, RHEL/Rocky/Alma 8+** and anything newer. On an
+older distro you'll see `GLIBC_2.xx not found` when it loads; install **from
+source (uv)** above instead (KAN-81).
+
 ## Usage examples
 
 ```bash
