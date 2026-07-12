@@ -1,13 +1,25 @@
+<!--
+title: "Agent-PM dogfooding log"
+description: Archived running log from the in-repo project-manager skill — session history and UX gotchas from driving this board as an agent PM.
+-->
+
+# Agent-PM dogfooding log
+
+This is the running history of running the Simple Kanban board through an agent project-manager, plus
+every board/CLI/MCP gotcha hit along the way. It used to live inside the repo's
+`project-manager-simple-kanban` skill; that skill moved to the user's global skills (renamed
+`project-manager-kanban`) so it's available in any session, and the reusable playbook now lives there.
+The narrative log stayed here, in the repo, where it belongs — it's specific to this project.
+
+Append to this file (not the global skill) as the board moves forward: what got built, what was
+awkward to drive, what a sub-agent tripped on, and what to do differently next time.
+
+The content below is the verbatim snapshot carried over from the skill at the time of the move
+(playbook sections included for context; the authoritative playbook is now the global
+`project-manager-kanban` skill).
+
 ---
-name: project-manager-simple-kanban
-description: >-
-  Act as a project manager / scrum-master over the Simple Kanban board, driving it through the
-  Kanban MCP and clearing work by delegating to sub-agents (one at a time). Use when the user says
-  things like "act as PM/scrum master for the kanban board", "look at the roadmap and start working
-  through it", "manage sub-agents to clear the board", "pull the next card and build it", or
-  "triage / groom the simple-kanban backlog". This is an orchestration playbook, not a reference for
-  the individual MCP tools.
----
+
 
 # Project manager for Simple Kanban
 
@@ -15,6 +27,36 @@ You are the **PM / scrum-master**. You do **not** write feature code yourself �
 decide what to work on, and delegate each card to **one sub-agent at a time**, then land the result.
 Your job is throughput + quality + keeping the board honest, and (a standing goal in this repo)
 **dogfooding**: notice and record where the tool itself is awkward to drive as an agent.
+
+## Getting started (new users — read if the Kanban MCP isn't wired yet)
+
+If `mcp__kanban__*` tools aren't available in this session, the board isn't connected yet. Point
+the user at the project and its onboarding guide, then help them wire it up:
+
+- **Repo:** <https://github.com/leejianrong/simple-kanban>
+- **Full onboarding guide (source of truth):**
+  [`docs/guides/agent-onboarding.md`](https://github.com/leejianrong/simple-kanban/blob/main/docs/guides/agent-onboarding.md)
+
+The short path to a working `kanban` MCP server in Claude Code:
+
+1. **Get access + mint a PAT.** Log in at <https://simple-kanban-jian.fly.dev> (GitHub), open the
+   **Tokens** tab, create one, and copy the `kanban_pat_…` secret (shown once). It authenticates as
+   that user and is owner-gated exactly like them. (Or self-host — see the guide.)
+2. **Wire the MCP** in `.mcp.json`. Two options (the guide has copy-paste blocks for both):
+   - **Container (no local toolchain):** run the published image —
+     `docker run -i --rm -e KANBAN_API_URL -e KANBAN_TOKEN -e KANBAN_BOARD_ID
+     ghcr.io/leejianrong/simple-kanban-mcp:latest`. (Requires a published release; if the image
+     isn't available yet, use the source path below.)
+   - **From source with `uv`:** `uv run --directory ./mcp python -m kanban_mcp` from a checkout.
+3. **Set env:** `KANBAN_API_URL` (`https://simple-kanban-jian.fly.dev` or a self-host origin),
+   `KANBAN_TOKEN` (the PAT), and **`KANBAN_BOARD_ID`** (set it, or list/create tools span all your
+   boards / land on the earliest). Restart Claude Code, then verify with the `warmup` then
+   `list_boards` tools.
+
+> Two personas: someone who just wants to **use** the board (track their own work via the MCP —
+> steps above are enough) vs. a **contributor** driving the *simple-kanban repo itself* forward (the
+> PM playbook below — needs a repo checkout, `gh`, and follows the branch/PR/merge conventions). The
+> orchestration playbook that follows assumes the contributor persona.
 
 ## Prerequisites (check once, up front)
 
@@ -369,3 +411,157 @@ Dogfooding observations about driving this board as an agent PM. Seeded from the
 - **Epic status after this batch:** EPIC-8 — KAN-28/29/31 done; **KAN-30 (deps in the board UI)**
   remains (the only non-done EPIC-8 card besides the work-links/notes line KAN-32/33/34). EPIC-6 (kan
   CLI) — KAN-21/22/23/24 done; **KAN-26 (`kan warmup`)** and **KAN-46 (binary)** remain.
+
+- **EPIC-8 CLOSED + EPIC-7 CLOSED (this session — 5 cards, auto-merge on green CI):** finished the
+  agent-PM-surface epic. Order run: **KAN-26** (`kan warmup`, #49 — closed EPIC-7) → **KAN-32**
+  (work-links model+API, #50, migration `0008`) → **KAN-33** (comments model+API, #51, migration
+  `0009`) → **KAN-30** (deps UI, #52) → **KAN-34** (links+notes MCP+UI, #53, `EXPECTED_TOOLS` 22→26).
+  All merged + `done`. **EPIC-8 is now fully done (KAN-28/29/30/31/32/33/34) → EPIC-10 (PR-board
+  auto-sync) is unblocked.**
+  - **Interrupted-agent RECOVERY (new, important):** the KAN-34 agent was mid-flight when the prior CC
+    process exited — its notification came back `status: stopped` with "no completion record". **Do
+    NOT restart from scratch.** The worktree preserves ALL uncommitted work (here: ~600 lines across
+    11 files, un-committed, no PR). Diagnose first: `gh pr list` (none), `git ls-remote --heads origin`
+    (nothing pushed), `git worktree list` (worktree still there, branch at base commit), then
+    `git -C <worktree> status --short` + `diff --stat` to see the partial work. Then **resume the same
+    agent via SendMessage(to=<agentId>)** — it picks up from its transcript with full context and just
+    needs to finish (justify stray files, run checks, commit, push, PR). Cost of the interruption: ~0.
+  - **2-wide parallel migration-backend ∥ frontend worked cleanly.** Ran KAN-33 (backend, migration
+    `0009`) concurrently with KAN-30 (frontend deps UI) — genuinely disjoint file sets — then landed
+    serially (KAN-33 alone + prod-verify first). Confirms the rule: parallelize *implementation* when
+    files don't overlap; serialize the *landing*; migration cards still land ALONE.
+  - **KAN-34 had to run SOLO despite being unblocked in principle:** it edits the same Card-view files
+    (`Card.svelte`/`CardForm.svelte`/`api.ts`/`board.svelte.ts`/`app.css`) that KAN-30 just landed, AND
+    `mcp/server.py`. So it was sequenced last (after KAN-30 merged) to avoid frontend collisions. Lesson
+    reinforced: "unblocked by dependency" ≠ "parallel-safe" — check the actual file overlap.
+  - **Deploy timing gotcha (reconfirmed + refined):** the Deploy workflow triggers `on: workflow_run`
+    AFTER CI completes on `main`, so right after a merge you'll see the *previous* HEAD's deploy, not
+    yours. To prod-verify the right commit: wait for **CI on the merge commit** to finish, THEN wait
+    for **Deploy on that same SHA** (`gh run list --workflow deploy.yml … | select(.headSha|startswith(<sha>))`).
+    Don't trust `-L 1` — it may be a stale/older-SHA `workflow_run` firing.
+  - **Prod-verify pattern for migration cards held up well:** for KAN-32 read a card and asserted the
+    new `links` field is present (`[]`); for KAN-33 did a full POST→GET→DELETE(204) comment round-trip
+    via `curl` (reading the PAT from `.mcp.json` into `$KANBAN_TOKEN`, never inlining the literal). Raw
+    `GET /api/v1/cards` returns a bare JSON array (MCP wraps it).
+  - **Forward-looking authz note (file under EPIC-3):** KAN-33's "delete your own comment" 403 path is
+    **not reachable via HTTP under the single-owner board model (V8)** — any principal that can reach a
+    card IS the board owner, and their PATs resolve to the same user, so every comment they can post
+    shares their `author_id`. The author-check is dormant defense that only bites once boards become
+    shareable (EPIC-3 KAN-12+). The KAN-33 tests exercise it by seeding a foreign-authored row via the
+    DB directly. Good signal that EPIC-3 (membership/roles) is the natural next milestone.
+  - **`session.svelte.ts` rune pattern (new, reusable):** KAN-34 needed the signed-in user id deep in
+    the tree (comment thread's delete-own affordance) without prop-threading Board→Column→Card→CardForm.
+    Solution: a tiny `$state` rune module (`session.svelte.ts`) set once in `App.svelte` after the auth
+    check (and cleared on logout). Clean pattern for any future "current user" UI need.
+  - **New MCP FIELD vs new MCP TOOL, reconfirmed:** KAN-34's `links[]` on card reads is a *field* → it
+    passes straight through this session (JSON passthrough), but its 4 new *tools* (`add_link`/
+    `remove_link`/`add_comment`/`list_comments`) are NOT callable until a session restart + `uv sync`
+    in `mcp/`. So the PM can't set links/comments via MCP this session — use the UI or `curl`.
+  - **Session tally:** EPIC-7 ✅ and EPIC-8 ✅ both closed. Remaining backlog: EPIC-6 KAN-46 (CLI
+    binary), EPIC-5 KAN-47 (MCP OCI image), EPIC-10 KAN-42/43/44 (now unblocked — needs a GitHub
+    webhook receiver first), and the two big new milestones EPIC-3 (board collaboration/sharing,
+    KAN-12→16) and EPIC-4 (trust & history: activity log + soft-delete, KAN-17→20).
+
+- **Distribution + UI-polish batch (2-agent parallel, distribution vs UI):** user asked for KAN-46/47
+  (distribution) plus a fresh UI-polish stream, split across 2 concurrent agents (disjoint: CI/packaging
+  vs frontend). All landed + prod-verified.
+  - **KAN-46** (#54) — `kan` PyInstaller `--onefile` binary + tag-triggered `release-cli.yml` matrix.
+    **KAN-47** (#55) — MCP server OCI image to ghcr.io (`mcp/Dockerfile` at REPO-ROOT context, bundling
+    `kanban-client`) + tag-triggered publish workflow. Both CI/packaging-only (no deploy). **Closed
+    EPIC-6 (kan CLI).** Key gotchas the agent surfaced: PyInstaller must freeze a dedicated
+    absolute-import entry file (`__main__.py`'s relative import breaks frozen); the mcp Docker build
+    context MUST be the repo root to COPY the sibling `kanban-client/`; publishing is tag-gated only
+    (no artifact on PR/merge) and the first ghcr push is PRIVATE until made public.
+  - **NEW epic EPIC-16 "M4: UI/UX Polish"** (filed this session) + cards **KAN-65/66/67**, all done in
+    ONE PR (#56): card detail modal (click-anywhere, edit-in-place, Status via move endpoint), epic
+    edit modal, Epics page centered + Active/Completed grouping (empty→Active), Tokens page centered,
+    board-switcher restyle, unified `Brand` (top bar + landing), persistent light/dark theme toggle.
+    New shared `Modal`/`CardModal`/`EpicModal`/`Brand` + `theme.svelte.ts`; `CardForm` slimmed to
+    create-only.
+  - **UI workflow pattern that worked well (reuse this):** a UI card with a visual bar was run in TWO
+    phases by the SAME agent. Phase 1 = design only: run the app, Playwright-screenshot the current
+    (bad) state, extract the real design tokens from `app.css`, build a self-contained HTML MOCKUP —
+    NO real code. The PM strips the mockup's `<!doctype>/<html>/<head>/<body>` wrappers (Artifact
+    publisher re-adds them; a `sed -n '<style-range>p;<body-range>p'` slice works) and publishes it as
+    an **Artifact** for the user to approve. Then RESUME the same agent (SendMessage, keeps context) to
+    implement, capturing real-UI screenshots. PM confirms fidelity by Read-ing the PNGs, then builds a
+    second **Artifact gallery** embedding them as data-URIs — generate the base64 in a SHELL script that
+    appends to the HTML file so the base64 never enters PM context (`base64 -w0 … >> out.html`).
+  - **Mid-run scope growth is fine via SendMessage to a still-running agent.** The user added asks
+    mid-flight (board-selector polish, then epic modal + logo standardization + theme toggle); each was
+    queued to the running UI agent and folded into the same PR. Confirm genuine scope forks (the epic
+    modal) with the user via AskUserQuestion before instructing the agent.
+  - **Prod-verify for a frontend-only deploy:** no migration to check, so instead curl the deployed
+    `/` for the hashed `/assets/index-*.js`, then `curl` that bundle and `grep` for distinctive NEW
+    strings ("add a blocker", "Save changes", "data-theme") to prove the new SPA actually shipped —
+    cheap and definitive without a browser. (e2e in CI already covers behavior.)
+  - **Interrupted-agent recovery, AGAIN (KAN-34 earlier + reused here):** resuming a stopped agent from
+    its transcript+worktree via SendMessage is the default move — never restart from scratch; the
+    worktree preserves all uncommitted work.
+  - **Session tally (this run):** EPIC-7 ✅, EPIC-8 ✅, EPIC-6 ✅ (KAN-46 closed it), EPIC-16 ✅ (new).
+    KAN-47 done (EPIC-5's last non-webhook card). Remaining: EPIC-10 KAN-42/43/44 (auto-sync, unblocked),
+    EPIC-3 (KAN-12→16 collaboration), EPIC-4 (KAN-17→20 trust/history).
+
+- **Docs / distribution-readiness (new epic EPIC-17 "Onboarding & Distribution Docs"):** user asked
+  whether the CLI/MCP are ready to hand to other teams + to refresh docs. Findings + work:
+  - **Distribution readiness gotcha (important):** the KAN-46/47 release+publish workflows are
+    tag-gated and had **NEVER RUN** — the only tag `v0.1.0` (Jul 7) predates them (Jul 11), so **no
+    GitHub Release binary and no ghcr image exist yet** (`gh release view v0.1.0` → not found; the ghcr
+    package → 404). "Code-complete + CI-green" ≠ "distributable". To actually ship the clients you must
+    cut a NEW `v*` tag (both workflows fire) AND make the ghcr package public (first push is private).
+    Filed as **KAN-79** (deferred by the owner — outward-facing, so gated on explicit go).
+  - **KAN-77 + KAN-78 (#57) → done. Closed EPIC-17.** Refreshed the badly-stale root README (it still
+    said "one global board, no accounts, no auth" + "status: core board complete, seed+e2e left" +
+    unversioned `/api/cards`) and added `docs/guides/agent-onboarding.md` (mint a PAT → wire MCP into
+    Claude Code via the uv-from-source path → example agent workflows → CLI for CI → self-host →
+    single-owner note). Docs-only; verified against source.
+  - **Docs-honesty catch worth reusing:** the sub-agent flagged that `mcp/README.md` + `kanban-cli/README.md`
+    already presented the ghcr image + a `curl …/releases/latest/download/…` binary as if they WORK
+    TODAY (dead 404s until a release is cut). Since the release was deferred, I had it soften both to
+    "available once a versioned release is published" in the SAME PR. Lesson: when writing onboarding
+    docs, grep the EXISTING package READMEs for premature "download/pull" instructions that assume an
+    uncut release — fix or gate them, don't ship users toward 404s.
+  - **EPIC-3 (board sharing) timing guidance given to the owner:** defer until a real second-user/team
+    need appears — it's the largest, authz-sensitive, migration-carrying chunk, and the cost of waiting
+    is only felt once there are concurrent users; self-hosting covers multi-team in the interim. Start
+    it earlier ONLY if external adoption of the HOSTED instance becomes the priority (it's the sole
+    unblock for shared hosted boards). Ship EPIC-10 (auto-sync) + EPIC-4 (soft-delete) first — both
+    deliver value single-user and are smaller/safer.
+
+- **First real release cut + UAT'd (KAN-79 → v0.2.0/0.2.1/0.2.2; KAN-81 defect; KAN-85 UAT):** the
+  whole "make it distributable" arc, PM-orchestrated tag pushes + a prod-verify loop.
+  - **Cutting a tag-gated release, mechanics that worked:** version-bump PR first (bump mcp/cli/client
+    pyproject + **regenerate uv.lock** — the release paths `uv sync --frozen`, so a stale lock fails
+    the moment the tag runs), merge, then `git tag vX.Y.Z <merge-sha> && git push origin vX.Y.Z` fires
+    both `release-cli.yml` + `publish-mcp-image.yml` (both trigger `on: push tags 'v*'`; artifacts
+    version off the TAG, not pyproject). Pre-push hook lets a tag through fine.
+  - **ghcr first push is PRIVATE — a manual GitHub web-UI step to make public** (the `gh` token here
+    lacks `packages` scope; `gh api PATCH visibility` 403s). Path: github.com/users/<u>/packages/
+    container/<pkg>/settings → Change visibility → Public. Until then unauth `docker pull` 404s. This
+    is a hard hand-off to the human owner; can't be automated with the default token.
+  - **Prod-verify caught a real defect CI structurally couldn't (KAN-81).** The `kan-linux-x86_64`
+    PyInstaller binary built on `ubuntu-latest` (24.04, glibc 2.39) required GLIBC_2.38 and FAILED on
+    Ubuntu 22.04/Debian 12 (glibc ≤2.36) — but CI's in-job smoke test passed because it runs the binary
+    on the same 24.04 it built on. Only downloading the asset and running it on an older-glibc box
+    (this WSL is 2.35) exposed it. **Lesson: for a distributable binary, "CI smoke test green" is not
+    prod-verify — pull the actual asset and run it on the OLDEST target you support.**
+  - **glibc-floor fix, two rounds (user suggested the base):** build the linux leg in a glibc-2.28
+    container. Round 1 used `quay.io/pypa/manylinux_2_28`'s preinstalled `/opt/python` — FAILED:
+    "Python was built without a shared library, which is required by PyInstaller" (manylinux CPython is
+    static). Round 2 fix: keep the manylinux container (for glibc 2.28 + GH-Actions tooling) but use
+    **uv's managed standalone CPython** (`uv python install 3.12` + `UV_PYTHON_PREFERENCE=only-managed`,
+    scoped to the linux leg) — python-build-standalone ships a SHARED libpython AND is built ~glibc 2.17.
+    Verified on v0.2.2: the binary now runs on this glibc-2.35 box. (Set the env-pref via `$GITHUB_ENV`
+    on the linux step only; a job-level matrix `env` with `''` on the macOS legs errors in uv.)
+  - **UAT round (KAN-85), what to actually exercise:** MCP — `docker logout` then unauth `docker pull`,
+    then pipe JSON-RPC `initialize` + `notifications/initialized` + `tools/list` (unauth) and a
+    `tools/call list_boards` (real PAT) through `docker run -i`. CLI — install to `~/.local/bin` (on
+    PATH, no sudo; `/usr/local/bin` needs sudo which isn't available non-interactively here), run from
+    an unrelated dir to prove PATH, then reads + a full create→update→move→delete→verify-404 CRUD with
+    a `uat-` throwaway card. Wrote it up as a proper UAT doc (`docs/UAT-cli-mcp-v0.2.2.md`).
+  - **Skill made global (this session):** added a "Getting started (new users)" onboarding section
+    (repo link + `docs/guides/agent-onboarding.md` + container/uv MCP wiring) and installed a CLEANED,
+    portable copy at `~/.claude/skills/project-manager-simple-kanban/` (playbook + reusable gotchas,
+    session log trimmed) so it's available in all sessions; the in-repo copy keeps this full log.
+    Global user-skills live in `~/.claude/skills/` (real dir or symlink); a same-named project skill
+    still wins inside the repo.
