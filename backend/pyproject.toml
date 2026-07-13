@@ -13,7 +13,7 @@ dependencies = [
     # Human auth foundation (Milestone 3 V6, ADR 0011). fastapi-users' user store
     # is async-only, so this pulls in the SQLAlchemy async stack (greenlet) used by
     # a second, async engine alongside the sync one (ADR 0008 preserved).
-    "fastapi-users[sqlalchemy,oauth]>=14",
+    "fastapi-users[sqlalchemy,oauth]>=15.0.5",
     "greenlet>=3.1",
 ]
 
