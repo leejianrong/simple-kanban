@@ -22,6 +22,7 @@ from datetime import datetime
 from fastapi_users_db_sqlalchemy.generics import GUID
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -56,6 +57,17 @@ class Board(Base):
     # boards rather than cascading away the boards + all their cards.
     owner_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    # Auto-sync opt-in (KAN-43): the GitHub webhook only touches a board's cards
+    # when ``autosync_enabled`` is true — per-board opt-in, default OFF, so the
+    # webhook is a no-op for any board that hasn't turned it on. ``advance_to_done``
+    # is a SEPARATE opt-in gating only the "move card to done on PR merge" action,
+    # keeping the human in the loop for 'done' even with auto-sync otherwise on.
+    autosync_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    autosync_advance_to_done: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

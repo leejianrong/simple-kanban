@@ -6,11 +6,13 @@ the cookie/PAT board authz the rest of ``/api/v1`` uses: webhooks come from
 GitHub, not a logged-in user, so this route deliberately does **not** depend on
 ``get_principal``/``authorize_board`` (ADR 0013). It stays standalone.
 
-Scope of this card is **receive + verify + route only** (API-first, ADR 0005):
-verify the signature, parse the ``X-GitHub-Event`` type + body, dispatch to a
-per-event handler that logs a structured summary, and ack with 200. There is
-**no card mutation, no DB write, no model/migration change** — the event-mapping
-card builds on this.
+KAN-42 established receive + verify + route (verify the signature, parse the
+``X-GitHub-Event`` type + body, dispatch to a per-event handler, ack 200). KAN-43
+fleshes out the handlers: each logs its structured summary **and** delegates to
+:mod:`app.autosync`, which maps the event onto card work-links / comments / a move
+to ``done`` — gated per board by the ``board.autosync_enabled`` opt-in (default
+OFF). The signature check stays the only authentication; the opt-in flag is the
+authorization for those writes (they act as the system, not a user).
 
 Verification policy:
 - ``WEBHOOK_SECRET`` unset → **503** (the receiver is not configured; we never
@@ -27,6 +29,8 @@ import logging
 import os
 
 from fastapi import APIRouter, Header, HTTPException, Request, status
+
+from .. import autosync
 
 logger = logging.getLogger("app.webhooks.github")
 
@@ -49,8 +53,11 @@ def verify_signature(secret: str, body: bytes, header: str | None) -> bool:
 
 
 # --- per-event handlers ------------------------------------------------------
-# For THIS card each handler only logs a structured summary of the fields a
-# later card will map onto board actions. No side effects beyond logging.
+# Each handler logs a structured summary, then delegates the board side effects to
+# :mod:`app.autosync`, which maps the event onto card work-links / comments / moves
+# — gated per board by the ``autosync_enabled`` opt-in (KAN-43). The mapping layer
+# parses the card ticket before touching the DB and no-ops when none is present, so
+# a payload without a ``KAN-<n>`` opens no session (the unit tests stay DB-free).
 
 
 def _handle_pull_request(payload: dict) -> None:
@@ -63,6 +70,7 @@ def _handle_pull_request(payload: dict) -> None:
         pr.get("merged"),
         pr.get("title"),
     )
+    autosync.on_pull_request(payload)
 
 
 def _handle_check_suite(payload: dict) -> None:
@@ -74,6 +82,7 @@ def _handle_check_suite(payload: dict) -> None:
         suite.get("conclusion"),
         suite.get("head_sha"),
     )
+    autosync.on_check_suite(payload)
 
 
 def _handle_status(payload: dict) -> None:
@@ -83,6 +92,7 @@ def _handle_status(payload: dict) -> None:
         payload.get("sha"),
         payload.get("context"),
     )
+    autosync.on_status(payload)
 
 
 _DISPATCH = {
