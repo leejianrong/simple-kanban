@@ -15,6 +15,11 @@ dependencies = [
     # a second, async engine alongside the sync one (ADR 0008 preserved).
     "fastapi-users[sqlalchemy,oauth]>=14",
     "greenlet>=3.1",
+    # Error tracking (KAN-172, ADR 0017). Only activated when SENTRY_DSN is set —
+    # a no-op otherwise — so dev + tests never report. Installed so prod can opt in
+    # via a Fly secret with no code change; its FastAPI/Starlette integration is
+    # auto-enabled by sentry_sdk.init().
+    "sentry-sdk[fastapi]>=2",
 ]
 
 [dependency-groups]

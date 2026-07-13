@@ -24,7 +24,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from enum import IntEnum
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.orm import Session
@@ -90,6 +90,7 @@ def _resolve_pat(db: Session, raw: str) -> User | None:
 
 
 def get_principal(
+    request: Request,
     user: User | None = Depends(current_optional_user),
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: Session = Depends(get_db),
@@ -99,18 +100,22 @@ def get_principal(
     Precedence: a human **cookie session** wins; else a valid **personal access
     token** bearer → its owning ``User`` (V9, owner-gated like a human). Anything
     else is unauthenticated.
+
+    Stashes the resolved id on ``request.state.principal_id`` so the access-log
+    middleware (KAN-172, :mod:`app.observability`) can attribute the request to a
+    user — the id only, never the token or cookie.
     """
-    if user is not None:
-        return user
-    if credentials is not None:
-        pat_user = _resolve_pat(db, credentials.credentials)
-        if pat_user is not None:
-            return pat_user
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="authentication required",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    principal: User | None = user
+    if principal is None and credentials is not None:
+        principal = _resolve_pat(db, credentials.credentials)
+    if principal is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    request.state.principal_id = principal.id
+    return principal
 
 
 # Every principal is now a real user, so per-user routes (e.g. token management)
