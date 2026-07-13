@@ -23,6 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import or_, select, tuple_
 from sqlalchemy.orm import Session, aliased
 
+from ..activity import record_activity
 from ..auth_models import User
 from ..authz import Access, authorize_board, get_principal, visible_board_ids
 from ..db import get_db
@@ -269,6 +270,16 @@ def create_card(
     db.commit()
     # Refresh so server-assigned fields (id, ticket_number, timestamps) are populated.
     db.refresh(card)
+    record_activity(
+        db,
+        principal,
+        board_id=board_id,
+        entity_type="card",
+        entity_id=card.id,
+        action="created",
+        summary=f"created {card.ticket_number}: {card.title}",
+    )
+    db.commit()
     return _attach_one(db, card)
 
 
@@ -303,6 +314,15 @@ def update_card(
         _validate_epic(db, data["epic_id"], card.board_id)
     for field, value in data.items():
         setattr(card, field, value)
+    record_activity(
+        db,
+        principal,
+        board_id=card.board_id,
+        entity_type="card",
+        entity_id=card.id,
+        action="updated",
+        summary=f"updated {card.ticket_number}",
+    )
     db.commit()  # updated_at is bumped server-side via onupdate
     db.refresh(card)
     return _attach_one(db, card)
@@ -316,6 +336,17 @@ def delete_card(
 ) -> Response:
     card = _get_or_404(db, card_id)
     authorize_board(db, principal, card.board_id, Access.WRITE)
+    # Record before the delete (same transaction) — the audit row survives on the
+    # still-present board; ``entity_id`` is a plain int, not an FK to the gone card.
+    record_activity(
+        db,
+        principal,
+        board_id=card.board_id,
+        entity_type="card",
+        entity_id=card.id,
+        action="deleted",
+        summary=f"deleted {card.ticket_number}: {card.title}",
+    )
     db.delete(card)
     db.commit()
     # Hard delete; the vacated position leaves an intentional gap (ADR 0006).
@@ -363,6 +394,19 @@ def move_card(
     if source_column != target_column:
         renumber_column(db, card.board_id, source_column)
 
+    record_activity(
+        db,
+        principal,
+        board_id=card.board_id,
+        entity_type="card",
+        entity_id=card.id,
+        action="moved",
+        summary=(
+            f"moved {card.ticket_number} to {target_column}"
+            if source_column == target_column
+            else f"moved {card.ticket_number} from {source_column} to {target_column}"
+        ),
+    )
     db.commit()
     db.refresh(card)
     return _attach_one(db, card)
