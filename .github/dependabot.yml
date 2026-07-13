@@ -65,6 +65,13 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # TypeScript 7 breaks the current Svelte toolchain — svelte-check crashes at
+      # startup on TS7's compiler API (was PR #88). Pin Dependabot to the 6.x line
+      # (it'll track 6.x + its minors/patches) until the toolchain supports 7;
+      # remove this ignore to revisit. The move to 6.x lands via a manual PR.
+      - dependency-name: "typescript"
+        versions: ["7.x"]
 
   # --- GitHub Actions used by the workflows ------------------------------------
   - package-ecosystem: "github-actions"
