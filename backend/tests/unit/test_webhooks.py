@@ -123,3 +123,52 @@ def test_dispatch_invokes_the_matching_handler(client, monkeypatch):
     monkeypatch.setitem(webhooks._DISPATCH, "pull_request", lambda p: calls.append(p))
     _post(client, "pull_request", {"action": "opened", "number": 42})
     assert calls == [{"action": "opened", "number": 42}]
+
+
+# --- ticket parsing (KAN-43, app.autosync) -----------------------------------
+# Pure-function, DB-free: the mapping layer parses the card ticket before it
+# touches the database, so these payloads (no ticket) never open a session.
+
+
+def test_parse_ticket_from_branch():
+    from app.autosync import parse_ticket
+
+    assert parse_ticket("feat/kan-12-add-widget", None) == "KAN-12"
+
+
+def test_parse_ticket_is_case_insensitive_and_normalised():
+    from app.autosync import parse_ticket
+
+    assert parse_ticket("KAN-7") == "KAN-7"
+    assert parse_ticket("kan-7") == "KAN-7"
+
+
+def test_parse_ticket_prefers_first_candidate():
+    from app.autosync import parse_ticket
+
+    # Branch first, then title — the branch's ticket wins.
+    assert parse_ticket("feature/KAN-3", "KAN-99: something") == "KAN-3"
+
+
+def test_parse_ticket_falls_back_to_later_candidate():
+    from app.autosync import parse_ticket
+
+    assert parse_ticket(None, "fix KAN-5 in the parser") == "KAN-5"
+
+
+def test_parse_ticket_none_when_absent():
+    from app.autosync import parse_ticket
+
+    assert parse_ticket("main", "no ticket here", None) is None
+
+
+def test_pull_request_without_ticket_is_a_noop(client):
+    # A handled event whose payload carries no KAN-<n> is acked but touches no DB
+    # (proves the mapping short-circuits before opening a session).
+    resp = _post(
+        client,
+        "pull_request",
+        {"action": "opened", "pull_request": {"head": {"ref": "main"}, "title": "x"}},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["handled"] is True

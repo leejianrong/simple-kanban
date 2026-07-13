@@ -234,9 +234,15 @@ class BoardCreate(BaseModel):
 
 
 class BoardUpdate(BaseModel):
-    """Rename a board. Only ``name`` is editable; ownership isn't reassignable here."""
+    """Rename a board and/or toggle its auto-sync opt-ins (KAN-43). ``name`` is the
+    only renamable field; ownership isn't reassignable here. ``autosync_enabled``
+    turns the GitHub-webhook card auto-sync on for this board (default OFF);
+    ``autosync_advance_to_done`` separately allows PR-merge to move a card to
+    ``done``. All optional — only the fields sent are applied."""
 
     name: str | None = None
+    autosync_enabled: bool | None = None
+    autosync_advance_to_done: bool | None = None
 
     @field_validator("name")
     @classmethod
@@ -254,6 +260,9 @@ class BoardRead(BaseModel):
     # The owning user (UUID), or null for an unclaimed board (e.g. the migrated
     # default board). Server-enforced ownership checks arrive in V8.
     owner_id: uuid.UUID | None
+    # Auto-sync opt-ins (KAN-43); both default false.
+    autosync_enabled: bool
+    autosync_advance_to_done: bool
     created_at: datetime
     updated_at: datetime
 
