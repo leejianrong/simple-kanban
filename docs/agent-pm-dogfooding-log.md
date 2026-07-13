@@ -591,3 +591,30 @@ Dogfooding observations about driving this board as an agent PM. Seeded from the
     opt-out — decided PER-BOARD OPT-IN, default OFF (`board.autosync_enabled` toggle + a separate,
     also-default-off column-auto-advance flag). Written straight into the KAN-43/KAN-44 descriptions
     so Wave 2 builds the agreed shape; the close-the-loop ADR (KAN-44) must document both.
+- **M4 Wave 2 — KAN-43 (auto-sync mapping) ‖ KAN-14 (members UI): both merged + `done`.** The
+  proposed trio (KAN-13 + KAN-14 + KAN-43) did NOT survive grep-verification — so it became a clean
+  2-agent backend/frontend split instead. The two collision findings are the reusable lesson:
+  - **`routers/cards.py` is a concentration point.** Card links, comments, dependencies AND `move`
+    all live in that one ~600-line router. So KAN-13 (role enforcement — edits ~15 `authorize_board`
+    call sites there) and KAN-43 (needs link/comment/move logic) both pull toward it. Fix: brief the
+    KAN-43 agent to write side effects DIRECTLY against the `CardLink`/`CardComment` ORM models +
+    `ordering.py` helpers in a NEW module (`app/autosync.py`), explicitly barred from `cards.py`. It
+    complied (`git diff --name-only` confirmed 0 cards.py hits), staying disjoint and leaving KAN-13
+    a clean cards.py to rebase onto later. **Extracting the shared logic into a new module is how you
+    keep a router-heavy card parallelizable.**
+  - **The frontend is monolithic in `App.svelte` + `board.svelte.ts`.** Top-bar view toggle, board
+    switcher, and the board store all route through those two files, so ANY two frontend cards (e.g.
+    KAN-14 members panel vs KAN-15 switcher) collide there the way two backend routers collide on
+    `main.py`. Practical rule: **the reliably-disjoint parallel split here is backend-vs-frontend**;
+    two same-side cards need serialized landing + a rebase. KAN-43 (0 frontend files) ‖ KAN-14 (0
+    backend files) had zero shared files and both PRs merged without a rebase.
+  - **An opt-in flag needs an opt-in API — agent caught it.** KAN-43's card listed the per-board
+    toggle but no way to SET it; the agent exposed both flags on `BoardRead`/`BoardUpdate` (settable
+    via the existing `PATCH /api/v1/boards/{id}`, no boards-router change). Good scope judgment —
+    flagged rather than silently expanded.
+  - **Migration prod-verify by round-trip:** `GET /api/v1/boards/5` showed both `autosync_*` flags
+    defaulting `false` (0011 migrated), then `PATCH autosync_enabled=true` → re-GET `true` → reset to
+    `false`. Frontend prod-verify: grepped the deployed hashed bundle for `Members`/`/members`.
+  - **`gh pr edit --body` gotcha (KAN-14 agent):** it aborts on a "Projects (classic) deprecated"
+    GraphQL warning, leaving the body stale. Workaround: `gh api -X PATCH repos/:owner/:repo/pulls/N
+    -F body=@file`.
