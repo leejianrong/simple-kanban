@@ -565,3 +565,29 @@ Dogfooding observations about driving this board as an agent PM. Seeded from the
     session log trimmed) so it's available in all sessions; the in-repo copy keeps this full log.
     Global user-skills live in `~/.claude/skills/` (real dir or symlink); a same-named project skill
     still wins inside the repo.
+- **M4 Wave 1 — first 2-agent parallel wave (KAN-42 ‖ KAN-12): both merged + `done`.** Ran two
+  worktree sub-agents concurrently on file-disjoint cards — KAN-42 (GitHub webhook receiver, PR #64,
+  no migration) alongside KAN-12 (board membership model + API, PR #65, migration
+  `0010_board_members`). Land policy: auto-merge on green; migration card landed alone.
+  - **Disjointness was grep-verified, but `app/main.py` is the shared choke point.** Both backend
+    cards must register a router in `main.py` (the `from .routers import …` line + an
+    `include_router`). The first PR to land (#64) merged clean; the second (#65) then CONFLICTED on
+    exactly that file. Cheap (union of two one-liners) but it means "two new backend routers in
+    parallel" always costs one rebase. Next time: land in quick succession and plan for the rebase,
+    or branch the second card off the first. Resolved by resuming the same agent via SendMessage to
+    `git rebase origin/main` (keep both routers) + `--force-with-lease` — PR updated in place, and the
+    migration chain stayed linear (0010 on 0009, single head — #64 added no migration).
+  - **Migration prod-verify = exercise the new relation, not just watch the deploy go green.** After
+    the `fccef46` merge deployed, `GET /api/v1/boards/5/members` → `200 []` (proves the `board_member`
+    table exists — a missing migration would 500 on the query), and a bogus-email POST → `404 User
+    not found` (write path + error contract, zero mutation). GET-the-new-endpoint is the cheapest
+    honest migration verify.
+  - **Alembic autogenerate is noisy here (flagged by the KAN-12 agent).** `alembic revision
+    --autogenerate` reports every migration-created index as "removed" (indexes are created in
+    migrations, not declared on the models) and omits `sa.Identity` on PKs — so hand-writing the
+    migration is the right convention. Worth a CLAUDE.md note so future slices don't blind-commit
+    autogenerate output.
+  - **Product decision captured into card scope mid-flight.** User asked whether GitHub auto-sync is
+    opt-out — decided PER-BOARD OPT-IN, default OFF (`board.autosync_enabled` toggle + a separate,
+    also-default-off column-auto-advance flag). Written straight into the KAN-43/KAN-44 descriptions
+    so Wave 2 builds the agreed shape; the close-the-loop ADR (KAN-44) must document both.
