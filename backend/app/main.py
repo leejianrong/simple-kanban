@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .routers import boards, cards, epics, tokens, webhooks
+from .routers import boards, cards, epics, members, tokens, webhooks
 from .users import register_auth_routes
 
 app = FastAPI(title="Simple Kanban API", version="0.1.0")
@@ -26,6 +26,7 @@ app = FastAPI(title="Simple Kanban API", version="0.1.0")
 # migration has been dropped now that all clients (SPA, e2e, backend tests) ride
 # /api/v1. /api/health stays unversioned (infra, not a versioned resource).
 app.include_router(boards.router, prefix="/api/v1")
+app.include_router(members.router, prefix="/api/v1")  # KAN-12: board membership
 app.include_router(cards.router, prefix="/api/v1")
 app.include_router(epics.router, prefix="/api/v1")
 app.include_router(tokens.router, prefix="/api/v1")  # M3 V9 (ADR 0014): agent PATs
