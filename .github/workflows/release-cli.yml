@@ -150,7 +150,7 @@ jobs:
           KANBAN_API_URL=https://simple-kanban-jian.fly.dev ./dist/${{ matrix.asset }} warmup
 
       - name: Attach binary to the Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: kanban-cli/dist/${{ matrix.asset }}
           fail_on_unmatched_files: true
