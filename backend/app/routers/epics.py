@@ -22,7 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..auth_models import User
-from ..authz import authorize_board, get_principal, visible_board_ids
+from ..authz import Access, authorize_board, get_principal, visible_board_ids
 from ..db import get_db
 from ..models import Epic
 from ..schemas import EpicCreate, EpicRead, EpicUpdate
@@ -49,7 +49,7 @@ def list_epics(
     (the SPA always sends it to scope the Epics view)."""
     query = select(Epic).order_by(Epic.id)
     if board_id is not None:
-        authorize_board(db, principal, board_id)
+        authorize_board(db, principal, board_id, Access.READ)
         query = query.where(Epic.board_id == board_id)
     else:
         query = query.where(Epic.board_id.in_(visible_board_ids(principal)))
@@ -63,7 +63,7 @@ def create_epic(
     principal: User = Depends(get_principal),
 ) -> Epic:
     board_id = resolve_board_id(db, payload.board_id)
-    authorize_board(db, principal, board_id)
+    authorize_board(db, principal, board_id, Access.WRITE)
     epic = Epic(
         board_id=board_id,
         name=payload.name,
@@ -83,7 +83,7 @@ def get_epic(
     principal: User = Depends(get_principal),
 ) -> Epic:
     epic = _get_or_404(db, epic_id)
-    authorize_board(db, principal, epic.board_id)
+    authorize_board(db, principal, epic.board_id, Access.READ)
     return epic
 
 
@@ -95,7 +95,7 @@ def update_epic(
     principal: User = Depends(get_principal),
 ) -> Epic:
     epic = _get_or_404(db, epic_id)
-    authorize_board(db, principal, epic.board_id)
+    authorize_board(db, principal, epic.board_id, Access.WRITE)
     data = payload.model_dump(exclude_unset=True)
     if "name" in data and (data["name"] is None or not str(data["name"]).strip()):
         raise HTTPException(
@@ -116,7 +116,7 @@ def delete_epic(
     principal: User = Depends(get_principal),
 ) -> Response:
     epic = _get_or_404(db, epic_id)
-    authorize_board(db, principal, epic.board_id)
+    authorize_board(db, principal, epic.board_id, Access.WRITE)
     db.delete(epic)
     db.commit()
     # Hard delete; child stories are detached via the FK's ON DELETE SET NULL.

@@ -6,13 +6,14 @@ the flat structure of the cards/epics routers (API-first, ADR 0005). Mounted by
 
 - GET    /boards       — list the caller's boards
 - POST   /boards       — create a board (owner = the calling user)
-- GET    /boards/{id}  — read one board (owner only)
+- GET    /boards/{id}  — read one board (viewer or above)
 - PATCH  /boards/{id}  — rename (owner only)
 - DELETE /boards/{id}  — hard-delete; its cards + epics cascade away (owner only)
 
-**Authorization (V8):** every route requires a principal (`401` otherwise); the
-detail/rename/delete routes require the principal to own the board (`403`), and the
-list is scoped to the caller. See :mod:`app.authz`.
+**Authorization (V8 + KAN-13, ADR 0013):** every route requires a principal (`401`
+otherwise). Reads are ``Access.READ`` (viewer or above); rename/delete are
+``Access.MANAGE`` (owner only). The list stays owner-scoped (member visibility is
+KAN-15). See :mod:`app.authz`.
 """
 from __future__ import annotations
 
@@ -21,7 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..auth_models import User
-from ..authz import authorize_board, get_principal, visible_board_ids
+from ..authz import Access, authorize_board, get_principal, visible_board_ids
 from ..db import get_db
 from ..models import Board
 from ..schemas import BoardCreate, BoardRead, BoardUpdate
@@ -82,7 +83,7 @@ def get_board(
     db: Session = Depends(get_db),
     principal: User = Depends(get_principal),
 ) -> Board:
-    return authorize_board(db, principal, board_id)
+    return authorize_board(db, principal, board_id, Access.READ)
 
 
 @router.patch("/{board_id}", response_model=BoardRead)
@@ -92,7 +93,7 @@ def update_board(
     db: Session = Depends(get_db),
     principal: User = Depends(get_principal),
 ) -> Board:
-    board = authorize_board(db, principal, board_id)
+    board = authorize_board(db, principal, board_id, Access.MANAGE)
     data = payload.model_dump(exclude_unset=True)
     if "name" in data and (data["name"] is None or not str(data["name"]).strip()):
         raise HTTPException(
@@ -112,7 +113,7 @@ def delete_board(
     db: Session = Depends(get_db),
     principal: User = Depends(get_principal),
 ) -> Response:
-    board = authorize_board(db, principal, board_id)
+    board = authorize_board(db, principal, board_id, Access.MANAGE)
     db.delete(board)
     db.commit()
     # Hard delete; the FK's ON DELETE CASCADE removes this board's cards + epics.

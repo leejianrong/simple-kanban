@@ -22,6 +22,7 @@ the async sub-dependency for a sync endpoint (proven in V7's ``create_board``).
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from enum import IntEnum
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials
@@ -31,9 +32,35 @@ from sqlalchemy.orm import Session
 from .auth import bearer_scheme
 from .auth_models import PersonalAccessToken, User
 from .db import get_db
-from .models import Board
+from .models import Board, BoardMember
 from .tokens import TOKEN_PREFIX, hash_token
 from .users import current_optional_user
+
+
+class Access(IntEnum):
+    """The capability a board-scoped action requires (KAN-13).
+
+    Ordered so a ``>=`` comparison *is* the authorization check: a principal's
+    effective access must be **at least** the level the action demands.
+
+    - ``READ`` — viewer or above: GET/list/read of a board's cards/epics/members.
+    - ``WRITE`` — editor or above: create/update/move/delete cards + epics.
+    - ``MANAGE`` — owner only: board rename/delete + member management.
+    """
+
+    READ = 1
+    WRITE = 2
+    MANAGE = 3
+
+
+# A board_member role maps to the highest :class:`Access` level it grants. The
+# board OWNER (``board.owner_id``) is always treated as ``MANAGE`` regardless of
+# any membership row.
+_ROLE_ACCESS: dict[str, Access] = {
+    "viewer": Access.READ,
+    "editor": Access.WRITE,
+    "owner": Access.MANAGE,
+}
 
 
 def _resolve_pat(db: Session, raw: str) -> User | None:
@@ -92,16 +119,46 @@ def get_principal(
 require_user = get_principal
 
 
-def authorize_board(db: Session, principal: User, board_id: int) -> Board:
-    """Load ``board_id`` and assert the principal may act on it, else raise.
+def _effective_access(db: Session, principal: User, board: Board) -> Access | None:
+    """The principal's effective :class:`Access` on ``board``, or ``None`` if it
+    has no access at all.
 
-    404 if the board doesn't exist; 403 if the principal doesn't own it. Returns
-    the loaded board so callers can reuse it.
+    The board OWNER always has ``MANAGE`` (full access), regardless of any
+    membership row (KAN-13). Otherwise the principal's ``board_member`` role, if
+    any, decides. No ownership and no membership row → ``None`` (→ 403).
+    """
+    if board.owner_id == principal.id:
+        return Access.MANAGE
+    role = db.scalar(
+        select(BoardMember.role).where(
+            BoardMember.board_id == board.id,
+            BoardMember.user_id == principal.id,
+        )
+    )
+    if role is None:
+        return None
+    # An unknown role (should never happen — CHECK-constrained) grants nothing.
+    return _ROLE_ACCESS.get(role)
+
+
+def authorize_board(
+    db: Session, principal: User, board_id: int, require: Access = Access.READ
+) -> Board:
+    """Load ``board_id`` and assert the principal has at least ``require`` access,
+    else raise. Returns the loaded board so callers can reuse it.
+
+    Role-aware (KAN-13, ADR 0013 — the *one* authz layer, no ad-hoc checks): the
+    board owner has full (``MANAGE``) access; other principals get the access their
+    ``board_member`` role grants (viewer→READ, editor→WRITE, owner→MANAGE).
+
+    - **404** if the board doesn't exist.
+    - **403** if the principal has no access to it, or less than ``require``.
     """
     board = db.get(Board, board_id)
     if board is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Board not found")
-    if board.owner_id != principal.id:
+    access = _effective_access(db, principal, board)
+    if access is None or access < require:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="you do not have access to this board",
