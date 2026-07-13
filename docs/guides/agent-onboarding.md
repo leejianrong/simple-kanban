@@ -58,7 +58,7 @@ returns `401`. Revoke a token any time from the same Tokens tab.
 
 Claude Code discovers project-scoped MCP servers from a `.mcp.json` at the repo root. Copy
 [`.mcp.json.example`](../../.mcp.json.example) to `.mcp.json` and keep the server entry you
-want. Full details are in [`mcp/README.md`](../../mcp/README.md); the essentials follow.
+want. Full details are in [`mcp/README.md`](https://github.com/leejianrong/simple-kanban/blob/main/mcp/README.md); the essentials follow.
 
 ### Run from source with `uv`
 
@@ -144,7 +144,7 @@ board means that board isn't yours.
 
 ## 5. Example agent workflows
 
-These use the real MCP tool names (see the full table in [`mcp/README.md`](../../mcp/README.md)).
+These use the real MCP tool names (see the full table in [`mcp/README.md`](https://github.com/leejianrong/simple-kanban/blob/main/mcp/README.md)).
 Card columns are `todo`, `in_progress`, and `done`.
 
 **Pick up a card and start work.**
@@ -183,7 +183,7 @@ create_card(title="GitHub login button", column="todo", epic_id=<epic id>)
 
 If your automation isn't an MCP client — a CI job, a shell script, an agent that shells out —
 use the `kan` CLI. It's the same thin adapter over `/api/v1`, exposed as subcommands. Full
-reference: [`kanban-cli/README.md`](../../kanban-cli/README.md).
+reference: [`kanban-cli/README.md`](https://github.com/leejianrong/simple-kanban/blob/main/kanban-cli/README.md).
 
 **Prebuilt binary (no Python needed).** Download the asset for your platform from the
 [latest GitHub Release](https://github.com/leejianrong/simple-kanban/releases/latest) — the
@@ -196,7 +196,7 @@ chmod +x kan && mv kan ~/.local/bin/      # or: sudo mv kan /usr/local/bin/
 
 `kan-linux-x86_64` and `kan-macos-arm64` ship today; the linux binary needs glibc ≥ 2.28
 (Ubuntu 20.04+, Debian 11+, RHEL/Rocky/Alma 8+). See
-[`kanban-cli/README.md`](../../kanban-cli/README.md) for the full asset list and the macOS
+[`kanban-cli/README.md`](https://github.com/leejianrong/simple-kanban/blob/main/kanban-cli/README.md) for the full asset list and the macOS
 Gatekeeper note.
 
 **Install from git (needs Python + `uv`):**
@@ -248,7 +248,7 @@ in depth.
 
 To enable GitHub login on your own instance, set `GITHUB_OAUTH_CLIENT_ID` and
 `GITHUB_OAUTH_CLIENT_SECRET` (both unset → the board still boots, but login is unavailable). See
-the Configuration section of [`CLAUDE.md`](../../CLAUDE.md) for the full env-var list, including
+the Configuration section of [`CLAUDE.md`](https://github.com/leejianrong/simple-kanban/blob/main/CLAUDE.md) for the full env-var list, including
 `AUTH_SECRET` and `COOKIE_SECURE`.
 
 ## Single-owner boards, and what that means today
