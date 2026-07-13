@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..activity import record_activity
 from ..auth_models import User
 from ..authz import Access, authorize_board, get_principal, visible_board_ids
 from ..db import get_db
@@ -91,6 +92,16 @@ def create_board(
     db.add(board)
     db.commit()
     db.refresh(board)
+    record_activity(
+        db,
+        principal,
+        board_id=board.id,
+        entity_type="board",
+        entity_id=board.id,
+        action="created",
+        summary=f"created board {board.name}",
+    )
+    db.commit()
     return board
 
 
@@ -119,6 +130,15 @@ def update_board(
         )
     for field, value in data.items():
         setattr(board, field, value)
+    record_activity(
+        db,
+        principal,
+        board_id=board.id,
+        entity_type="board",
+        entity_id=board.id,
+        action="updated",
+        summary=f"updated board {board.name}",
+    )
     db.commit()  # updated_at bumped server-side via onupdate
     db.refresh(board)
     return board
@@ -131,6 +151,20 @@ def delete_board(
     principal: User = Depends(get_principal),
 ) -> Response:
     board = authorize_board(db, principal, board_id, Access.MANAGE)
+    # A board-deletion event is recorded for completeness, but it is keyed to the
+    # board being deleted, whose ON DELETE CASCADE takes the whole audit trail —
+    # including this row — with it. So the record is intentionally ephemeral: it is
+    # written and then cascaded away in the same transaction (the board's history
+    # dies with the board, by design).
+    record_activity(
+        db,
+        principal,
+        board_id=board.id,
+        entity_type="board",
+        entity_id=board.id,
+        action="deleted",
+        summary=f"deleted board {board.name}",
+    )
     db.delete(board)
     db.commit()
     # Hard delete; the FK's ON DELETE CASCADE removes this board's cards + epics.

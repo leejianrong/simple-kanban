@@ -42,6 +42,11 @@ VALID_COLUMNS = ("todo", "in_progress", "done")
 # A plain varchar guarded by a CHECK constraint (the same pattern as ``card.column``)
 # so adding a role later needs no ``ALTER TYPE`` migration.
 VALID_ROLES = ("viewer", "editor", "owner")
+# Activity-log vocabulary (KAN-17, M4 audit trail). Both are plain varchars guarded
+# by CHECK constraints (the ``card.column`` pattern) so a new entity type or action
+# needs no ``ALTER TYPE`` migration.
+VALID_ACTIVITY_ENTITY_TYPES = ("card", "epic", "board")
+VALID_ACTIVITY_ACTIONS = ("created", "updated", "deleted", "moved")
 
 
 class Board(Base):
@@ -279,4 +284,67 @@ class Card(Base):
         nullable=False,
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+
+class Activity(Base):
+    """An append-only audit record of a board-domain mutation (KAN-17, M4 R5.1).
+
+    One row per successful create / update / delete / move of a card, epic or
+    board — the seed of the activity feed KAN-18 will read (this card is the model
+    + write path only; there is no read API or UI here yet).
+
+    Design notes:
+    - ``board_id`` FK → ``board`` (``ON DELETE CASCADE``): an activity always
+      belongs to a board, and a board's whole audit trail is hard-deleted with it
+      (consistent with the app's hard-delete model). A **board deletion** event is
+      therefore intentionally ephemeral — recorded, then cascaded away with the
+      board it describes.
+    - ``entity_id`` is a plain integer, **not** an FK — the referenced card/epic may
+      already be deleted (that's precisely a ``deleted`` event), so the audit row
+      must outlive it.
+    - ``actor_user_id`` FK → ``user`` (``ON DELETE SET NULL``, nullable, mirroring
+      ``Board.owner_id`` / ``CardComment.author_id``) records the acting principal —
+      always a real ``User`` today (``app.authz.get_principal``), but kept nullable so
+      deleting the user leaves the history in place, unattributed. ``actor_label`` is
+      a denormalised human handle (the principal's email / an assignee string) so the
+      feed reads without a user join even after the user is gone.
+    - ``entity_type`` / ``action`` are varchars guarded by CHECK constraints (the
+      ``card.column`` pattern) rather than native PG enums.
+    """
+
+    __tablename__ = "activity"
+    __table_args__ = (
+        CheckConstraint(
+            "entity_type IN ('card', 'epic', 'board')",
+            name="ck_activity_entity_type",
+        ),
+        CheckConstraint(
+            "action IN ('created', 'updated', 'deleted', 'moved')",
+            name="ck_activity_action",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    board_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("board.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # The acting principal (a UUID). Nullable + SET NULL so a deleted user leaves the
+    # audit row in place (mirrors Board.owner_id / CardComment.author_id).
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    # Denormalised human handle for the actor (email / assignee string), so the feed
+    # reads without a user join and survives the user's deletion.
+    actor_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    entity_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    # The affected card/epic/board id. NOT an FK — the entity may already be deleted.
+    entity_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    ts: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )

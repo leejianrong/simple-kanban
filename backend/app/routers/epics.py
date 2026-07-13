@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..activity import record_activity
 from ..auth_models import User
 from ..authz import Access, authorize_board, get_principal, visible_board_ids
 from ..db import get_db
@@ -73,6 +74,16 @@ def create_epic(
     db.commit()
     # Refresh so server-assigned fields (id, ticket_number, timestamps) are populated.
     db.refresh(epic)
+    record_activity(
+        db,
+        principal,
+        board_id=board_id,
+        entity_type="epic",
+        entity_id=epic.id,
+        action="created",
+        summary=f"created {epic.ticket_number}: {epic.name}",
+    )
+    db.commit()
     return epic
 
 
@@ -104,6 +115,15 @@ def update_epic(
         )
     for field, value in data.items():
         setattr(epic, field, value)
+    record_activity(
+        db,
+        principal,
+        board_id=epic.board_id,
+        entity_type="epic",
+        entity_id=epic.id,
+        action="updated",
+        summary=f"updated {epic.ticket_number}",
+    )
     db.commit()  # updated_at is bumped server-side via onupdate
     db.refresh(epic)
     return epic
@@ -117,6 +137,17 @@ def delete_epic(
 ) -> Response:
     epic = _get_or_404(db, epic_id)
     authorize_board(db, principal, epic.board_id, Access.WRITE)
+    # Record before the delete (same transaction): the board survives, so the audit
+    # row does too; ``entity_id`` is a plain int, not an FK to the gone epic.
+    record_activity(
+        db,
+        principal,
+        board_id=epic.board_id,
+        entity_type="epic",
+        entity_id=epic.id,
+        action="deleted",
+        summary=f"deleted {epic.ticket_number}: {epic.name}",
+    )
     db.delete(epic)
     db.commit()
     # Hard delete; child stories are detached via the FK's ON DELETE SET NULL.
