@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 from ..auth_models import User
 from ..authz import Access, authorize_board, get_principal, visible_board_ids
 from ..db import get_db
-from ..models import Board
+from ..models import Board, BoardMember
 from ..schemas import BoardCreate, BoardRead, BoardUpdate
 
 router = APIRouter(prefix="/boards", tags=["boards"])
@@ -59,8 +59,25 @@ def list_boards(
     db: Session = Depends(get_db),
     principal: User = Depends(get_principal),
 ) -> list[Board]:
+    """List the boards the caller can see — owned **and** ones they're a member of
+    (KAN-15). Each board carries the caller's effective ``role`` (owner → "owner",
+    else the board_member role), attached transiently for the switcher's role
+    badge (mirrors how ``MemberRead.email`` is attached in the members router)."""
     query = select(Board).order_by(Board.id).where(Board.id.in_(visible_board_ids(principal)))
-    return list(db.scalars(query).all())
+    boards = list(db.scalars(query).all())
+    # One lookup of the caller's member roles across all their boards.
+    member_roles = dict(
+        db.execute(
+            select(BoardMember.board_id, BoardMember.role).where(
+                BoardMember.user_id == principal.id
+            )
+        ).all()
+    )
+    for board in boards:
+        board.role = (
+            "owner" if board.owner_id == principal.id else member_roles.get(board.id)
+        )
+    return boards
 
 
 @router.post("", response_model=BoardRead, status_code=status.HTTP_201_CREATED)

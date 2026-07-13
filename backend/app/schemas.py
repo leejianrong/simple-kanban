@@ -252,6 +252,12 @@ class BoardUpdate(BaseModel):
         return v
 
 
+class RoleEnum(str, Enum):
+    viewer = "viewer"
+    editor = "editor"
+    owner = "owner"
+
+
 class BoardRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -263,14 +269,13 @@ class BoardRead(BaseModel):
     # Auto-sync opt-ins (KAN-43); both default false.
     autosync_enabled: bool
     autosync_advance_to_done: bool
+    # The *caller's* effective role on this board (KAN-15): "owner" if they own it,
+    # else their board_member role (viewer/editor). Attached transiently by the
+    # list router (not an ORM column), mirroring MemberRead.email; the switcher
+    # uses it to badge shared boards. Null when the router doesn't compute it.
+    role: RoleEnum | None = None
     created_at: datetime
     updated_at: datetime
-
-
-class RoleEnum(str, Enum):
-    viewer = "viewer"
-    editor = "editor"
-    owner = "owner"
 
 
 class MemberCreate(BaseModel):
