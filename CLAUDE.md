@@ -226,6 +226,18 @@ only the inbound webhook; it's separate from `AUTH_SECRET`. Per-board opt-in (`a
 `autosync_advance_to_done`, both default OFF) is set via `PATCH /api/v1/boards/{id}`. Full setup/ops:
 [docs/guides/autosync-github-setup.md](docs/guides/autosync-github-setup.md) (ADR 0016).
 
+**Observability env vars (KAN-172, ADR 0017)** — wired in [backend/app/observability.py](backend/app/observability.py):
+- `LOG_LEVEL` — level for the `kanban.access` structured JSON request logger (one line per request:
+  method/path/status/latency/principal id). Default `INFO`. The formatter allow-lists its fields and
+  logs only the URL **path** (no query string), so cookies/PATs/headers never reach a log line.
+- `SENTRY_DSN` — enables Sentry error tracking when set; **unset → a pure no-op** (the SDK isn't even
+  imported), so dev + tests never report. `send_default_pii=False` keeps cookies/PATs out of events.
+  Optional: `SENTRY_ENVIRONMENT` (default `production`), `SENTRY_TRACES_SAMPLE_RATE` (default `0`).
+
+Health probes (ADR 0017): `GET /api/health` is a **readiness** probe (cheap `SELECT 1` on the sync
+board engine → `503 {"status":"unavailable"}` when the DB is unreachable, else `200 {"status":"ok"}`);
+`GET /api/health/live` is a static **liveness** probe (always `200` while the process serves).
+
 `E2E_AUTH_BYPASS` (V8) — when truthy, mounts an **e2e-only** `POST /auth/test-login` that mints a
 real cookie session for an arbitrary email (Playwright can't fake the httpOnly session a
 route-stub used to). **Never set in prod** — it's a login bypass. The Playwright `webServer` sets it;

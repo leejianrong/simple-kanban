@@ -9,17 +9,33 @@ usually does not exist and the fallback is simply not registered.
 """
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Response, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
+from .db import get_db
+from .observability import add_request_logging, configure_logging, init_error_tracking
 from .routers import boards, cards, epics, members, tokens, webhooks
 from .users import register_auth_routes
 
+# Observability (KAN-172): configure structured JSON logging and, only when
+# SENTRY_DSN is set, error tracking — both before the app is built so startup is
+# captured too. init_error_tracking() is a no-op (and imports nothing) when unset.
+configure_logging()
+init_error_tracking()
+
+logger = logging.getLogger("kanban.health")
+
 app = FastAPI(title="Simple Kanban API", version="0.1.0")
+
+# One structured access line per request (method/path/status/latency/principal).
+add_request_logging(app)
 
 # Mount each router under the canonical versioned prefix /api/v1/... (P3,
 # spike-p3-versioning.md). The temporary /api compat alias that eased the V2
@@ -41,7 +57,31 @@ register_auth_routes(app)
 
 
 @app.get("/api/health", tags=["meta"])
-def health() -> dict[str, str]:
+def health(response: Response, db: Session = Depends(get_db)) -> dict[str, str]:
+    """Readiness probe (KAN-172): a cheap ``SELECT 1`` on the **sync board engine**
+    (ADR 0008) so health reflects real dependency health, not just "process up".
+
+    - DB reachable → ``200 {"status": "ok"}`` (the fast happy path Fly + the
+      keepalive ping hit; a ``SELECT 1`` is sub-millisecond warm).
+    - DB unreachable → ``503 {"status": "unavailable"}`` so the check flips red.
+
+    A scaled-to-zero Neon adds a one-off cold-start delay on the first hit — a
+    documented latency, not a failure (the keepalive poller allows for it).
+    """
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception:
+        logger.exception("readiness probe failed: database unreachable")
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return {"status": "unavailable"}
+    return {"status": "ok"}
+
+
+@app.get("/api/health/live", tags=["meta"])
+def liveness() -> dict[str, str]:
+    """Liveness probe (KAN-172): the process is up and serving. No dependency
+    checks — always ``200`` while the app runs, so an orchestrator can tell
+    "process alive" apart from "DB ready" (the readiness probe above)."""
     return {"status": "ok"}
 
 
