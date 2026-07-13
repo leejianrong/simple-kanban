@@ -37,7 +37,7 @@ jobs:
 
       - name: Derive image tags
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE }}
           # Full semver (v1.2.3 -> 1.2.3, 1.2, 1), plus `latest` on the newest.
