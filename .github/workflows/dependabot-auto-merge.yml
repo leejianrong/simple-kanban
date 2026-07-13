@@ -1,0 +1,38 @@
+name: Dependabot auto-merge
+
+# Auto-merge low-risk Dependabot PRs so the routine version churn never piles up
+# in the review queue (this is a 6-ecosystem monorepo — a single tool bump becomes
+# several PRs). Only **patch** and **minor** updates auto-merge; **major** bumps
+# (incl. dev-tool majors like a TypeScript major that can surface new type errors)
+# arrive as their own PRs per .github/dependabot.yml and are left for human review.
+#
+# This uses GitHub's *native* auto-merge (`gh pr merge --auto`), so nothing merges
+# until branch protection's required CI checks pass — the bot only arms the merge,
+# CI still gates it. Requires the repo setting "Allow auto-merge" (enabled).
+on: pull_request
+
+# Elevated perms are scoped to this workflow; GitHub grants them to the
+# Dependabot-triggered run because they're declared here.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Arm auto-merge for patch & minor updates
+        if: >-
+          steps.meta.outputs.update-type == 'version-update:semver-patch' ||
+          steps.meta.outputs.update-type == 'version-update:semver-minor'
+        run: gh pr merge --auto --merge "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
