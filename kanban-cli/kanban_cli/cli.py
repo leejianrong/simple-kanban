@@ -31,7 +31,16 @@ from typing import Any
 
 from kanban_client import KanbanApiError, KanbanClient
 
-from .config import Config, ConfigError, load_config
+from .config import (
+    DEFAULT_API_URL,
+    Config,
+    ConfigError,
+    config_file_path,
+    find_mcp_json,
+    load_config,
+    resolve_values,
+    write_config_file,
+)
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -243,6 +252,91 @@ def _cmd_epic_delete(client: KanbanClient, config: Config, args: argparse.Namesp
     return client.delete_epic(args.epic_id)
 
 
+# --- config handlers (local: no client, no network) -------------------------
+# These operate on local config only, so ``run()`` dispatches them via
+# ``local_func`` before building a KanbanClient (and before any token is required).
+
+
+def _redact_token(token: str) -> str:
+    """Never print a usable token. Show only that one is set + its last 4 chars so
+    a human can tell which PAT is in effect without exposing it."""
+    if not token:
+        return "(unset)"
+    tail = token[-4:] if len(token) > 4 else ""
+    return f"set (…{tail})"
+
+
+def _cmd_config_path(args: argparse.Namespace) -> int:
+    print(config_file_path())
+    return EXIT_OK
+
+
+def _cmd_config_show(args: argparse.Namespace) -> int:
+    """Print the *effective* config after the env → file → .mcp.json chain, with
+    the token redacted. Handy for 'why is kan hitting the wrong board?'."""
+    resolved = resolve_values()
+    mcp = find_mcp_json()
+    out = {
+        "api_url": resolved.get("api_url") or DEFAULT_API_URL,
+        "token": _redact_token(resolved.get("token", "")),
+        "board_id": resolved.get("board_id"),
+        "config_file": str(config_file_path()),
+        "mcp_json": str(mcp) if mcp else None,
+    }
+    if getattr(args, "as_json", False):
+        print(json.dumps(out, indent=2))
+    else:
+        for key, val in out.items():
+            print(f"{key}\t{val}")
+    return EXIT_OK
+
+
+def _validate_board_id_arg(raw: str | None) -> None:
+    if raw is not None and raw.strip() and not raw.strip().lstrip("-").isdigit():
+        raise ConfigError(f"--board-id must be an integer, got {raw!r}")
+
+
+def _cmd_config_set(args: argparse.Namespace) -> int:
+    """Write api_url/board_id/token to the user config file (0600). ``--token-stdin``
+    reads the PAT from stdin so it never lands in argv / shell history."""
+    _validate_board_id_arg(args.board_id)
+    token: str | None = None
+    if getattr(args, "token_stdin", False):
+        token = sys.stdin.readline().strip()
+        if not token:
+            print("kan: no token read from stdin", file=sys.stderr)
+            return EXIT_ERROR
+    elif args.token is not None:
+        token = args.token
+    if args.api_url is None and args.board_id is None and token is None:
+        print(
+            "kan: nothing to set (pass --api-url / --board-id / --token[-stdin])",
+            file=sys.stderr,
+        )
+        return EXIT_ERROR
+    path = write_config_file(api_url=args.api_url, token=token, board_id=args.board_id)
+    print(f"wrote {path}")
+    return EXIT_OK
+
+
+def _cmd_login(args: argparse.Namespace) -> int:
+    """Save a PAT to the config file. Prompts (hidden) on a TTY, else reads one line
+    from stdin — so the token never appears on the command line."""
+    _validate_board_id_arg(args.board_id)
+    if getattr(args, "token_stdin", False) or not sys.stdin.isatty():
+        token = sys.stdin.readline().strip()
+    else:
+        import getpass
+
+        token = getpass.getpass("Paste your Kanban PAT (kanban_pat_…): ").strip()
+    if not token:
+        print("kan: no token provided", file=sys.stderr)
+        return EXIT_ERROR
+    path = write_config_file(api_url=args.api_url, token=token, board_id=args.board_id)
+    print(f"saved token to {path} (mode 0600)")
+    return EXIT_OK
+
+
 # --- argument parser --------------------------------------------------------
 
 
@@ -251,10 +345,13 @@ def build_parser() -> argparse.ArgumentParser:
         prog="kan",
         description="Manage Simple Kanban cards, boards, and epics from the command line.",
         epilog=(
-            "Configuration (environment variables):\n"
-            "  KANBAN_API_URL   API origin (default: http://localhost:8000)\n"
-            "  KANBAN_TOKEN     required personal access token 'kanban_pat_…'\n"
-            "  KANBAN_BOARD_ID  optional default board id for board-scoped commands\n"
+            "Configuration keys (api_url / token / board_id), resolved per value in\n"
+            "this order — first non-empty wins:\n"
+            "  1. env vars   KANBAN_API_URL / KANBAN_TOKEN / KANBAN_BOARD_ID\n"
+            "  2. config file  ~/.config/kan/config.toml  (see `kan login` / `kan config`)\n"
+            "  3. .mcp.json    nearest up the tree, .mcpServers.kanban.env.*\n"
+            "So the PAT can stay in a file and never touch the command line. Run\n"
+            "`kan login` once to save it; `kan config show` prints the effective config.\n"
             "\n"
             "Exit codes: 0 ok, 1 error, 2 usage, 3 unauthorized, 4 forbidden, 5 not found."
         ),
@@ -376,6 +473,52 @@ def build_parser() -> argparse.ArgumentParser:
     p_epic_delete.add_argument("--yes", action="store_true", help="confirm the deletion")
     p_epic_delete.set_defaults(func=_cmd_epic_delete, noun="epic")
 
+    # --- login / config (local: no token, no network) ------------------------
+    # ``login`` saves a PAT to ~/.config/kan/config.toml without it touching argv:
+    # a hidden prompt on a TTY, else one line from stdin.
+    p_login = sub.add_parser(
+        "login",
+        parents=[common],
+        help="save your PAT to the config file (prompts; never on the command line)",
+    )
+    p_login.add_argument("--api-url", help="also save the API origin")
+    p_login.add_argument("--board-id", help="also save a default board id")
+    p_login.add_argument(
+        "--token-stdin",
+        action="store_true",
+        help="read the token from stdin instead of prompting (e.g. `… | kan login --token-stdin`)",
+    )
+    p_login.set_defaults(local_func=_cmd_login)
+
+    p_config = sub.add_parser("config", help="inspect / set the config file (set / show / path)")
+    config_sub = p_config.add_subparsers(
+        dest="config_command", metavar="<subcommand>", required=True
+    )
+
+    p_config_set = config_sub.add_parser(
+        "set", parents=[common], help="write api_url / board_id / token to the config file"
+    )
+    p_config_set.add_argument("--api-url")
+    p_config_set.add_argument("--board-id")
+    token_grp = p_config_set.add_mutually_exclusive_group()
+    token_grp.add_argument(
+        "--token", help="the PAT (discouraged — ends up in shell history; prefer --token-stdin)"
+    )
+    token_grp.add_argument(
+        "--token-stdin", action="store_true", help="read the PAT from stdin (keeps it out of argv)"
+    )
+    p_config_set.set_defaults(local_func=_cmd_config_set)
+
+    p_config_show = config_sub.add_parser(
+        "show", parents=[common], help="print the effective config (token redacted)"
+    )
+    p_config_show.set_defaults(local_func=_cmd_config_show)
+
+    p_config_path = config_sub.add_parser(
+        "path", parents=[common], help="print the config file path"
+    )
+    p_config_path.set_defaults(local_func=_cmd_config_path)
+
     return parser
 
 
@@ -386,6 +529,16 @@ def run(argv: Sequence[str] | None = None) -> int:
     """Parse args, dispatch, print, and return an exit code (no ``sys.exit``)."""
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    # Local commands (login / config …) touch only the config file — no token, no
+    # client, no network. Dispatch them before resolving or requiring config.
+    local_func = getattr(args, "local_func", None)
+    if local_func is not None:
+        try:
+            return local_func(args)
+        except ConfigError as exc:
+            print(f"kan: {exc}", file=sys.stderr)
+            return EXIT_ERROR
 
     try:
         # warmup hits the public /api/health, so it doesn't need a token.
