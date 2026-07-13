@@ -42,7 +42,7 @@ jobs:
     name: Docs build check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Same toolchain + cache as ci.yml's Python jobs.
       - name: Install uv

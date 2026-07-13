@@ -56,7 +56,7 @@ jobs:
       run:
         working-directory: kanban-cli
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # macOS legs get Python from setup-python on the host.
       - name: Set up Python 3.12
