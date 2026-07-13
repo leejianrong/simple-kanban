@@ -1,21 +1,66 @@
 name: Deploy
 
-# Auto-deploy to Fly.io on merge to main (ADR 0004). Triggered only after the CI
-# workflow completes, and only proceeds if CI succeeded on the main branch — so a
-# red build never ships. Auth via the FLY_API_TOKEN repo secret.
+# Auto-deploy to Fly.io on merge to main (ADR 0004). Triggered after the CI workflow
+# completes, and only proceeds when BOTH hold:
+#   1. CI succeeded on the main branch (a red build never ships), and
+#   2. the merge actually changed something baked into the Fly image.
+# The image contains only `frontend/` (built to static) + `backend/` plus the build
+# config (`Dockerfile`, `fly.toml`) — see the Dockerfile COPY lines. So docs-, CI-,
+# tooling-, or sibling-package-only merges (docs/, docs-tooling/, mcp/, kanban-cli/,
+# kanban-client/, scripts/, *.md, .github/) skip the redeploy instead of rebuilding
+# an identical image. Detection is fail-safe: if the diff can't be computed, deploy.
+# Auth via the FLY_API_TOKEN repo secret.
 on:
   workflow_run:
     workflows: [CI]
     types: [completed]
 
 jobs:
-  deploy:
-    name: Deploy to Fly.io
+  changes:
+    name: Detect deployable changes
     runs-on: ubuntu-latest
     # Gate: CI passed AND it was the main branch that ran.
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_branch == 'main'
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0 # full history so we can diff the merge commit against its parent
+      - id: filter
+        name: Did anything in the Fly image change?
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          # Files this commit changed vs its first parent (the prior main); for a PR
+          # merge commit that is exactly the PR's net diff. If there's no parent
+          # (or any error), fail safe and deploy.
+          if ! base=$(git rev-parse --verify "${SHA}^1" 2>/dev/null); then
+            echo "No first parent for ${SHA} — deploying to be safe."
+            echo "app=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only "$base" "$SHA")
+          echo "Changed files:"
+          echo "$changed"
+          # Paths that actually end up in the deployed image / affect the build.
+          if echo "$changed" | grep -qE '^(backend/|frontend/|Dockerfile|fly\.toml|\.dockerignore)'; then
+            echo "Image-affecting paths changed → deploy."
+            echo "app=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No image-affecting paths changed → skip deploy."
+            echo "app=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy:
+    name: Deploy to Fly.io
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
     concurrency:
       group: deploy-production
       cancel-in-progress: true
