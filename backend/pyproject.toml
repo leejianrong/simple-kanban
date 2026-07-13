@@ -19,7 +19,7 @@ dependencies = [
     # a no-op otherwise — so dev + tests never report. Installed so prod can opt in
     # via a Fly secret with no code change; its FastAPI/Starlette integration is
     # auto-enabled by sentry_sdk.init().
-    "sentry-sdk[fastapi]>=2",
+    "sentry-sdk[fastapi]>=2.65.0",
 ]
 
 [dependency-groups]

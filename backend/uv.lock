@@ -1134,7 +1134,7 @@ requires-dist = [
     { name = "greenlet", specifier = ">=3.1" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.4" },
     { name = "pydantic", specifier = ">=2.10" },
-    { name = "sentry-sdk", extras = ["fastapi"], specifier = ">=2" },
+    { name = "sentry-sdk", extras = ["fastapi"], specifier = ">=2.65.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.51" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.51.0" },
 ]
