@@ -357,6 +357,73 @@ export async function deleteToken(id: number): Promise<void> {
   if (!res.ok) throw new ApiError(res.status, await parseError(res));
 }
 
+// --- Board members (KAN-12 API, surfaced in the UI by KAN-14) --------------
+// A board can have members (users other than the owner) with a role. The
+// management API is owner-gated (403 for non-owners). Members are scoped to a
+// board, so every call carries the board id in its path.
+
+export type Role = "viewer" | "editor" | "owner";
+
+export interface Member {
+  id: number;
+  board_id: number;
+  user_id: string;
+  // The member's email, populated server-side from the user table.
+  email: string | null;
+  role: Role;
+  created_at: string;
+  updated_at: string;
+}
+
+// Add a member by email (the UI path) or user_id — exactly one. `role` defaults
+// to "viewer" server-side.
+export interface MemberCreate {
+  email?: string;
+  user_id?: string;
+  role?: Role;
+}
+
+export interface MemberUpdate {
+  role: Role;
+}
+
+export async function listMembers(boardId: number): Promise<Member[]> {
+  const res = await fetch(`${API}/boards/${boardId}/members`);
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function addMember(boardId: number, payload: MemberCreate): Promise<Member> {
+  const res = await fetch(`${API}/boards/${boardId}/members`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function updateMember(
+  boardId: number,
+  memberId: number,
+  payload: MemberUpdate,
+): Promise<Member> {
+  const res = await fetch(`${API}/boards/${boardId}/members/${memberId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function removeMember(boardId: number, memberId: number): Promise<void> {
+  const res = await fetch(`${API}/boards/${boardId}/members/${memberId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+}
+
 // --- Auth (Milestone 3 V6, ADR 0011) ---------------------------------------
 // The fastapi-users auth + identity routes live at the origin root (/auth,
 // /users), NOT under /api/v1 — they're session plumbing, so no API prefix.
