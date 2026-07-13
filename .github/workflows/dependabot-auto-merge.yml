@@ -1,14 +1,24 @@
 name: Dependabot auto-merge
 
-# Auto-merge low-risk Dependabot PRs so the routine version churn never piles up
-# in the review queue (this is a 6-ecosystem monorepo — a single tool bump becomes
+# Auto-merge low-risk Dependabot PRs so the routine version churn never piles up in
+# the review queue (this is a 6-ecosystem monorepo — a single tool bump becomes
 # several PRs). Only **patch** and **minor** updates auto-merge; **major** bumps
 # (incl. dev-tool majors like a TypeScript major that can surface new type errors)
 # arrive as their own PRs per .github/dependabot.yml and are left for human review.
 #
-# This uses GitHub's *native* auto-merge (`gh pr merge --auto`), so nothing merges
-# until branch protection's required CI checks pass — the bot only arms the merge,
-# CI still gates it. Requires the repo setting "Allow auto-merge" (enabled).
+# Two flavours of Dependabot PR, handled separately (see the "Decide" step):
+#   1. version updates (a pinned dep / lockfile) — fetch-metadata reports a clean
+#      `update-type` (semver-patch/minor/major); we gate on that.
+#   2. version-*requirement* updates (a `>=` range in pyproject, common for the uv
+#      projects) — fetch-metadata reports `update-type: null` and NO versions, so we
+#      fall back to the PR title ("... requirement from <A> to <B> ...") and compare
+#      the MAJOR components. Fail-safe: auto-merge only when both majors parse AND
+#      are equal; anything else (differing majors like fastapi-users 14->15, or an
+#      unparseable title) is left for review.
+#
+# Uses GitHub's *native* auto-merge (`gh pr merge --auto`), so nothing merges until
+# branch protection's required CI checks pass — the bot only arms the merge, CI
+# still gates it. Requires the repo setting "Allow auto-merge" (enabled).
 on: pull_request
 
 # Elevated perms are scoped to this workflow; GitHub grants them to the
@@ -28,10 +38,51 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Arm auto-merge for patch & minor updates
-        if: >-
-          steps.meta.outputs.update-type == 'version-update:semver-patch' ||
-          steps.meta.outputs.update-type == 'version-update:semver-minor'
+      - name: Decide whether this is an auto-mergeable (patch/minor) update
+        id: decide
+        env:
+          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          automerge=false
+          detail=""
+          case "$UPDATE_TYPE" in
+            version-update:semver-patch|version-update:semver-minor)
+              automerge=true
+              detail="version update ($UPDATE_TYPE)"
+              ;;
+            version-update:semver-major)
+              detail="major version update — manual"
+              ;;
+            *)
+              # update-type empty/null → a requirement (range) bump. fetch-metadata
+              # gives no versions here, so parse them out of the PR title and compare
+              # majors. Only proceed when it clearly matches "... requirement from
+              # <A> to <B> ...".
+              if printf '%s' "$PR_TITLE" | grep -qiE 'requirement from .+ to '; then
+                rest="${PR_TITLE#*requirement from }"    # "<A> to <B> in <dir>"
+                from_ver="${rest%% to *}"                # "<A>"
+                to_part="${rest#* to }"                  # "<B> in <dir>"
+                to_ver="${to_part%% *}"                  # "<B>"
+                from_major="$(printf '%s' "$from_ver" | grep -oE '[0-9]+' | head -1 || true)"
+                to_major="$(printf '%s' "$to_ver" | grep -oE '[0-9]+' | head -1 || true)"
+                if [ -n "$from_major" ] && [ -n "$to_major" ] && [ "$from_major" = "$to_major" ]; then
+                  automerge=true
+                  detail="requirement bump within major $from_major ($from_ver -> $to_ver)"
+                else
+                  detail="requirement bump crosses/unknown major ($from_ver -> $to_ver) — manual"
+                fi
+              else
+                detail="no update-type and not a parseable requirement bump — manual"
+              fi
+              ;;
+          esac
+          echo "automerge=$automerge" >> "$GITHUB_OUTPUT"
+          echo "Decision: $detail => automerge=$automerge"
+
+      - name: Arm auto-merge
+        if: ${{ steps.decide.outputs.automerge == 'true' }}
         run: gh pr merge --auto --merge "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
