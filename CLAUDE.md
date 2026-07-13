@@ -65,6 +65,11 @@ UI places, and mechanisms. Build in slices, matching the existing incremental st
 
 ## Commands
 
+> **Shortcut:** a root [`Makefile`](Makefile) wraps the sequences below. `make help` lists every
+> target; `make up` runs the whole stack (db + app image serving the SPA) in one command via
+> `docker compose up --build`, and `make dev` is the native hot-reload loop. The detailed commands
+> below remain the source of truth for what each step does.
+
 Backend uses **`uv`** (Python 3.12; see [backend/pyproject.toml](backend/pyproject.toml) + `uv.lock`).
 Frontend uses **`npm`** (Node 20+). Run backend commands from `backend/`, frontend from `frontend/`.
 
