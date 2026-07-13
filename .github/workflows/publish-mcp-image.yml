@@ -51,7 +51,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build & push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           # Build context is the repo root; the Dockerfile COPYs both mcp/ and
           # the sibling kanban-client/, so it MUST NOT be the mcp/ subdir.
