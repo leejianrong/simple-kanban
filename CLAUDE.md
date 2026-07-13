@@ -2,66 +2,29 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Read this first: what is and isn't built
+## Project status & the source of truth
 
-The core board is **feature-complete and deployed** (live at
-[simple-kanban-jian.fly.dev](https://simple-kanban-jian.fly.dev)): view / create / edit / delete /
-drag-to-move all work end to end, behind a full REST API with an automated test suite (backend
-pytest + frontend Playwright e2e) and CI/CD to Fly.io. The full "Shape A" plan is now implemented.
-**Milestone 2 (Agent-Driven Task Tracking)** is now **feature-complete** — all five slices landed:
-V1 (epic entity + story links), V2 (API versioning), V3 (query API), V4 (token auth), and V5 (the
-MCP server in [mcp/](mcp/) + Claude Code wiring). See the milestone table below and
-[docs/milestone-2/SLICES.md](docs/milestone-2/SLICES.md).
-**Milestone 3 (Accounts, Boards & Agent Access)** is now **feature-complete** — all five slices
-landed: **V6 (human GitHub login, ADR 0011)**, **V7 (multi-board with ownership, ADR 0012)**, **V8
-(board authorization, ADR 0013)**, **V9 (self-serve agent PATs, ADR 0014)**, and **V10 (MCP
-board-scoping + retiring `API_TOKENS`, ADR 0015)** are all **built**. **V8 flipped `/api/v1` from
-open to auth-required and owner-gated:** every board-scoped route resolves a principal and allows
-only the board's owner (else `403`); lists are owner-scoped; first login claims unclaimed boards.
-**V9 added per-user hashed PATs** to that resolver. **V10 board-scoped the MCP server** (per-call
-`board_id` + `list_boards`/`create_board`/`list_epics` tools + optional `KANBAN_BOARD_ID`) and
-**removed the transitional `API_TOKENS` SERVICE bypass**, so the principal resolver is now exactly
-**cookie session → `User`; else PAT bearer → its owning `User`; else `401`** — every principal is a
-real `User`, owner-gated identically. `API_TOKENS` is gone (ADR 0010 fully retired).
-The [docs/](docs/) folder describes those plans at a high level, so **don't assume a documented
-detail matches the code** — check the source.
+The core board, **Milestone 2** (agent-driven task tracking: epics, `/api/v1`, query API, MCP
+server) and **Milestone 3** (accounts, multi-board ownership, auth) are all shipped and deployed
+(live at [simple-kanban-jian.fly.dev](https://simple-kanban-jian.fly.dev), full backend-pytest +
+Playwright-e2e suite, CI/CD to Fly.io). **Milestone 4** (board collaboration, trust & history,
+GitHub PR auto-sync, agent/CLI ergonomics) is in progress.
 
-| Area | Built now | Documented but NOT yet built |
-|------|-----------|------------------------------|
-| API | Canonical `/api/v1` (V2): `GET/POST /api/v1/cards`, `GET/PATCH/DELETE /api/v1/cards/{id}`, `POST /api/v1/cards/{id}/move`; `GET/POST /api/v1/epics`, `GET/PATCH/DELETE /api/v1/epics/{id}`; `GET/POST /api/v1/boards`, `GET/PATCH/DELETE /api/v1/boards/{id}` (V7); unversioned `GET /api/health`. `GET /api/v1/cards` takes query params `board_id`/`column`/`epic_id`/`updated_since`/`limit`/`cursor` with keyset pagination via the `X-Next-Cursor` header (V3); `GET /api/v1/epics` takes `board_id`. Card/epic create takes optional `board_id` (defaults to the earliest board). `GET/POST /api/v1/tokens`, `DELETE /api/v1/tokens/{id}` (V9 agent PATs). **Owner-gated (V8, ADR 0013; V10, ADR 0015):** every board-scoped route is auth-required — a cookie session (→`User`) or a **PAT bearer** (→owning `User`, V9), else `401`; non-owner → `403`; lists owner-scoped. A story's epic must be on the same board (422) | — |
-| Boards (M3 V7 + V8 authz) | `board` table (`name` + nullable `owner_id`→user); NOT NULL `board_id` on card+epic (ON DELETE CASCADE); `/api/v1/boards` CRUD (owner from session, cascade delete). Migration `0005` seeds one default board + backfills existing cards/epics; **first login claims unclaimed boards** (V8, `UserManager.on_after_login`). Owner-only authz + list scoping enforced (V8, `app/authz.py`). Positions are per (board, column). Ticket numbers stay global `KAN-`/`EPIC-` (ADR 0012/0013) | — |
-| Auth (M3 V6 + V8 + V9) | Human login: unversioned `GET /auth/github/authorize` + `/auth/github/callback` (GitHub OAuth, **only mounted when creds are set**), `POST /auth/logout`, `GET/PATCH /users/me`. Revocable httpOnly cookie session (fastapi-users `CookieTransport` + `DatabaseStrategy`). `User`/`OAuthAccount`/`access_token` tables on a second **async** engine (ADR 0011). **Board authz** (`app/authz.py`, V8): sync principal resolver + `authorize_board`. **Agent PATs** (V9, ADR 0014): `personal_access_token` table (migration `0006`), hashed HMAC-SHA256 (`app/tokens.py`), a sync PAT branch in the resolver → owning `User`; managed via `/api/v1/tokens`. **V10 (ADR 0015) removed the `API_TOKENS` SERVICE bypass** — the resolver is cookie-or-PAT-or-401, every principal a real `User`. **E2E-only** `POST /auth/test-login` when `E2E_AUTH_BYPASS` set (never in prod) | — |
-| Frontend auth | `Landing.svelte` for logged-out visitors (from the mockup, `.landing`-scoped tokens, light/dark); `App.svelte` gates on `GET /users/me` (401 → landing, else board); top-bar shows the user email + **Log out**. Same-origin fetches carry the session cookie, so the now-owner-gated `/api/v1` works; `refetchBoards()` scopes to owned boards (a new user with none sees an empty board + switcher). Top-bar **Tokens** view (`Tokens.svelte` + `tokens.svelte.ts`, V9): create / reveal-once / revoke agent PATs | — |
-| Frontend boards | Top-bar **board switcher** (`BoardSwitcher.svelte`): select / new / rename / delete; active board persisted in localStorage; card + epic views/creates scope to it (`boardStore` in board.svelte.ts) | — |
-| Ordering | `next_position()` (append to end), `renumber_column()` (re-sequence on move/reorder) | — |
-| Frontend | `Board \| Epics` top-bar toggle. Board: list + create + edit + delete + drag-and-drop (`svelte-dnd-action`); each story shows its epic-name tag; epic selector in the story form. Epics view: create / list / edit / delete epics with a child-story rollup | — |
-| Data | initial migration + demo seed-data migration (R0.4, `app/seed.py`, guarded to empty DBs); epic-entity migration `0003` (`epic` table + `EPIC-` sequence, nullable `card.epic_id` FK) | — |
-| Ops | `docker-compose.yml` (Postgres + app), `Dockerfile`, `fly.toml`, `.github/workflows/` (CI + deploy), backend `tests/` (pytest unit + integration via testcontainers), frontend `e2e/` (Playwright smoke, in CI) | — |
+**This file is not the roadmap, and per-feature status written here goes stale — trust the code over
+these docs, and when they disagree, fix the docs in the same PR.** Two places are kept current by
+construction; look there for what's done and in flight:
+- **The Kanban board itself.** The project dogfoods its own product: the *Simple Kanban Roadmap*
+  board on the deployed instance is the authoritative task list. Drive it with the `kan` CLI
+  ([kanban-cli/](kanban-cli/)) or the MCP server ([mcp/](mcp/)).
+- **`docs/milestone-*/SLICES.md`** — the per-slice plan + status for each milestone, and the
+  [ADRs](docs/adr/) for the *why* behind each decision (see §How the docs relate).
 
-**Milestone 2 slices** (see [docs/milestone-2/SLICES.md](docs/milestone-2/SLICES.md)):
-
-| Slice | What | Status |
-|-------|------|--------|
-| V1 | Epic as a first-class entity (`epic` table + `EPIC-`, `card.epic_id`) + Epics view / story tags (ADR 0009) | **Built** |
-| V2 | API versioning: all routers under `/api/v1` (the temporary `/api` compat alias has been dropped; `/api/health` stays unversioned) | **Built** |
-| V3 | Query API on `GET /api/v1/cards` (`column`/`epic_id`/`updated_since`/`limit`/`cursor`; keyset pagination via `X-Next-Cursor`; `app/pagination.py`) | **Built** |
-| V4 | Agent token auth on writes — `require_token` dep + `API_TOKENS` (ADR 0010). **Superseded by V9 PATs and fully retired in V10** (ADR 0015): the `API_TOKENS` mechanism no longer exists | **Superseded** |
-| V5 | MCP server (`mcp/`, official `mcp` SDK/FastMCP, stdio) — thin httpx wrapper over `/api/v1`; `.mcp.json.example` + `mcp/README.md` for Claude Code (board-scoped in V10) | **Built** |
-
-**Milestone 3 slices** (see [docs/milestone-3/SLICES.md](docs/milestone-3/SLICES.md)):
-
-| Slice | What | Status |
-|-------|------|--------|
-| V6 | Human login: fastapi-users on a second **async** engine; GitHub OAuth + revocable cookie session; `Landing.svelte` + `GET /users/me` auth-gated SPA + logout (ADR 0011) | **Built** |
-| V7 | Boards as a first-class entity (`board` table, `card`/`epic` `board_id`), board switcher, default-board migration (ADR 0012) | **Built** |
-| V8 | Board authorization — `/api/v1` owner-gated (principal resolver + `authorize_board`, list scoping + 403); claim-on-login; `API_TOKENS`→SERVICE bypass; same-board epic rule (ADR 0013) | **Built** |
-| V9 | Self-serve agent personal-access-tokens (hashed HMAC-SHA256, `personal_access_token` + migration `0006`, `/api/v1/tokens`, Tokens UI); PAT branch in the resolver → owning user; supersedes V4's `API_TOKENS` as the agent mechanism (ADR 0014) | **Built** |
-| V10 | MCP board-scoping (per-call `board_id` + `list_boards`/`create_board`/`list_epics` tools + `KANBAN_BOARD_ID`) + PAT auth; removed the transitional `API_TOKENS` SERVICE bypass (ADR 0015) | **Built** |
-
-When extending the app, follow the plan already written in [docs/SHAPING.md](docs/SHAPING.md)
-(§Detailed shape) and [docs/BREADBOARD.md](docs/BREADBOARD.md) for the core board, and
-[docs/milestone-2/](docs/milestone-2/) for the agent milestone — they define the target endpoints,
-UI places, and mechanisms. Build in slices, matching the existing incremental style.
+A running backend serves the live, authoritative API surface at **`GET /docs`** (OpenAPI). At a
+glance it's a REST CRUD surface under `/api/v1` for **boards, cards (stories), epics, and PATs**,
+plus a card `move` endpoint and an unversioned `GET /api/health` — **auth-required and owner-gated**
+(see §Configuration and §Architecture). When extending the app, follow the shaped plan in
+[docs/SHAPING.md](docs/SHAPING.md) + [docs/BREADBOARD.md](docs/BREADBOARD.md) and build in vertical
+slices, matching the existing incremental style.
 
 ## Commands
 
@@ -341,7 +304,7 @@ spec for intended behavior:
 `SHAPING.md` (selects Shape A) → `BREADBOARD.md` (UI places & wiring) → build in slices.
 
 - **[docs/CONTEXT.md](docs/CONTEXT.md)** — canonical glossary and domain model. Use these terms exactly.
-- **[docs/adr/](docs/adr/)** (0001–0015; all Accepted except 0010, superseded) — the *why* behind each decision: monorepo &
+- **[docs/adr/](docs/adr/)** (0001–0016; all Accepted except 0010, superseded) — the *why* behind each decision: monorepo &
   stack (0001), Postgres+Alembic from day one (0002), single-artifact serving (0003), Fly.io+Neon
   CI/CD (0004), API-first/MCP-ready (0005), data model (0006), no-auth/LWW/no-realtime (0007),
   sync-SQLAlchemy + psycopg v3 + varchar-CHECK column + Vite dev-proxy (0008), epic as a first-class
@@ -355,4 +318,5 @@ spec for intended behavior:
   agent personal access tokens — per-user hashed PATs resolving to their owning user, superseding
   0010's shared `API_TOKENS` as the agent mechanism (0014), MCP board-scoping (per-call `board_id` +
   `list_boards`/`create_board` discovery + `KANBAN_BOARD_ID`) and **retiring `API_TOKENS`** — removing
-  the transitional SERVICE bypass so every principal is a real user, fully superseding 0010 (0015).
+  the transitional SERVICE bypass so every principal is a real user, fully superseding 0010 (0015),
+  GitHub PR→board auto-sync via a signed webhook (`WEBHOOK_SECRET`, per-board opt-in) (0016).
