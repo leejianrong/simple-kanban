@@ -70,6 +70,10 @@ See [`docs/adr/`](docs/adr/) for the reasoning behind each of these choices.
 
 Prerequisites: **Docker**, **Node 20+**, and **[uv](https://docs.astral.sh/uv/)** (Python 3.12).
 
+**Fastest path:** `make up` boots the entire stack (Postgres + the combined app image serving the
+SPA) in one command; open http://localhost:8000. Run `make help` to see all shortcuts (`make dev`
+is the hot-reload loop below). Or do it by hand:
+
 ```bash
 # 1. Start Postgres (from the repo root)
 docker compose up -d db
