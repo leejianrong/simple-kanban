@@ -58,7 +58,7 @@ jobs:
     steps:
       # Needed so paths-filter can diff on `push` events (on `pull_request` it
       # uses the GitHub API and doesn't strictly need the checkout).
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
         id: filter
         with:
@@ -90,7 +90,7 @@ jobs:
       - name: Skip (no backend changes)
         if: needs.changes.outputs.backend != 'true'
         run: echo "No backend changes — skipping ruff lint."
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: needs.changes.outputs.backend == 'true'
       - name: Install uv
         if: needs.changes.outputs.backend == 'true'
@@ -110,7 +110,7 @@ jobs:
       - name: Skip (no backend changes)
         if: needs.changes.outputs.backend != 'true'
         run: echo "No backend changes — skipping unit tests."
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: needs.changes.outputs.backend == 'true'
       - name: Install uv
         if: needs.changes.outputs.backend == 'true'
@@ -131,7 +131,7 @@ jobs:
       - name: Skip (no backend changes)
         if: needs.changes.outputs.backend != 'true'
         run: echo "No backend changes — skipping integration tests."
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: needs.changes.outputs.backend == 'true'
       - name: Install uv
         if: needs.changes.outputs.backend == 'true'
@@ -153,7 +153,7 @@ jobs:
       - name: Skip (no kanban-client changes)
         if: needs.changes.outputs.client != 'true'
         run: echo "No kanban-client changes — skipping client lint + tests."
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: needs.changes.outputs.client == 'true'
       - name: Install uv
         if: needs.changes.outputs.client == 'true'
@@ -179,7 +179,7 @@ jobs:
       - name: Skip (no mcp changes)
         if: needs.changes.outputs.mcp != 'true'
         run: echo "No mcp changes — skipping MCP server lint + tests."
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: needs.changes.outputs.mcp == 'true'
       - name: Install uv
         if: needs.changes.outputs.mcp == 'true'
@@ -205,7 +205,7 @@ jobs:
       - name: Skip (no kanban-cli changes)
         if: needs.changes.outputs.cli != 'true'
         run: echo "No kanban-cli changes — skipping CLI lint + tests."
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: needs.changes.outputs.cli == 'true'
       - name: Install uv
         if: needs.changes.outputs.cli == 'true'
@@ -231,7 +231,7 @@ jobs:
       - name: Skip (no frontend changes)
         if: needs.changes.outputs.frontend != 'true'
         run: echo "No frontend changes — skipping frontend build & type-check."
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: needs.changes.outputs.frontend == 'true'
       - uses: actions/setup-node@v4
         if: needs.changes.outputs.frontend == 'true'
@@ -284,7 +284,7 @@ jobs:
         if: needs.changes.outputs.backend != 'true' && needs.changes.outputs.frontend != 'true'
         run: echo "No backend or frontend changes — skipping e2e."
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
 
       # Backend toolchain (Playwright's webServer runs migrations + uvicorn).
@@ -372,7 +372,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # fetch-depth: 0 — gitleaks scans the whole history, not just the tip.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 

@@ -26,7 +26,7 @@ jobs:
       contents: read
       packages: write   # required to push to ghcr.io with the built-in token
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Log in to ghcr.io
         uses: docker/login-action@v3
