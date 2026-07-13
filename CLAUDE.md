@@ -192,6 +192,13 @@ SERVICE bypass was removed in V10 (ADR 0015). (Ops: the `API_TOKENS` Fly secret 
 `AUTH_SECRET` doubles as the **pepper** for PAT hashing (HMAC-SHA256), so rotating it invalidates all
 existing PATs (and cookie sessions) — expected.
 
+`WEBHOOK_SECRET` (EPIC-10) — the shared secret GitHub signs its webhook deliveries with (HMAC-SHA256
+over the raw body, `X-Hub-Signature-256`), verified by `POST /api/v1/webhooks/github`. **Unset → the
+endpoint returns `503`** (auto-sync is effectively off); bad/missing signature → `401`. This gates
+only the inbound webhook; it's separate from `AUTH_SECRET`. Per-board opt-in (`autosync_enabled` +
+`autosync_advance_to_done`, both default OFF) is set via `PATCH /api/v1/boards/{id}`. Full setup/ops:
+[docs/guides/autosync-github-setup.md](docs/guides/autosync-github-setup.md) (ADR 0016).
+
 `E2E_AUTH_BYPASS` (V8) — when truthy, mounts an **e2e-only** `POST /auth/test-login` that mints a
 real cookie session for an arbitrary email (Playwright can't fake the httpOnly session a
 route-stub used to). **Never set in prod** — it's a login bypass. The Playwright `webServer` sets it;
