@@ -5,7 +5,7 @@ description = "Simple Kanban MVP backend — FastAPI + sync SQLAlchemy 2.0 + psy
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
-    "uvicorn[standard]>=0.34",
+    "uvicorn[standard]>=0.51.0",
     "sqlalchemy[asyncio]>=2.0.51",
     "psycopg[binary]>=3.2",
     "alembic>=1.14",
