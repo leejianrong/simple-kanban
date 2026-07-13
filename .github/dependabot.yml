@@ -1,0 +1,79 @@
+# Dependabot dependency-update automation (dev-playbook principle 13).
+# Weekly update cadence for every dependency surface in the monorepo. Minor +
+# patch bumps are grouped per ecosystem into a single PR to keep the noise down;
+# major bumps come as their own PRs so breaking changes are reviewed in isolation.
+#
+# Ecosystems: `uv` is Dependabot's native updater for uv projects (reads
+# pyproject.toml + uv.lock). If a `uv` entry is ever rejected by the config
+# validator, fall back to `package-ecosystem: "pip"` (still reads pyproject.toml,
+# but won't refresh uv.lock's hashes) and note it here.
+version: 2
+updates:
+  # --- Python (uv projects) ----------------------------------------------------
+  - package-ecosystem: "uv"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "uv"
+    directory: "/mcp"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "uv"
+    directory: "/kanban-client"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "uv"
+    directory: "/kanban-cli"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # --- Frontend (npm) ----------------------------------------------------------
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # --- GitHub Actions used by the workflows ------------------------------------
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
