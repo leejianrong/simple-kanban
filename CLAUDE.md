@@ -156,6 +156,28 @@ contributor's fork PR auto-close as *merged*. Delete the branch (local + remote)
 > contributor's commits survive), then PR that integration branch → `main`. See PRs #2/#5 for the
 > worked example.
 
+**Land a PR once its CI is green — don't leave green PRs sitting open.** This is the standing policy
+for humans and agents alike: when **every** CI check and test on a PR has passed (all green, nothing
+`pending` or failing) and the PR is `MERGEABLE`/`CLEAN`, merge it — `gh pr merge <n> --merge
+--delete-branch` (merge commit, not squash, per above). Agents driving the board should treat this as
+the default land step, not wait for a human. Guardrails, so "merge when green" never means "merge
+blindly":
+- **All green only.** Never merge on a red or still-`pending` run. Poll to completion first (`gh` here
+  has no `--watch`): `until ! gh pr checks <n> 2>&1 | grep -q pending; do sleep 20; done`. A whole run
+  failing at the same suspiciously-round duration is infra — re-run (`gh run rerun <id>`), don't
+  "fix" code. GitHub's merge-eligibility can lag a beat behind the checks flipping green; if a merge
+  is refused as blocked, re-check `mergeStateStatus` is `CLEAN` and retry rather than reaching for
+  `--admin`.
+- **Review the diff** before merging — a green PR can still be wrong; skim it. Skip anything marked
+  draft or "do not merge / needs review", and don't self-merge changes the author explicitly wants a
+  human to look at.
+- **App code deploys.** A merge to `main` that touches app code triggers the Fly deploy — after it,
+  prod-verify (see the dogfooding log's patterns), and **land any PR carrying a DB migration alone**.
+  Docs/CI/Makefile-only merges skip the deploy.
+- **Worktree-checked-out branches:** `gh pr merge --delete-branch` prints a *local* branch-delete
+  error when the branch is checked out in a worktree, **but the merge still succeeds** — confirm with
+  `gh pr view <n> --json state` (`MERGED`), don't mistake the exit code for a failed merge.
+
 **Use git worktrees for parallel work — this is the expected workflow here.** Instead of stashing or
 switching branches in place, give each in-flight task its own directory backed by the one clone, so
 your primary checkout stays undisturbed while you review a contributor PR, hotfix, or spike:
