@@ -618,3 +618,26 @@ Dogfooding observations about driving this board as an agent PM. Seeded from the
   - **`gh pr edit --body` gotcha (KAN-14 agent):** it aborts on a "Projects (classic) deprecated"
     GraphQL warning, leaving the body stale. Workaround: `gh api -X PATCH repos/:owner/:repo/pulls/N
     -F body=@file`.
+- **M4 Wave 3 — KAN-13 (role enforcement) ‖ KAN-44 (auto-sync docs + ADR): both merged + `done`;
+  EPIC-10 auto-sync now COMPLETE (KAN-42/43/44).** The disjoint split this wave was **code vs docs**
+  — the reliable third axis alongside backend-vs-frontend.
+  - **KAN-13 was deliberately run near-solo among backend cards.** It rewrites `authorize_board`
+    into an `Access(IntEnum)` (READ<WRITE<MANAGE) + effective-role resolver and touches EVERY call
+    site across cards/epics/boards/members routers — so it collides with essentially any other
+    backend card. Pairing it only with a docs card (KAN-44) was the right call; a second backend card
+    would have fought it in four routers at once. Lesson: **a card that edits a cross-cutting helper's
+    call sites everywhere is a "solo-backend" card — schedule it with docs/frontend only.**
+  - **Prod-verify a central-authz refactor = prove the owner path didn't regress, not just the new
+    branch.** The viewer/editor 403 differentiation is covered by 192 integration tests (8 new), but
+    the real prod risk of refactoring `authorize_board` is breaking ALL board access. Verified with
+    the owner PAT: READ (GET cards/members) 200, WRITE (no-op PATCH card, same title) 200, MANAGE
+    (no-op PATCH board) 200. Reproducing the 403s in prod needs a second real user/member (no board
+    sharing to a throwaway user exists yet), so that stayed test-covered — called out rather than
+    faked.
+  - **Docs card closed an epic cleanly + caught a UX gap.** KAN-44 (guide + ADR 0016) verified the
+    documented behavior against the actual source and noted there is **no frontend toggle** for the
+    per-board `autosync_*` flags — the `PATCH /api/v1/boards/{id}` API is the only way to set them
+    today. Worth a future small frontend card (a board-settings switch) so opt-in isn't API-only.
+  - **Worktree isolation guard is consistent across agents:** several agents' first Write hit the
+    shared-checkout path and was rejected, then succeeded against the worktree path — harmless, but
+    brief agents that Write targets must be the worktree copy.
