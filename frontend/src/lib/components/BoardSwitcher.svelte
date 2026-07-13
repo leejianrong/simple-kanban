@@ -12,10 +12,18 @@
     activeBoard,
   } from "../board.svelte";
 
+  import type { Board, Role } from "../api";
+
   type Mode = "idle" | "creating" | "renaming" | "confirmDelete";
   let mode = $state<Mode>("idle");
   let name = $state("");
   let busy = $state(false);
+
+  // A board the caller doesn't own is "shared" — surface the role (KAN-15).
+  // Native <option>s can't hold styled markup, so the option label carries the
+  // role in text and the active board also gets a styled pill next to the select.
+  const sharedRole = (b: Board): Role | null =>
+    b.role && b.role !== "owner" ? b.role : null;
 
   // The Rename/Delete actions live in a "⋯" menu to keep destructive actions
   // out of the always-visible top bar. Close it on any outside click / Escape.
@@ -118,9 +126,17 @@
   {:else}
     <select aria-label="Board" value={boardStore.activeBoardId} onchange={onSelect}>
       {#each boardStore.boards as b (b.id)}
-        <option value={b.id}>{b.name}</option>
+        <option value={b.id}>{b.name}{sharedRole(b) ? ` (${sharedRole(b)})` : ""}</option>
       {/each}
     </select>
+    {#if activeBoard() && sharedRole(activeBoard()!)}
+      <span
+        class="role-badge"
+        title="Shared board — you are a {sharedRole(activeBoard()!)}"
+      >
+        {sharedRole(activeBoard()!)}
+      </span>
+    {/if}
     <button class="icon-btn" title="New board" aria-label="New board" onclick={startCreate}>
       <Plus size={16} />
     </button>
@@ -157,3 +173,20 @@
     {/if}
   {/if}
 </div>
+
+<style>
+  /* Role pill for a shared board (KAN-15): you're a member, not the owner. */
+  .role-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: capitalize;
+    letter-spacing: 0.01em;
+    color: var(--agent);
+    background: var(--agent-soft);
+    white-space: nowrap;
+  }
+</style>

@@ -90,6 +90,9 @@ export interface Board {
   id: number;
   name: string;
   owner_id: string | null;
+  // The caller's effective role on this board (KAN-15): "owner" if they own it,
+  // else their membership role. Drives the switcher's shared-board badge.
+  role?: Role | null;
   created_at: string;
   updated_at: string;
 }

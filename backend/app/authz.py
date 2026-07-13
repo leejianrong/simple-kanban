@@ -26,7 +26,7 @@ from enum import IntEnum
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, or_, select
 from sqlalchemy.orm import Session
 
 from .auth import bearer_scheme
@@ -168,5 +168,17 @@ def authorize_board(
 
 def visible_board_ids(principal: User) -> Select:
     """A scalar subquery of the board ids this principal may see. Used to scope
-    list endpoints so a caller only ever sees their own boards/cards/epics."""
-    return select(Board.id).where(Board.owner_id == principal.id)
+    list endpoints so a caller only ever sees boards they have access to.
+
+    A board is visible if the principal **owns** it *or* is a ``board_member`` of
+    it (KAN-15) — the same set of boards :func:`authorize_board` grants at least
+    ``READ`` on. Kept as a ``Select`` so callers can use it as an ``IN`` subquery
+    unchanged."""
+    return select(Board.id).where(
+        or_(
+            Board.owner_id == principal.id,
+            Board.id.in_(
+                select(BoardMember.board_id).where(BoardMember.user_id == principal.id)
+            ),
+        )
+    )
