@@ -89,9 +89,10 @@ class BoardMember(Base):
     keeps a user's membership of a board singular.
 
     Both FKs ``ON DELETE CASCADE`` — deleting a board or a user removes the
-    membership row (consistent with the app's hard-delete model). **This table only
-    records membership; role-based read/write enforcement is a later slice (KAN-13),
-    so ``authorize_board`` still owner-gates every board-scoped route for now.**
+    membership row (consistent with the app's hard-delete model). Role-based
+    enforcement is live (KAN-13): ``app.authz.authorize_board`` maps a member's role
+    to an :class:`app.authz.Access` level (viewer→READ, editor→WRITE, owner→MANAGE)
+    and gates each route accordingly. List-visibility scoping (KAN-15) is separate.
     """
 
     __tablename__ = "board_member"

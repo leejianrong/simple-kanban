@@ -5,9 +5,9 @@ remove), the duplicate/unknown-user error cases, non-owner ``403`` on every rout
 and unauthenticated ``401``. Two distinct human sessions come from the ``login_as``
 factory (see conftest).
 
-This slice is membership + its management API only — role-based read/write
-enforcement (KAN-13) is a later slice, so these tests only assert the management
-API, not that a member can now read the board.
+These tests assert the management API (owner manages members; a *non-member*
+non-owner is ``403``). Role-based access for members themselves (a viewer/editor
+reading or writing the board) is covered by ``test_role_enforcement.py`` (KAN-13).
 
 Per the suite convention, app imports live inside the test bodies.
 """

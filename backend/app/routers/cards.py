@@ -24,7 +24,7 @@ from sqlalchemy import or_, select, tuple_
 from sqlalchemy.orm import Session, aliased
 
 from ..auth_models import User
-from ..authz import authorize_board, get_principal, visible_board_ids
+from ..authz import Access, authorize_board, get_principal, visible_board_ids
 from ..db import get_db
 from ..models import Card, CardComment, CardDependency, CardLink, Epic
 from ..ordering import next_position, renumber_column
@@ -205,8 +205,8 @@ def list_cards(
     query = select(Card).order_by(Card.updated_at, Card.id)
 
     if board_id is not None:
-        # Naming a board authorizes against it directly (403 if not yours).
-        authorize_board(db, principal, board_id)
+        # Naming a board authorizes against it directly (403 if no read access).
+        authorize_board(db, principal, board_id, Access.READ)
         query = query.where(Card.board_id == board_id)
     else:
         # No board named → scope to every board the caller owns.
@@ -253,7 +253,7 @@ def create_card(
     principal: User = Depends(get_principal),
 ) -> Card:
     board_id = resolve_board_id(db, payload.board_id)
-    authorize_board(db, principal, board_id)
+    authorize_board(db, principal, board_id, Access.WRITE)
     _validate_epic(db, payload.epic_id, board_id)
     card = Card(
         board_id=board_id,
@@ -279,7 +279,7 @@ def get_card(
     principal: User = Depends(get_principal),
 ) -> Card:
     card = _get_or_404(db, card_id)
-    authorize_board(db, principal, card.board_id)
+    authorize_board(db, principal, card.board_id, Access.READ)
     return _attach_one(db, card)
 
 
@@ -291,7 +291,7 @@ def update_card(
     principal: User = Depends(get_principal),
 ) -> Card:
     card = _get_or_404(db, card_id)
-    authorize_board(db, principal, card.board_id)
+    authorize_board(db, principal, card.board_id, Access.WRITE)
     # Only fields the client actually sent; distinguishes "omitted" from "set null".
     data = payload.model_dump(exclude_unset=True)
     if "title" in data and (data["title"] is None or not str(data["title"]).strip()):
@@ -315,7 +315,7 @@ def delete_card(
     principal: User = Depends(get_principal),
 ) -> Response:
     card = _get_or_404(db, card_id)
-    authorize_board(db, principal, card.board_id)
+    authorize_board(db, principal, card.board_id, Access.WRITE)
     db.delete(card)
     db.commit()
     # Hard delete; the vacated position leaves an intentional gap (ADR 0006).
@@ -330,7 +330,7 @@ def move_card(
     principal: User = Depends(get_principal),
 ) -> Card:
     card = _get_or_404(db, card_id)
-    authorize_board(db, principal, card.board_id)
+    authorize_board(db, principal, card.board_id, Access.WRITE)
 
     source_column = card.column
     target_column = payload.column.value
@@ -424,7 +424,7 @@ def add_dependency(
     the blocker.
     """
     card = _get_or_404(db, card_id)
-    authorize_board(db, principal, card.board_id)
+    authorize_board(db, principal, card.board_id, Access.WRITE)
 
     blocker_id = payload.blocker_id
     if blocker_id == card.id:
@@ -476,7 +476,7 @@ def remove_dependency(
     blocked-by ``blocker_id``). **404** if that edge doesn't exist. Returns the card
     with refreshed dependency arrays."""
     card = _get_or_404(db, card_id)
-    authorize_board(db, principal, card.board_id)
+    authorize_board(db, principal, card.board_id, Access.WRITE)
     edge = db.scalars(
         select(CardDependency).where(
             CardDependency.blocker_id == blocker_id,
@@ -512,7 +512,7 @@ def add_link(
     card's board.
     """
     card = _get_or_404(db, card_id)
-    authorize_board(db, principal, card.board_id)
+    authorize_board(db, principal, card.board_id, Access.WRITE)
     db.add(CardLink(card_id=card.id, label=payload.label, url=payload.url))
     db.commit()
     return _attach_one(db, card)
@@ -530,7 +530,7 @@ def remove_link(
     Owner-gated on the card's board.
     """
     card = _get_or_404(db, card_id)
-    authorize_board(db, principal, card.board_id)
+    authorize_board(db, principal, card.board_id, Access.WRITE)
     link = db.scalars(
         select(CardLink).where(
             CardLink.id == link_id,
@@ -565,7 +565,7 @@ def list_comments(
     """List a card's notes (KAN-33), oldest-first (creation order). **404** if the
     card doesn't exist; owner-gated on the card's board."""
     card = _get_or_404(db, card_id)
-    authorize_board(db, principal, card.board_id)
+    authorize_board(db, principal, card.board_id, Access.READ)
     return list(
         db.scalars(
             select(CardComment)
@@ -590,7 +590,7 @@ def add_comment(
     the request body). Returns the created comment. **404** if the card doesn't
     exist; owner-gated on the card's board."""
     card = _get_or_404(db, card_id)
-    authorize_board(db, principal, card.board_id)
+    authorize_board(db, principal, card.board_id, Access.WRITE)
     comment = CardComment(card_id=card.id, author_id=principal.id, body=payload.body)
     db.add(comment)
     db.commit()
@@ -611,7 +611,7 @@ def remove_comment(
     card; **403** if the comment was authored by someone else (delete-own-only).
     Owner-gated on the card's board."""
     card = _get_or_404(db, card_id)
-    authorize_board(db, principal, card.board_id)
+    authorize_board(db, principal, card.board_id, Access.WRITE)
     comment = db.scalars(
         select(CardComment).where(
             CardComment.id == comment_id,

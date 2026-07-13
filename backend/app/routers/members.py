@@ -1,15 +1,15 @@
 """Board-membership endpoints (KAN-12).
 
 A board can have members (users other than the owner) with a role — ``viewer`` /
-``editor`` / ``owner`` (see :data:`app.models.VALID_ROLES`). This slice is the
-**membership table + its management API only**: role-based read/write enforcement
-(KAN-13) and list-visibility (KAN-15) are later slices, so every route here still
-owner-gates through the existing authz layer (:func:`app.authz.authorize_board`) —
-**only the board's owner may manage members**.
+``editor`` / ``owner`` (see :data:`app.models.VALID_ROLES`). Enforcement goes through
+the one authz layer (:func:`app.authz.authorize_board`, ADR 0013): **managing members
+is owner-only** (``Access.MANAGE``), while **listing members is read-gated**
+(``Access.READ`` — any member may see who else is on the board, KAN-13). List
+*visibility* scoping (KAN-15) is a separate slice.
 
 Mounted by ``main.py`` under ``/api/v1`` (e.g. ``/api/v1/boards/{id}/members``):
 
-- GET    /boards/{board_id}/members             — list members (owner only)
+- GET    /boards/{board_id}/members             — list members (viewer or above)
 - POST   /boards/{board_id}/members             — add a member by user_id or email (owner only)
 - PATCH  /boards/{board_id}/members/{member_id} — change a member's role (owner only)
 - DELETE /boards/{board_id}/members/{member_id} — remove a member (owner only)
@@ -21,7 +21,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..auth_models import User
-from ..authz import authorize_board, get_principal
+from ..authz import Access, authorize_board, get_principal
 from ..db import get_db
 from ..models import BoardMember
 from ..schemas import MemberCreate, MemberRead, MemberUpdate
@@ -67,8 +67,9 @@ def list_members(
     db: Session = Depends(get_db),
     principal: User = Depends(get_principal),
 ) -> list[BoardMember]:
-    """List a board's members, oldest-first. Owner-gated (401/403/404)."""
-    authorize_board(db, principal, board_id)
+    """List a board's members, oldest-first. Read-gated (viewer or above);
+    401/403/404 (KAN-13)."""
+    authorize_board(db, principal, board_id, Access.READ)
     rows = db.execute(
         select(BoardMember, User.email)
         .join(User, User.id == BoardMember.user_id)
@@ -89,9 +90,10 @@ def add_member(
     db: Session = Depends(get_db),
     principal: User = Depends(get_principal),
 ) -> BoardMember:
-    """Add a member to the board by ``user_id`` or ``email`` (KAN-12). Owner-gated.
-    **404** if the target user doesn't exist; **409** if they are already a member."""
-    authorize_board(db, principal, board_id)
+    """Add a member to the board by ``user_id`` or ``email`` (KAN-12). Manage-gated
+    (owner only, KAN-13). **404** if the target user doesn't exist; **409** if they
+    are already a member."""
+    authorize_board(db, principal, board_id, Access.MANAGE)
     user = _resolve_user(db, payload)
     existing = db.scalars(
         select(BoardMember).where(
@@ -120,9 +122,9 @@ def update_member(
     db: Session = Depends(get_db),
     principal: User = Depends(get_principal),
 ) -> BoardMember:
-    """Change a member's role (KAN-12). Owner-gated. **404** if no such member is on
-    the board."""
-    authorize_board(db, principal, board_id)
+    """Change a member's role (KAN-12). Manage-gated (owner only, KAN-13). **404** if
+    no such member is on the board."""
+    authorize_board(db, principal, board_id, Access.MANAGE)
     member = _get_member_or_404(db, board_id, member_id)
     member.role = payload.role.value
     db.commit()  # updated_at bumped server-side via onupdate
@@ -137,9 +139,9 @@ def remove_member(
     db: Session = Depends(get_db),
     principal: User = Depends(get_principal),
 ) -> Response:
-    """Remove a member from the board (KAN-12). Owner-gated. **404** if no such
-    member is on the board."""
-    authorize_board(db, principal, board_id)
+    """Remove a member from the board (KAN-12). Manage-gated (owner only, KAN-13).
+    **404** if no such member is on the board."""
+    authorize_board(db, principal, board_id, Access.MANAGE)
     member = _get_member_or_404(db, board_id, member_id)
     db.delete(member)
     db.commit()
