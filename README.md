@@ -183,7 +183,8 @@ REQS.md  →  FRAME.md  →  PRD.md + CONTEXT.md (+ adr/)  →  SHAPING.md  → 
   API-first, data model, and last-write-wins concurrency, then epics, agent tokens, GitHub login,
   multi-board ownership, board authorization, self-serve PATs, and MCP board-scoping.
 - **[guides/](docs/guides/)** — practical how-tos, including the
-  [Agent onboarding guide](docs/guides/agent-onboarding.md).
+  [Agent onboarding guide](docs/guides/agent-onboarding.md) and the
+  [GitHub PR-board auto-sync setup guide](docs/guides/autosync-github-setup.md).
 
 ## Still out of scope
 
