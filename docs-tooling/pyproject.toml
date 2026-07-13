@@ -1,0 +1,20 @@
+# Isolated toolchain for building the documentation site (KAN-173).
+#
+# Zensical is kept in its own uv project so the docs build has a pinned,
+# lockfile-frozen dependency set that CI can cache, without touching the
+# backend/mcp/client/cli environments. It is intentionally not a package
+# (`tool.uv package = false`), mirroring the other uv projects in this repo.
+#
+# Build the site from the REPO ROOT (so zensical.toml's docs_dir="docs" resolves):
+#   uv run --project docs-tooling --frozen zensical build --strict --clean
+[project]
+name = "kanban-docs-tooling"
+version = "0"
+description = "Documentation site toolchain (Zensical) for Simple Kanban."
+requires-python = ">=3.12"
+dependencies = [
+    "zensical==0.0.50",
+]
+
+[tool.uv]
+package = false

@@ -1,0 +1,79 @@
+name: Docs
+
+# Docs-as-code (KAN-173): render the docs/ tree to a static site with Zensical
+# (https://zensical.org, the successor to Material for MkDocs).
+#
+# Two responsibilities, mirroring the dev-playbook docs-as-code rules:
+#   - build-check on every PR — `zensical build --strict` turns build warnings
+#     (a broken build, or a broken internal .md link) into a non-zero exit, so
+#     a docs break fails the check BEFORE it can reach main.
+#   - publish on merge to main — the same build is uploaded to GitHub Pages.
+#
+# GATE-SAFE, same philosophy as ci.yml: the `Docs build check` job runs and
+# reports on EVERY pull request (it is fast — a frozen install plus a ~3s
+# build), so if it is wired in as a required status check it never leaves a PR
+# hanging at "Expected". The deploy job is gated to non-PR events, so PRs build
+# but never publish.
+#
+# One-time repo setup (maintainer, in the GitHub UI): Settings → Pages →
+# "Build and deployment" → Source = "GitHub Actions". Until that is set, the
+# build-check still runs on PRs; only the deploy step on main needs it.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least-privilege token, plus the extra grants GitHub Pages deployment needs.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Cancel a superseded in-progress run when a new commit is pushed to the same
+# ref, matching ci.yml. Keyed per workflow+ref so main and each PR branch have
+# independent groups.
+concurrency:
+  group: docs-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Docs build check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same toolchain + cache as ci.yml's Python jobs.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # Build from the repo root so zensical.toml's docs_dir="docs" resolves.
+      # `--frozen` installs exactly docs-tooling/uv.lock (reproducible, cached);
+      # `--strict` fails the build on any warning (broken internal .md links
+      # included); `--clean` rebuilds from scratch.
+      - name: Build docs (strict)
+        run: uv run --project docs-tooling --frozen zensical build --strict --clean
+
+      # Only carry the artifact forward to the deploy job on main.
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    name: Deploy docs to GitHub Pages
+    # Publish only from main — never from a pull request.
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
