@@ -33,6 +33,10 @@ collide with the card verbs (parity with the `/api/v1` surface).
 | `kan epic update <epic_id> [--name N] [--description D] [--json]` | `PATCH /epics/{id}` |
 | `kan epic delete <epic_id> --yes [--json]` | `DELETE /epics/{id}` |
 | `kan warmup [--json]` | `GET /api/health` |
+| `kan login [--api-url U] [--board-id N] [--token-stdin]` | *(local — saves the PAT to the config file)* |
+| `kan config set [--api-url U] [--board-id N] [--token-stdin \| --token T]` | *(local — writes the config file)* |
+| `kan config show [--json]` | *(local — prints the effective config, token redacted)* |
+| `kan config path` | *(local — prints the config file path)* |
 
 Valid columns are `todo`, `in_progress`, `done`. `delete` requires `--yes` as a
 guard against accidental destruction.
@@ -67,20 +71,40 @@ Run `kan --help`, `kan <command> --help`, `kan board --help`, or
 | `4` | `403` forbidden (board isn't yours) |
 | `5` | `404` not found |
 
-## Configuration (env)
+## Configuration
 
-| Var | Default | Meaning |
-|-----|---------|---------|
-| `KANBAN_API_URL` | `http://localhost:8000` | API origin (the `/api/v1` prefix is added for you) |
-| `KANBAN_TOKEN` | *(unset)* | **Required.** A per-user **PAT** (`kanban_pat_…`, created in the SPA top-bar **Tokens** tab, V9/ADR 0014). Empty/unset → a clean error before any request |
-| `KANBAN_BOARD_ID` | *(unset)* | Optional default board id for board-scoped commands (`list`/`create`, `epic list`/`epic create`) when they omit `--board`. Unset → the API's fallback (list = all your boards; create = your earliest) |
+The three settings below are each resolved **independently**, first non-empty
+source wins:
+
+1. **Environment** — `KANBAN_API_URL` / `KANBAN_TOKEN` / `KANBAN_BOARD_ID`.
+2. **Config file** — `~/.config/kan/config.toml` (`$XDG_CONFIG_HOME` aware; mode
+   `0600`), a `[kan]` table with `api_url` / `token` / `board_id`. Write it with
+   `kan login` or `kan config set`.
+3. **`.mcp.json`** — the nearest one walking up from the current directory, read
+   from `.mcpServers.kanban.env.{KANBAN_API_URL,KANBAN_TOKEN,KANBAN_BOARD_ID}`.
+   This is Claude Code's convention — the PAT already lives there for the MCP
+   server, so the CLI reuses it with no extra setup.
+
+| Setting | Env var | Default | Meaning |
+|---------|---------|---------|---------|
+| API origin | `KANBAN_API_URL` | `http://localhost:8000` | The `/api/v1` prefix is added for you |
+| Token | `KANBAN_TOKEN` | *(unset)* | **Required.** A per-user **PAT** (`kanban_pat_…`, from the SPA top-bar **Tokens** tab, V9/ADR 0014). Unresolved from every source → a clean error before any request |
+| Default board | `KANBAN_BOARD_ID` | *(unset)* | Optional default for board-scoped commands (`list`/`create`, `epic list`/`epic create`) when they omit `--board`. Unset → the API's fallback (list = all your boards; create = your earliest) |
+
+> **Keep the PAT off the command line.** The token is a credential — the config
+> file and `.mcp.json` sources exist so it never has to be typed into a shell (where
+> it lands in history, process listings, and — for an agent — the model's context).
+> Prefer `kan login` (a hidden prompt, or `--token-stdin` to pipe it) over exporting
+> `KANBAN_TOKEN=…`; the file it writes is `chmod 600`. `kan config show` prints the
+> effective config with the token **redacted**. In a Claude Code repo the token is
+> already in `.mcp.json`, so `kan` just works with no configuration at all.
 
 **Authentication — a personal access token is required.** Since M3 V8 (ADR 0013)
 the whole `/api/v1` surface is auth-required, and V10 (ADR 0015) removed the old
 shared-`API_TOKENS` bypass. Create a **PAT** in the SPA (top-bar **Tokens** →
-*New token*), copy the `kanban_pat_…` secret shown once, and set it as
-`KANBAN_TOKEN`. It authenticates **as your user** and is **owner-gated** — the CLI
-can only touch boards you own. A `board_id` you don't own returns exit `4`
+*New token*), copy the `kanban_pat_…` secret shown once, and hand it to `kan login`
+(or set `KANBAN_TOKEN`). It authenticates **as your user** and is **owner-gated** —
+the CLI can only touch boards you own. A `board_id` you don't own returns exit `4`
 (`403`); a bad/missing token returns exit `3` (`401`).
 
 ## Install
@@ -165,9 +189,11 @@ source (uv)** above instead (KAN-81).
 ## Usage examples
 
 ```bash
-export KANBAN_API_URL=http://localhost:8000
-export KANBAN_TOKEN=kanban_pat_…      # from the SPA Tokens tab
-export KANBAN_BOARD_ID=1              # optional default board
+# One-time: save the PAT to ~/.config/kan/config.toml without it touching argv/history.
+# (Skip this entirely in a Claude Code repo — kan reads the token from .mcp.json.)
+kan login --api-url http://localhost:8000 --board-id 1   # prompts for the token (hidden)
+#   …or pipe it:  printf '%s' "$PAT" | kan login --token-stdin
+kan config show                       # confirm the effective config (token redacted)
 
 kan board list                        # discover your boards
 kan create "Wire up CI" --column todo --points 3

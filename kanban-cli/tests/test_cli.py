@@ -8,13 +8,18 @@ drive the real client over an ``httpx.MockTransport`` to prove the HTTP wiring.
 """
 from __future__ import annotations
 
+import io
 import json
 
 import httpx
 import pytest
 from kanban_client import KanbanApiError
 
-from kanban_cli import cli
+from kanban_cli import cli, config
+
+# The real find_mcp_json, captured before the autouse fixture patches it out — so
+# the test that exercises the upward walk itself can reach the genuine impl.
+_REAL_FIND_MCP_JSON = config.find_mcp_json
 
 CARD = {"ticket_number": "KAN-1", "column": "todo", "title": "Ship it", "id": 1}
 EPIC = {"ticket_number": "EPIC-1", "name": "Onboarding", "description": "d", "id": 1}
@@ -79,6 +84,18 @@ class FakeClient:
 
     def delete_epic(self, epic_id):
         return self._call("delete_epic", epic_id=epic_id)
+
+
+@pytest.fixture(autouse=True)
+def isolate_config(monkeypatch, tmp_path):
+    """Keep every test hermetic w.r.t. config *discovery*. The suite runs inside the
+    repo tree, which has a real ``.mcp.json`` (and a developer may have a real
+    ``~/.config/kan/config.toml``); without this, ``load_config`` would silently
+    resolve a token from those and defeat the 'no token → error' tests. Point
+    ``XDG_CONFIG_HOME`` at an empty tmp dir and disable ``.mcp.json`` discovery by
+    default; tests exercising those sources re-enable them explicitly."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setattr("kanban_cli.config.find_mcp_json", lambda *a, **k: None)
 
 
 @pytest.fixture
@@ -481,3 +498,128 @@ def test_real_client_warmup_hits_unversioned_health(monkeypatch):
     assert seen["method"] == "GET"
     assert seen["path"] == "/api/health"
     assert seen["auth"] is None
+
+
+# --- config resolution chain (KAN-199) --------------------------------------
+# Precedence per value: env > ~/.config/kan/config.toml > nearest .mcp.json.
+# The point is that a PAT can live in a file and never touch the command line.
+# (``isolate_config`` autouse fixture keeps the repo's real .mcp.json out of view;
+# these tests opt individual sources back in.)
+
+
+def _write_mcp_json(monkeypatch, tmp_path, env: dict) -> None:
+    """Drop a .mcp.json carrying ``env`` and point discovery at it."""
+    path = tmp_path / ".mcp.json"
+    path.write_text(json.dumps({"mcpServers": {"kanban": {"env": env}}}), encoding="utf-8")
+    monkeypatch.setattr("kanban_cli.config.find_mcp_json", lambda *a, **k: path)
+
+
+def test_token_from_config_file_when_env_unset(monkeypatch):
+    monkeypatch.delenv("KANBAN_TOKEN", raising=False)
+    config.write_config_file(token="kanban_pat_fromfile", board_id="9")
+    cfg = config.load_config()
+    assert cfg.token == "kanban_pat_fromfile"
+    assert cfg.board_id == 9
+
+
+def test_token_from_mcp_json_when_env_and_file_unset(monkeypatch, tmp_path):
+    monkeypatch.delenv("KANBAN_TOKEN", raising=False)
+    _write_mcp_json(
+        monkeypatch,
+        tmp_path,
+        {
+            "KANBAN_TOKEN": "kanban_pat_frommcp",
+            "KANBAN_API_URL": "https://mcp.example",
+            "KANBAN_BOARD_ID": 42,  # a JSON number — must be coerced to int 42
+        },
+    )
+    cfg = config.load_config()
+    assert cfg.token == "kanban_pat_frommcp"
+    assert cfg.api_url == "https://mcp.example"
+    assert cfg.board_id == 42
+
+
+def test_env_overrides_config_file_and_mcp_json(monkeypatch, tmp_path):
+    _write_mcp_json(monkeypatch, tmp_path, {"KANBAN_TOKEN": "kanban_pat_mcp", "KANBAN_BOARD_ID": 1})
+    config.write_config_file(token="kanban_pat_file", board_id="2")
+    monkeypatch.setenv("KANBAN_TOKEN", "kanban_pat_env")
+    monkeypatch.setenv("KANBAN_BOARD_ID", "3")
+    cfg = config.load_config()
+    assert cfg.token == "kanban_pat_env"
+    assert cfg.board_id == 3
+
+
+def test_config_file_overrides_mcp_json(monkeypatch, tmp_path):
+    monkeypatch.delenv("KANBAN_TOKEN", raising=False)
+    monkeypatch.delenv("KANBAN_BOARD_ID", raising=False)
+    _write_mcp_json(monkeypatch, tmp_path, {"KANBAN_TOKEN": "kanban_pat_mcp", "KANBAN_BOARD_ID": 1})
+    config.write_config_file(token="kanban_pat_file", board_id="2")
+    cfg = config.load_config()
+    assert cfg.token == "kanban_pat_file"
+    assert cfg.board_id == 2
+
+
+def test_missing_token_everywhere_raises(monkeypatch):
+    monkeypatch.delenv("KANBAN_TOKEN", raising=False)
+    with pytest.raises(config.ConfigError):
+        config.load_config()
+
+
+def test_warmup_allows_missing_token_everywhere(monkeypatch):
+    monkeypatch.delenv("KANBAN_TOKEN", raising=False)
+    cfg = config.load_config(require_token=False)  # warmup path
+    assert cfg.token == ""
+
+
+def test_malformed_sources_are_ignored(monkeypatch, tmp_path):
+    """A broken config file / .mcp.json must not crash — it's just skipped, so the
+    normal 'token required' error still surfaces rather than a traceback."""
+    monkeypatch.delenv("KANBAN_TOKEN", raising=False)
+    config.config_file_path().parent.mkdir(parents=True, exist_ok=True)
+    config.config_file_path().write_text("this is not = valid toml [", encoding="utf-8")
+    bad = tmp_path / ".mcp.json"
+    bad.write_text("{not json", encoding="utf-8")
+    monkeypatch.setattr("kanban_cli.config.find_mcp_json", lambda *a, **k: bad)
+    with pytest.raises(config.ConfigError):
+        config.load_config()
+
+
+def test_write_config_file_is_owner_only_and_merges(monkeypatch):
+    p1 = config.write_config_file(api_url="https://a.example", board_id="5")
+    assert (p1.stat().st_mode & 0o777) == 0o600
+    # A later write of just the token must preserve api_url + board_id.
+    config.write_config_file(token="kanban_pat_x")
+    monkeypatch.delenv("KANBAN_TOKEN", raising=False)
+    cfg = config.load_config()
+    assert cfg.api_url == "https://a.example"
+    assert cfg.board_id == 5
+    assert cfg.token == "kanban_pat_x"
+
+
+def test_find_mcp_json_walks_up(monkeypatch, tmp_path):
+    (tmp_path / ".mcp.json").write_text("{}", encoding="utf-8")
+    deep = tmp_path / "a" / "b" / "c"
+    deep.mkdir(parents=True)
+    assert _REAL_FIND_MCP_JSON(deep) == tmp_path / ".mcp.json"
+
+
+def test_config_show_redacts_token(monkeypatch, tmp_path, capsys):
+    _write_mcp_json(monkeypatch, tmp_path, {"KANBAN_TOKEN": "kanban_pat_supersecret1234"})
+    monkeypatch.delenv("KANBAN_TOKEN", raising=False)
+    assert cli.run(["config", "show"]) == cli.EXIT_OK
+    out = capsys.readouterr().out
+    assert "kanban_pat_supersecret1234" not in out  # never print the raw token
+    assert "1234" in out  # but the last 4 identify it
+
+
+def test_config_set_token_stdin_never_needs_argv(monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin", io.StringIO("kanban_pat_viastdin\n"))
+    assert cli.run(["config", "set", "--token-stdin", "--board-id", "8"]) == cli.EXIT_OK
+    monkeypatch.delenv("KANBAN_TOKEN", raising=False)
+    cfg = config.load_config()
+    assert cfg.token == "kanban_pat_viastdin"
+    assert cfg.board_id == 8
+
+
+def test_config_set_rejects_non_integer_board_id():
+    assert cli.run(["config", "set", "--board-id", "abc"]) == cli.EXIT_ERROR
