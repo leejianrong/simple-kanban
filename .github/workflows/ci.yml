@@ -94,7 +94,7 @@ jobs:
         if: needs.changes.outputs.backend == 'true'
       - name: Install uv
         if: needs.changes.outputs.backend == 'true'
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       - name: Ruff lint
@@ -114,7 +114,7 @@ jobs:
         if: needs.changes.outputs.backend == 'true'
       - name: Install uv
         if: needs.changes.outputs.backend == 'true'
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       # Pure logic (Pydantic schema validation) — no database, no Docker.
@@ -135,7 +135,7 @@ jobs:
         if: needs.changes.outputs.backend == 'true'
       - name: Install uv
         if: needs.changes.outputs.backend == 'true'
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       # Uses testcontainers to spin up real Postgres 17; the ubuntu-latest
@@ -157,7 +157,7 @@ jobs:
         if: needs.changes.outputs.client == 'true'
       - name: Install uv
         if: needs.changes.outputs.client == 'true'
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       # Shared httpx wrapper (KAN-21) — every method is exercised against a
@@ -183,7 +183,7 @@ jobs:
         if: needs.changes.outputs.mcp == 'true'
       - name: Install uv
         if: needs.changes.outputs.mcp == 'true'
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       # Pure logic — the API client is exercised against a mocked httpx
@@ -209,7 +209,7 @@ jobs:
         if: needs.changes.outputs.cli == 'true'
       - name: Install uv
         if: needs.changes.outputs.cli == 'true'
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       # Pure logic — the shared client is exercised against a mocked httpx
@@ -290,7 +290,7 @@ jobs:
       # Backend toolchain (Playwright's webServer runs migrations + uvicorn).
       - name: Install uv
         if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       - name: Sync backend deps
@@ -390,7 +390,7 @@ jobs:
 
       # --- Dependency toolchains --------------------------------------------
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       - uses: actions/setup-node@v6
