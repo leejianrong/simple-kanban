@@ -27,8 +27,18 @@ from ..auth_models import User
 from ..authz import Access, authorize_board, get_principal, visible_board_ids
 from ..db import get_db
 from ..models import Activity, Board, BoardMember
+from ..ordering import next_position, renumber_column, select_next_ready_card
 from ..pagination import NEXT_CURSOR_HEADER, decode_cursor, encode_cursor
-from ..schemas import ActivityRead, BoardCreate, BoardRead, BoardUpdate
+from ..schemas import (
+    ActivityRead,
+    BoardCreate,
+    BoardRead,
+    BoardUpdate,
+    CardRead,
+    ColumnEnum,
+    DispatchRequest,
+    PriorityEnum,
+)
 
 router = APIRouter(prefix="/boards", tags=["boards"])
 
@@ -223,3 +233,122 @@ def list_activity(
         last = rows[-1]
         response.headers[NEXT_CURSOR_HEADER] = encode_cursor(last.ts, last.id)
     return rows
+
+
+# --- dispatch + fleet-safe claim (M5 V12, KAN-245) -------------------------
+#
+# Agent-operate core: pull the next ready-to-work card off a board. ``next``
+# peeks; ``dispatch`` atomically claims. The selection (todo, not blocked, ordered
+# priority DESC then position, one row) lives in :func:`app.ordering.select_next_ready_card`
+# so both share exactly one definition of "ready" (reusing the ``blocked`` predicate
+# from ``routers/cards.py``, not re-deriving it). ``dispatch`` uses ``FOR UPDATE SKIP
+# LOCKED`` so a whole fleet can dispatch concurrently and never collide on a card.
+
+
+@router.get(
+    "/{board_id}/next",
+    response_model=CardRead,
+    responses={204: {"description": "no card is ready to dispatch"}},
+)
+def peek_next(
+    board_id: int,
+    db: Session = Depends(get_db),
+    principal: User = Depends(get_principal),
+    label: int | None = None,
+    priority: PriorityEnum | None = None,
+):
+    """**Peek** at the next ready-to-dispatch card on this board without claiming it
+    (M5 V12, KAN-245) — the same selection as ``dispatch`` (next ``todo`` card not
+    blocked by an open dependency, ordered ``priority DESC`` then ``position``) but
+    read-only: no assignee change, no move, no lock. Returns the card, or **204 No
+    Content** when nothing is ready.
+
+    Optional filters (AND-ed): ``label`` (a label id) and ``priority`` (a *minimum*
+    priority — only cards at that rank or above). ``Access.READ`` — a viewer may peek.
+    """
+    authorize_board(db, principal, board_id, Access.READ)
+    card = select_next_ready_card(
+        db,
+        board_id,
+        label=label,
+        min_priority=priority.value if priority is not None else None,
+        for_update=False,
+    )
+    if card is None:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    # Attach dependency arrays / links / labels so the body is a full CardRead
+    # (lazy import: routers/cards.py imports this module, so it can't be top-level).
+    from .cards import _attach_one
+
+    return _attach_one(db, card)
+
+
+@router.post(
+    "/{board_id}/dispatch",
+    response_model=CardRead,
+    responses={204: {"description": "no card is ready to dispatch"}},
+)
+def dispatch_card(
+    board_id: int,
+    db: Session = Depends(get_db),
+    principal: User = Depends(get_principal),
+    payload: DispatchRequest | None = None,
+):
+    """**Dispatch** (atomically claim) the next ready-to-work card on this board in
+    one transaction (M5 V12, KAN-245) — the agent-operate core.
+
+    Selects the next ``todo`` card that is **not blocked** by an open dependency,
+    ordered ``priority DESC`` (urgent first) then ``position ASC``, with ``FOR UPDATE
+    SKIP LOCKED`` so concurrent dispatchers each lock-and-skip and never claim the
+    same card (the fleet-safety mechanism — a DB row lock, not app locking; ADR
+    0007). It then sets ``assignee`` (the body's ``assignee``, else the caller's
+    identity), moves the card to ``in_progress`` (appended, with the source column
+    renumbered), records a ``moved`` activity event, and returns the card. **204 No
+    Content** when nothing is ready.
+
+    Optional body filters (AND-ed with readiness): ``assignee`` (who to claim as),
+    ``label`` (a label id), ``priority`` (a *minimum* priority). ``Access.WRITE`` —
+    it mutates.
+    """
+    authorize_board(db, principal, board_id, Access.WRITE)
+    req = payload or DispatchRequest()
+    card = select_next_ready_card(
+        db,
+        board_id,
+        label=req.label,
+        min_priority=req.priority.value if req.priority is not None else None,
+        for_update=True,
+    )
+    if card is None:
+        # Nothing ready — release the (empty) FOR UPDATE scan and reply 204.
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    assignee = req.assignee or principal.email
+    source_column = card.column  # "todo"
+    # Append to the end of in_progress. Computed before mutating card.column; with
+    # autoflush off the count sees the DB (card still in todo), so it excludes this
+    # very card and lands it cleanly at the end (mirrors move_card).
+    new_position = next_position(db, board_id, ColumnEnum.in_progress.value)
+    card.assignee = assignee
+    card.column = ColumnEnum.in_progress.value
+    card.position = new_position
+    # Flush so the moved card's new column is visible to the source renumber query.
+    db.flush()
+    renumber_column(db, board_id, source_column)
+
+    record_activity(
+        db,
+        principal,
+        board_id=board_id,
+        entity_type="card",
+        entity_id=card.id,
+        action="moved",
+        summary=f"dispatched {card.ticket_number} to {assignee}",
+    )
+    # One transaction: the SELECT ... FOR UPDATE SKIP LOCKED row lock is held right
+    # through here and released on commit, so the claim is atomic + fleet-safe.
+    db.commit()
+    db.refresh(card)
+    from .cards import _attach_one
+
+    return _attach_one(db, card)

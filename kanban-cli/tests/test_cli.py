@@ -94,6 +94,12 @@ class FakeClient:
     def delete_label(self, label_id):
         return self._call("delete_label", label_id=label_id)
 
+    def dispatch(self, board_id, **kw):
+        return self._call("dispatch", board_id=board_id, **kw)
+
+    def next_ready(self, board_id, **kw):
+        return self._call("next_ready", board_id=board_id, **kw)
+
 
 @pytest.fixture(autouse=True)
 def isolate_config(monkeypatch, tmp_path):
@@ -717,3 +723,37 @@ def test_config_set_token_stdin_never_needs_argv(monkeypatch, capsys):
 
 def test_config_set_rejects_non_integer_board_id():
     assert cli.run(["config", "set", "--board-id", "abc"]) == cli.EXIT_ERROR
+
+
+# --- next / dispatch (M5 V12, KAN-245) -------------------------------------
+
+
+def test_next_peeks_by_default(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"card": CARD}))
+    code = cli.run(["next", "--board", "3", "--priority", "high", "--label", "4"])
+    assert code == 0
+    assert fake.calls == [("next_ready", {"board_id": 3, "label": 4, "priority": "high"})]
+
+
+def test_next_claim_dispatches(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"card": CARD}))
+    code = cli.run(["next", "--board", "3", "--claim", "--assignee", "agent-7"])
+    assert code == 0
+    assert fake.calls == [
+        ("dispatch", {"board_id": 3, "assignee": "agent-7", "label": None, "priority": None})
+    ]
+
+
+def test_next_requires_a_board(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"card": CARD}))
+    code = cli.run(["next"])
+    # No --board and no KANBAN_BOARD_ID → config error, no client call.
+    assert code == cli.EXIT_ERROR
+    assert fake.calls == []
+
+
+def test_next_humanizes_empty(monkeypatch, env, capsys):
+    patch_client(monkeypatch, FakeClient(result={"card": None}))
+    code = cli.run(["next", "--board", "3"])
+    assert code == 0
+    assert capsys.readouterr().out.strip() == "(no card ready)"

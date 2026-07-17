@@ -613,3 +613,39 @@ def test_403_response_is_not_retried():
         retry_client(handler).create_card("T", board_id=99)
     assert excinfo.value.status_code == 403
     assert calls["count"] == 1
+
+
+# --- dispatch + fleet-safe claim (M5 V12, KAN-245) -------------------------
+
+
+def test_dispatch_posts_body_and_wraps_card():
+    import json
+
+    handler, seen = capture(httpx.Response(200, json={"id": 5, "column": "in_progress"}))
+    out = make_client(handler).dispatch(3, assignee="agent-7", priority="high")
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/api/v1/boards/3/dispatch"
+    assert json.loads(seen["content"]) == {"assignee": "agent-7", "priority": "high"}
+    assert out == {"card": {"id": 5, "column": "in_progress"}}
+
+
+def test_dispatch_204_returns_no_card():
+    handler, seen = capture(httpx.Response(204))
+    out = make_client(handler).dispatch(3)
+    assert seen["method"] == "POST"
+    assert out == {"card": None}
+
+
+def test_next_ready_gets_and_wraps_card():
+    handler, seen = capture(httpx.Response(200, json={"id": 9, "column": "todo"}))
+    out = make_client(handler).next_ready(3, label=2)
+    assert seen["method"] == "GET"
+    assert seen["path"] == "/api/v1/boards/3/next"
+    assert seen["params"] == {"label": "2"}
+    assert out == {"card": {"id": 9, "column": "todo"}}
+
+
+def test_next_ready_204_returns_no_card():
+    handler, seen = capture(httpx.Response(204))
+    out = make_client(handler).next_ready(3)
+    assert out == {"card": None}

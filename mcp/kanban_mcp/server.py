@@ -51,6 +51,16 @@ def _board(board_id: int | None) -> int | None:
     return board_id if board_id is not None else _default_board_id
 
 
+def _require_board(board_id: int | None) -> int:
+    """Like :func:`_board`, but the target board id is **required** (the path-scoped
+    board tools have no API-side fallback). Raises when neither a per-call
+    ``board_id`` nor ``KANBAN_BOARD_ID`` is set."""
+    resolved = _board(board_id)
+    if resolved is None:
+        raise ValueError("board_id is required (set KANBAN_BOARD_ID or pass board_id)")
+    return resolved
+
+
 # --- ops: warmup ------------------------------------------------------------
 
 
@@ -416,6 +426,48 @@ def delete_label(label_id: int) -> dict[str, Any]:
     """Delete a label by id; it detaches from every card that carried it.
     Authorized via the label's own board — no ``board_id`` needed."""
     return _client_instance().delete_label(label_id)
+
+
+# --- dispatch + fleet-safe claim (M5 V12 API / KAN-245 tools) --------------
+
+
+@mcp.tool()
+def dispatch(
+    board_id: int | None = None,
+    assignee: str | None = None,
+    label: int | None = None,
+    priority: Priority | None = None,
+) -> dict[str, Any]:
+    """Atomically claim the next ready-to-work story on a board and start it — the
+    agent's "give me something to do" call. The API picks the next unblocked
+    ``todo`` story (highest ``priority`` first, then board order), sets its
+    ``assignee`` (defaults to you), and moves it to ``in_progress`` in one
+    ``FOR UPDATE SKIP LOCKED`` transaction, so many agents can dispatch at once and
+    never grab the same card. ``board_id`` targets one board (defaults to
+    KANBAN_BOARD_ID). ``label`` / ``priority`` (a *minimum*) narrow the selection.
+    Returns ``{"card": <story>}``, or ``{"card": null}`` when nothing is ready.
+    """
+    return _client_instance().dispatch(
+        _require_board(board_id), assignee=assignee, label=label, priority=priority
+    )
+
+
+@mcp.tool(name="next")
+def next_ready(
+    board_id: int | None = None,
+    label: int | None = None,
+    priority: Priority | None = None,
+) -> dict[str, Any]:
+    """Peek at the next ready-to-work story on a board **without** claiming it — the
+    same selection as ``dispatch`` (next unblocked ``todo`` story, highest
+    ``priority`` first) but read-only, so you can see what's up next before pulling
+    it. ``board_id`` targets one board (defaults to KANBAN_BOARD_ID). ``label`` /
+    ``priority`` (a *minimum*) narrow the selection. Returns ``{"card": <story>}``,
+    or ``{"card": null}`` when nothing is ready.
+    """
+    return _client_instance().next_ready(
+        _require_board(board_id), label=label, priority=priority
+    )
 
 
 def main() -> None:

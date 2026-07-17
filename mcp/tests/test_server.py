@@ -40,6 +40,8 @@ EXPECTED_TOOLS = {
     "list_labels",
     "create_label",
     "delete_label",
+    "dispatch",
+    "next",
 }
 
 
@@ -194,3 +196,33 @@ def test_list_comments_reads_and_wraps(monkeypatch):
     assert seen["method"] == "GET"
     assert seen["path"] == "/api/v1/cards/5/comments"
     assert out == {"comments": [{"id": 3, "body": "hi"}]}
+
+
+# --- dispatch + next tools (M5 V12, KAN-245) -------------------------------
+
+
+def test_dispatch_posts_to_board_dispatch(monkeypatch):
+    seen = _capture_client(
+        monkeypatch, httpx.Response(200, json={"id": 5, "column": "in_progress"})
+    )
+    out = server.dispatch(board_id=3, assignee="agent-7")
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/api/v1/boards/3/dispatch"
+    assert json.loads(seen["content"]) == {"assignee": "agent-7"}
+    assert out == {"card": {"id": 5, "column": "in_progress"}}
+
+
+def test_next_peeks_board_next(monkeypatch):
+    seen = _capture_client(monkeypatch, httpx.Response(200, json={"id": 9, "column": "todo"}))
+    out = server.next_ready(board_id=3, priority="high")
+    assert seen["method"] == "GET"
+    assert seen["path"] == "/api/v1/boards/3/next"
+    assert out == {"card": {"id": 9, "column": "todo"}}
+
+
+def test_dispatch_requires_a_board(monkeypatch):
+    _capture_client(monkeypatch, httpx.Response(204))
+    import pytest
+
+    with pytest.raises(ValueError):
+        server.dispatch()

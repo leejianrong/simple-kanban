@@ -453,3 +453,43 @@ class KanbanClient:
         DELETE CASCADE). 204 No Content — no body to parse."""
         self._request("DELETE", f"/labels/{label_id}")
         return {"deleted": label_id}
+
+    # --- dispatch + fleet-safe claim (M5 V12 API / KAN-245 adapter) ---------
+
+    def dispatch(
+        self,
+        board_id: int,
+        *,
+        assignee: str | None = None,
+        label: int | None = None,
+        priority: str | None = None,
+    ) -> dict[str, Any]:
+        """Atomically claim the next ready-to-work card on ``board_id`` (M5 V12):
+        the API selects the next unblocked ``todo`` card (``priority`` DESC then
+        position), assigns it (``assignee``, else the caller), and moves it to
+        ``in_progress`` in one ``FOR UPDATE SKIP LOCKED`` transaction — so a whole
+        fleet can dispatch at once and never collide. ``label``/``priority`` narrow
+        the selection (``priority`` is a *minimum*). Returns ``{"card": <card>}``,
+        or ``{"card": None}`` when nothing is ready (the API's 204)."""
+        payload = _clean({"assignee": assignee, "label": label, "priority": priority})
+        response = self._request("POST", f"/boards/{board_id}/dispatch", json=payload)
+        # 204 No Content = nothing ready; it has no body to parse.
+        if response.status_code == 204:
+            return {"card": None}
+        return {"card": response.json()}
+
+    def next_ready(
+        self,
+        board_id: int,
+        *,
+        label: int | None = None,
+        priority: str | None = None,
+    ) -> dict[str, Any]:
+        """Peek at the next ready-to-work card on ``board_id`` **without** claiming
+        it (M5 V12) — the same selection as ``dispatch`` but read-only. Returns
+        ``{"card": <card>}``, or ``{"card": None}`` when nothing is ready (204)."""
+        params = _clean({"label": label, "priority": priority})
+        response = self._request("GET", f"/boards/{board_id}/next", params=params)
+        if response.status_code == 204:
+            return {"card": None}
+        return {"card": response.json()}
