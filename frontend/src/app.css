@@ -226,8 +226,28 @@ body {
 }
 
 /* Current user + logout, pushed to the right of the top bar (M3 V6). */
-.topbar-user {
+/* Full-text search box (M5 V15, KAN-248) — pushed to the right of the top bar. */
+.topbar-search {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--muted);
+}
+.topbar-search input {
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 0.85rem;
+  width: 14rem;
+  max-width: 30vw;
+  outline: none;
+}
+.topbar-user {
   display: flex;
   align-items: center;
   gap: 0.6rem;

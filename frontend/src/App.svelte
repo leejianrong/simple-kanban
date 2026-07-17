@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { LogOut, Moon, Sun } from "lucide-svelte";
+  import { LogOut, Moon, Search, Sun } from "lucide-svelte";
   import Activity from "./lib/components/Activity.svelte";
   import Board from "./lib/components/Board.svelte";
   import Brand from "./lib/components/Brand.svelte";
@@ -10,7 +10,7 @@
   import Tokens from "./lib/components/Tokens.svelte";
   import Members from "./lib/components/Members.svelte";
   import Trash from "./lib/components/Trash.svelte";
-  import { refetch, refetchBoards, refetchEpics, refetchLabels, refetchViews } from "./lib/board.svelte";
+  import { refetch, refetchBoards, refetchEpics, refetchLabels, refetchViews, setQuery } from "./lib/board.svelte";
   import { refetchTokens } from "./lib/tokens.svelte";
   import { setSessionUser } from "./lib/session.svelte";
   import { initTheme, themeStore, toggleTheme } from "./lib/theme.svelte";
@@ -60,6 +60,21 @@
     user = null;
     setSessionUser(null);
   }
+
+  // Full-text search (M5 V15, KAN-248): typing merges a `q` into the active card
+  // query and refetches (server-authoritative — the board shows exactly what the
+  // server returned for the query). Debounced so a keystroke burst is one request;
+  // searching jumps to the board view so the ranked hits are visible.
+  let searchText = $state("");
+  let searchTimer: ReturnType<typeof setTimeout> | undefined;
+  function onSearchInput(value: string) {
+    searchText = value;
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      view = "board";
+      setQuery({ q: value.trim() || undefined });
+    }, 200);
+  }
 </script>
 
 {#if user === undefined}
@@ -78,6 +93,16 @@
       <button class:active={view === "trash"} onclick={() => show("trash")}>Trash</button>
     </nav>
     <BoardSwitcher />
+    <div class="topbar-search">
+      <Search size={15} aria-hidden="true" />
+      <input
+        type="search"
+        placeholder="Search cards…"
+        aria-label="Search cards"
+        value={searchText}
+        oninput={(e) => onSearchInput(e.currentTarget.value)}
+      />
+    </div>
     <div class="topbar-user">
       <button
         class="icon-btn theme-toggle"

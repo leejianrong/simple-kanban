@@ -257,6 +257,7 @@ def _cmd_list(client: KanbanClient, config: Config, args: argparse.Namespace) ->
         overdue=args.overdue or None,
         needs_human=args.needs_human or None,
         assignee=args.assignee,
+        q=args.q,
         sort=args.sort,
         limit=args.limit,
     )
@@ -633,6 +634,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="only cards flagged for a human (needs-human)",
     )
     p_list.add_argument("--assignee", help="filter by assignee (exact match)")
+    p_list.add_argument(
+        "--q", metavar="TEXT",
+        help=(
+            "full-text search over title+description (websearch grammar: bare terms "
+            "AND-ed, \"quoted\" = phrase, -term = exclude). Ranks by relevance unless "
+            "--sort is given"
+        ),
+    )
     p_list.add_argument(
         "--sort", metavar="SPEC",
         help=(

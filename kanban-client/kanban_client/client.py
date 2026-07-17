@@ -221,6 +221,7 @@ class KanbanClient:
         overdue: bool | None = None,
         needs_human: bool | None = None,
         assignee: str | None = None,
+        q: str | None = None,
         sort: str | None = None,
         limit: int | None = None,
         cursor: str | None = None,
@@ -237,6 +238,8 @@ class KanbanClient:
                 "overdue": overdue,
                 "needs_human": needs_human,
                 "assignee": assignee,
+                # Free-text full-text search over title+description (M5 V15).
+                "q": q,
                 "sort": sort,
                 "limit": limit,
                 "cursor": cursor,

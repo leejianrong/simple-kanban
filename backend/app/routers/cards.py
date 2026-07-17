@@ -277,6 +277,7 @@ def list_cards(
     overdue: bool | None = None,
     needs_human: bool | None = None,
     assignee: str | None = None,
+    q: str | None = None,
     sort: str | None = None,
     limit: int | None = Query(default=None, ge=1, le=200),
     cursor: str | None = None,
@@ -317,21 +318,35 @@ def list_cards(
     (an unknown one is a ``422``). These same keys are the structured JSON grammar a
     **saved view** stores (``/boards/{id}/views``), so a view's query replays here.
 
+    Full-text search (M5 V15, KAN-248): ``q`` (a free-text query) narrows the result
+    to cards whose ``title``/``description`` match ``websearch_to_tsquery('english',
+    q)`` (so ``foo bar`` = both terms, ``"foo bar"`` = the phrase, ``foo -bar`` =
+    exclude). It AND-s with every filter above and honours board access exactly like
+    the rest. **Ordering precedence:** an explicit ``sort`` always wins; otherwise a
+    non-empty ``q`` ranks by relevance (``ts_rank`` best-first, a **title** hit above
+    a description-only hit via the vector's A/B weighting), with ``id`` the stable
+    tiebreaker. An empty/whitespace-only (or absent) ``q`` is a no-op — the ordering
+    and result set are unchanged.
+
     Pagination is keyset over ``(updated_at, id)`` — the **default** ordering: pass
     ``limit`` to cap the page; when a full page is returned the next page's opaque
     cursor rides the ``X-Next-Cursor`` response header (absent on the last page).
-    Echo it back as ``cursor`` for the next request. A custom ``sort`` overrides that
-    order, so it is **incompatible with ``cursor``** (``422`` if combined) and emits
-    no cursor — ``limit`` then just caps a top-N by that sort. The body stays a bare
-    ``CardRead[]`` so the SPA is unaffected; it re-sorts by ``position`` per column
-    client-side.
+    Echo it back as ``cursor`` for the next request. A custom ``sort`` — or relevance
+    ranking from a non-empty ``q`` — overrides that order, so it is **incompatible
+    with ``cursor``** (``422`` if combined) and emits no cursor; ``limit`` then just
+    caps a top-N by that order. The body stays a bare ``CardRead[]`` so the SPA is
+    unaffected; it re-sorts by ``position`` per column client-side.
     """
-    # A custom sort replaces the keyset ordering, so it can't co-exist with a
-    # keyset cursor (the cursor predicate assumes the (updated_at, id) order).
-    if sort is not None and cursor is not None:
+    # Treat an empty/whitespace-only ``q`` as absent (a true no-op, R5 back-compat).
+    q_text = q.strip() if q is not None else None
+    q_active = bool(q_text)
+    # A custom sort — or relevance ranking from ``q`` — replaces the keyset ordering,
+    # so it can't co-exist with a keyset cursor (the cursor predicate assumes the
+    # (updated_at, id) order).
+    if cursor is not None and (sort is not None or q_active):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="sort cannot be combined with cursor pagination",
+            detail="sort/q cannot be combined with cursor pagination",
         )
     # Soft-deleted cards (KAN-19, R5.2) are excluded from every list read. Ordering
     # is applied below (default keyset order, or the custom ``sort``).
@@ -391,8 +406,17 @@ def list_cards(
     if assignee is not None:
         # Exact-match assignee filter (M5 V14): the "cards assigned to X" slice.
         query = query.where(Card.assignee == assignee)
+    tsquery = None
+    if q_active:
+        # Full-text search (M5 V15): match the generated ``search_vector`` against a
+        # websearch-style query. ``websearch_to_tsquery`` is the forgiving, user-input
+        # grammar (bare terms AND-ed, quotes = phrase, ``-`` = exclude). AND-s with
+        # every filter above via the ``@@`` predicate, so keyset/limit stay exact.
+        tsquery = func.websearch_to_tsquery("english", q_text)
+        query = query.where(Card.search_vector.op("@@")(tsquery))
 
-    # Ordering: a custom ``sort`` (M5 V14) overrides the default keyset order.
+    # Ordering precedence: an explicit ``sort`` (M5 V14) always wins; else a non-empty
+    # ``q`` ranks by relevance (M5 V15); else the default keyset order.
     if sort is not None:
         try:
             query = query.order_by(*sort_order_by(sort))
@@ -401,6 +425,13 @@ def list_cards(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=str(exc),
             ) from exc
+    elif q_active:
+        # Best match first (ts_rank honours the A/B field weighting baked into the
+        # vector, so a title hit outranks a description-only hit); ``id`` is the
+        # stable tiebreaker for equal ranks.
+        query = query.order_by(
+            func.ts_rank(Card.search_vector, tsquery).desc(), Card.id
+        )
     else:
         query = query.order_by(Card.updated_at, Card.id)
 
@@ -422,8 +453,9 @@ def list_cards(
 
     # A full page implies there may be more — hand back the next cursor. A short
     # (or empty) page is the last one, so no header. Keyset paging is defined only
-    # for the default order, so a custom ``sort`` never emits a cursor (see above).
-    if sort is None and limit is not None and len(cards) == limit:
+    # for the default order, so a custom ``sort`` or ``q`` ranking never emits a
+    # cursor (see above).
+    if sort is None and not q_active and limit is not None and len(cards) == limit:
         last = cards[-1]
         response.headers[NEXT_CURSOR_HEADER] = encode_cursor(last.updated_at, last.id)
 

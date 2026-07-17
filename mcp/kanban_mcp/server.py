@@ -128,6 +128,7 @@ def list_cards(
     overdue: bool | None = None,
     needs_human: bool | None = None,
     assignee: str | None = None,
+    q: str | None = None,
     sort: str | None = None,
     limit: int | None = None,
     cursor: str | None = None,
@@ -138,12 +139,16 @@ def list_cards(
     at/after it), priority, label (a label id), due_before (an ISO-8601 timestamp —
     stories due strictly before it), overdue (true → past-due and not done),
     needs_human (true → cards flagged for a human via needs_human; false → the rest),
-    and assignee (exact match). ``sort`` re-orders the result — comma-separated keys
-    with an optional ``-`` for descending (e.g. ``-priority``, ``-due_date,position``;
-    fields: position/priority/due_date/created_at/updated_at/story_points/assignee/
-    title/column/id). ``priority`` sorts by rank (none→urgent). Paginate with limit;
-    if more results remain the response includes ``next_cursor`` to pass back as
-    ``cursor`` (not available together with ``sort``).
+    and assignee (exact match). ``q`` is a free-text full-text search over
+    title+description (websearch grammar: bare terms AND-ed, "quoted" = phrase,
+    ``-term`` = exclude); with no explicit ``sort`` it ranks by relevance (best
+    first, a title hit above a description-only hit). ``sort`` re-orders the result —
+    comma-separated keys with an optional ``-`` for descending (e.g. ``-priority``,
+    ``-due_date,position``; fields: position/priority/due_date/created_at/updated_at/
+    story_points/assignee/title/column/id). ``priority`` sorts by rank (none→urgent);
+    an explicit ``sort`` overrides ``q`` ranking. Paginate with limit; if more results
+    remain the response includes ``next_cursor`` to pass back as ``cursor`` (not
+    available together with ``sort`` or ``q``).
     """
     return _client_instance().list_cards(
         board_id=_board(board_id),
@@ -156,6 +161,7 @@ def list_cards(
         overdue=overdue,
         needs_human=needs_human,
         assignee=assignee,
+        q=q,
         sort=sort,
         limit=limit,
         cursor=cursor,

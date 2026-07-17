@@ -618,6 +618,10 @@ class CardQuery(BaseModel):
     overdue: bool | None = None
     needs_human: bool | None = None
     assignee: str | None = None
+    # Free-text search over title+description (M5 V15, KAN-248). A plain string —
+    # ``GET /cards`` treats empty/whitespace as absent, so a saved view can carry a
+    # search term and replay verbatim.
+    q: str | None = None
     sort: str | None = None
 
     @field_validator("sort")

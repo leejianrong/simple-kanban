@@ -180,6 +180,9 @@ export interface CardQuery {
   overdue?: boolean;
   needs_human?: boolean;
   assignee?: string;
+  // Free-text full-text search over title+description (M5 V15, KAN-248). Empty is a
+  // no-op server-side; `cardQueryParams` already drops empty strings.
+  q?: string;
   sort?: string;
 }
 
