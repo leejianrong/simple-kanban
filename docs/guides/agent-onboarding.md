@@ -194,8 +194,10 @@ curl -L -o kan https://github.com/leejianrong/simple-kanban/releases/latest/down
 chmod +x kan && mv kan ~/.local/bin/      # or: sudo mv kan /usr/local/bin/
 ```
 
-`kan-linux-x86_64` and `kan-macos-arm64` ship today; the linux binary needs glibc ≥ 2.28
-(Ubuntu 20.04+, Debian 11+, RHEL/Rocky/Alma 8+). See
+Only `kan-linux-x86_64` and `kan-macos-arm64` ship (no Intel-mac binary — that leg was dropped,
+KAN-225); the linux binary needs glibc ≥ 2.28 (Ubuntu 20.04+, Debian 11+, RHEL/Rocky/Alma 8+).
+**Intel-Mac users** run the `kan-macos-arm64` binary under Rosetta 2, install from source with
+`uv` (below), or use the MCP container image. See
 [`kanban-cli/README.md`](https://github.com/leejianrong/simple-kanban/blob/main/kanban-cli/README.md) for the full asset list and the macOS
 Gatekeeper note.
 

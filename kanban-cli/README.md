@@ -173,10 +173,13 @@ GitHub CLI, `gh release download` pulls a pinned version instead:
 gh release download v0.2.2 --pattern kan-linux-x86_64
 ```
 
-`kan-linux-x86_64` and `kan-macos-arm64` ship today; browse them on the
-[latest GitHub Release](https://github.com/leejianrong/simple-kanban/releases/latest).
-The Intel `kan-macos-x86_64` may follow (it builds on a slower free-tier runner), and
-Windows isn't built. On macOS, Gatekeeper may quarantine an unsigned download — clear
+Only two binaries ship: **`kan-linux-x86_64`** and **`kan-macos-arm64`** — browse them on the
+[latest GitHub Release](https://github.com/leejianrong/simple-kanban/releases/latest). There is
+**no Intel-mac (`kan-macos-x86_64`) binary**: PyInstaller can't cross-compile so it must build on
+a native Intel runner, and GitHub's free Intel `macos-13` runners are scarce, so that leg was
+dropped (KAN-225). **Intel-Mac users** have three options: run the `kan-macos-arm64` binary under
+**Rosetta 2**, install **from source with `uv`** (see above), or use the **MCP container image**.
+Windows isn't built either. On macOS, Gatekeeper may quarantine an unsigned download — clear
 it with `xattr -d com.apple.quarantine kan` if it refuses to run. The binary reads the
 same env vars as the source install.
 

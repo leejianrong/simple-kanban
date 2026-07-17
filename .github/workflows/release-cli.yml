@@ -6,14 +6,23 @@ name: Release CLI binary
 # installed (KAN-46). PyInstaller can't cross-compile, so we build natively on
 # each target OS in a matrix and attach the results to the GitHub Release.
 #
+# SHIPPED LEGS: only `kan-linux-x86_64` (glibc-2.28 container build, below) and
+# `kan-macos-arm64`. The Intel-mac (x86_64) leg was DROPPED (KAN-225):
+# PyInstaller can't cross-compile so it must build on a native Intel runner, and
+# GitHub's free Intel macOS runners are scarce/being retired, so that leg sat
+# `queued` forever and the whole release run never reached a terminal state while
+# the other assets attached fine. Intel-Mac users run the `kan-macos-arm64`
+# binary under Rosetta 2, install from source via `uv`, or use the MCP container
+# image.
+#
 # LINUX GLIBC FLOOR (KAN-81): the linux leg builds inside the
 # `quay.io/pypa/manylinux_2_28_x86_64` container (AlmaLinux 8 = glibc 2.28) so
 # the bundled libpython requires no symbol newer than GLIBC_2.28 and the binary
 # runs on Ubuntu 20.04+, Debian 11+, RHEL 8+. Building on `ubuntu-latest`
 # (Ubuntu 24.04 = glibc 2.39) previously baked in a GLIBC_2.38 requirement that
 # broke every older-but-supported distro; the in-job smoke test missed it
-# because it ran on the same fresh image it built on. The macOS legs are
-# unaffected and build on their native runners exactly as before.
+# because it ran on the same fresh image it built on. The macOS leg is
+# unaffected and builds on its native runner exactly as before.
 #
 # TRIGGER: version tags only (e.g. `git tag v0.2.0 && git push origin v0.2.0`).
 # This never runs on a PR or a branch push — publishing is a deliberate,
@@ -32,7 +41,7 @@ jobs:
   build:
     name: Build ${{ matrix.asset }}
     runs-on: ${{ matrix.os }}
-    # Linux builds inside a glibc-2.28 container (KAN-81); macOS legs set an
+    # Linux builds inside a glibc-2.28 container (KAN-81); the macOS leg sets an
     # empty string, which GitHub treats as "no container" (build on the host).
     container: ${{ matrix.container }}
     strategy:
@@ -46,9 +55,6 @@ jobs:
           - os: macos-14        # Apple Silicon (arm64)
             container: ''
             asset: kan-macos-arm64
-          - os: macos-13        # Intel macOS (x86_64)
-            container: ''
-            asset: kan-macos-x86_64
       # Windows is intentionally omitted for now — the .exe packaging + smoke
       # step differ enough to defer; add a `windows-latest` row (asset
       # `kan-windows-x86_64.exe`) when there's demand.
