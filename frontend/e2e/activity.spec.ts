@@ -3,9 +3,7 @@ import { cleanupE2eBoards, createCard, openFreshBoard, uniqueTitle } from "./hel
 
 // KAN-18 activity feed: the panel renders recent, newest-first activity for the
 // active board, and honours the read API. Also captures light + dark screenshots
-// for PM review (saved to the worktree root).
-
-const WORKTREE = "/home/jian/tutorials/agentic-course/simple-kanban/.claude/worktrees/agent-a29e7871cfc9dfec8";
+// as per-test output artifacts (testInfo.outputPath — CI-safe on any runner).
 
 test.afterAll(async () => {
   await cleanupE2eBoards();
@@ -44,16 +42,18 @@ test("activity panel renders recorded activity, newest first", async ({ page }) 
   expect(await rows.count()).toBeGreaterThanOrEqual(3);
 });
 
-test("activity panel screenshots — light + dark", async ({ page }) => {
+test("activity panel screenshots — light + dark", async ({ page }, testInfo) => {
   await setTheme(page, "light");
   await openFreshBoard(page);
   await createCard(page, "Todo", uniqueTitle("shot"));
   await page.getByRole("button", { name: "Activity", exact: true }).click();
   await expect(page.locator(".feed")).toBeVisible();
-  await page.screenshot({ path: `${WORKTREE}/kan18-activity-light.png`, fullPage: true });
+  // testInfo.outputPath resolves under the per-test output dir, which exists on
+  // any runner (local or CI) — no hardcoded absolute path.
+  await page.screenshot({ path: testInfo.outputPath("activity-light.png"), fullPage: true });
 
   // Flip to dark via the top-bar theme toggle and re-shoot the same panel.
   await page.getByRole("button", { name: "Switch to dark theme" }).click();
   await expect(page.locator(':root[data-theme="dark"]')).toBeVisible();
-  await page.screenshot({ path: `${WORKTREE}/kan18-activity-dark.png`, fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath("activity-dark.png"), fullPage: true });
 });
