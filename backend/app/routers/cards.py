@@ -44,6 +44,7 @@ from ..schemas import (
     CommentRead,
     DependencyCreate,
     LinkCreate,
+    NeedsHumanRequest,
     PriorityEnum,
 )
 from .boards import resolve_board_id
@@ -273,6 +274,7 @@ def list_cards(
     label: int | None = None,
     due_before: datetime | None = None,
     overdue: bool | None = None,
+    needs_human: bool | None = None,
     limit: int | None = Query(default=None, ge=1, le=200),
     cursor: str | None = None,
 ) -> list[Card]:
@@ -298,6 +300,9 @@ def list_cards(
     timestamp — cards with a ``due_date`` strictly before it; null due dates are
     excluded); ``overdue`` (``true`` → cards past their ``due_date`` and not yet
     ``done``; ``false`` → the null-safe complement).
+
+    Handoff filter (M5 V13, KAN-246): ``needs_human`` (``true`` → cards an agent
+    flagged for a human via ``POST /cards/{id}/needs-human``; ``false`` → the rest).
 
     Pagination is keyset over ``(updated_at, id)``: pass ``limit`` to cap the
     page; when a full page is returned the next page's opaque cursor rides the
@@ -359,6 +364,10 @@ def list_cards(
                     Card.column == ColumnEnum.done.value,
                 )
             )
+    if needs_human is not None:
+        # The human↔agent handoff filter (M5 V13): needs_human=true surfaces the
+        # cards an agent flagged for a human; false is their complement.
+        query = query.where(Card.needs_human.is_(needs_human))
     if cursor is not None:
         try:
             cursor_updated_at, cursor_id = decode_cursor(cursor)
@@ -591,6 +600,80 @@ def move_card(
             if source_column == target_column
             else f"moved {card.ticket_number} from {source_column} to {target_column}"
         ),
+    )
+    db.commit()
+    db.refresh(card)
+    return _attach_one(db, card)
+
+
+# --- needs-human handoff (M5 V13, KAN-246) ---------------------------------
+#
+# The human↔agent handoff primitive: an agent flags a card ``needs-human`` (with an
+# optional note describing the ask) when it hits something only a human can settle;
+# a human clears the flag once handled. The *resolution channel* is the existing
+# comments feature (KAN-33) — the agent discovers resolution via the cleared flag +
+# a human's comment; we deliberately do not add a new messaging path here. Both
+# events land in the activity feed as first-class ``attention`` / ``resolved`` rows.
+
+
+@router.post("/{card_id}/needs-human", response_model=CardRead)
+def flag_needs_human(
+    card_id: int,
+    payload: NeedsHumanRequest,
+    db: Session = Depends(get_db),
+    principal: User = Depends(get_principal),
+) -> Card:
+    """Flag card ``{card_id}`` as needing a human (M5 V13): set ``needs_human=true``
+    and store the optional ``attention_note`` from the body. Records an ``attention``
+    activity event. **404** unless the card is live; owner/member-gated (WRITE)."""
+    card = _get_or_404(db, card_id)
+    authorize_board(db, principal, card.board_id, Access.WRITE)
+    card.needs_human = True
+    card.attention_note = payload.attention_note
+    record_activity(
+        db,
+        principal,
+        board_id=card.board_id,
+        entity_type="card",
+        entity_id=card.id,
+        action="attention",
+        summary=(
+            f"flagged {card.ticket_number} for a human: {payload.attention_note}"
+            if payload.attention_note
+            else f"flagged {card.ticket_number} for a human"
+        ),
+    )
+    db.commit()
+    db.refresh(card)
+    return _attach_one(db, card)
+
+
+@router.post("/{card_id}/resolve", response_model=CardRead)
+def resolve_needs_human(
+    card_id: int,
+    db: Session = Depends(get_db),
+    principal: User = Depends(get_principal),
+) -> Card:
+    """Clear the needs-human flag on card ``{card_id}`` (M5 V13): set
+    ``needs_human=false`` and clear the ``attention_note`` (the ask is no longer
+    outstanding, keeping the invariant that a note only rides a flagged card — the
+    handoff context lives on in the activity feed + the card's comments). Records a
+    ``resolved`` activity event. **404** unless the card is live; WRITE-gated.
+
+    Resolving an unflagged card is a harmless no-op (idempotent): it still records a
+    ``resolved`` event and returns the card."""
+    card = _get_or_404(db, card_id)
+    authorize_board(db, principal, card.board_id, Access.WRITE)
+    card.needs_human = False
+    card.attention_note = None
+    record_activity(
+        db,
+        principal,
+        board_id=card.board_id,
+        entity_type="card",
+        entity_id=card.id,
+        action="resolved",
+        summary=f"resolved the human handoff on {card.ticket_number}",
     )
     db.commit()
     db.refresh(card)

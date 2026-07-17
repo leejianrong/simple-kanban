@@ -181,6 +181,7 @@ def _cmd_list(client: KanbanClient, config: Config, args: argparse.Namespace) ->
         label=args.label,
         due_before=args.due_before,
         overdue=args.overdue or None,
+        needs_human=args.needs_human or None,
         limit=args.limit,
     )
 
@@ -242,6 +243,14 @@ def _cmd_next(client: KanbanClient, config: Config, args: argparse.Namespace) ->
             board, assignee=args.assignee, label=args.label, priority=args.priority
         )
     return client.next_ready(board, label=args.label, priority=args.priority)
+
+
+def _cmd_needs_human(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    return client.flag_needs_human(args.card_id, attention_note=args.note)
+
+
+def _cmd_resolve(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    return client.resolve_card(args.card_id)
 
 
 # --- ops handlers -----------------------------------------------------------
@@ -476,6 +485,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_list.add_argument(
         "--overdue", action="store_true", help="only past-due cards not yet done"
     )
+    p_list.add_argument(
+        "--needs-human", dest="needs_human", action="store_true",
+        help="only cards flagged for a human (needs-human)",
+    )
     p_list.add_argument("--limit", type=int, help="max cards to return")
     p_list.set_defaults(func=_cmd_list)
 
@@ -544,6 +557,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--priority", choices=PRIORITIES, help="only cards at this priority or higher"
     )
     p_next.set_defaults(func=_cmd_next)
+
+    # --- needs-human handoff (M5 V13, KAN-246) -------------------------------
+    p_needs_human = sub.add_parser(
+        "needs-human", parents=[common], help="flag a card as needing a human"
+    )
+    p_needs_human.add_argument("card_id", type=int)
+    p_needs_human.add_argument("--note", help="an optional note describing the ask")
+    p_needs_human.set_defaults(func=_cmd_needs_human)
+
+    p_resolve = sub.add_parser(
+        "resolve", parents=[common], help="clear a card's needs-human flag"
+    )
+    p_resolve.add_argument("card_id", type=int)
+    p_resolve.set_defaults(func=_cmd_resolve)
 
     # --- board subcommands (nested group; parity with /api/v1/boards) --------
     p_board = sub.add_parser("board", help="manage boards (list / create)")

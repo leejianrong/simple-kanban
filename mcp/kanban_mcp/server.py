@@ -126,6 +126,7 @@ def list_cards(
     label: int | None = None,
     due_before: str | None = None,
     overdue: bool | None = None,
+    needs_human: bool | None = None,
     limit: int | None = None,
     cursor: str | None = None,
 ) -> dict[str, Any]:
@@ -133,7 +134,8 @@ def list_cards(
     KANBAN_BOARD_ID; omit both to span all your boards). Other filters (AND-ed):
     column, epic_id, updated_since (an ISO-8601 timestamp — stories changed
     at/after it), priority, label (a label id), due_before (an ISO-8601 timestamp —
-    stories due strictly before it), and overdue (true → past-due and not done).
+    stories due strictly before it), overdue (true → past-due and not done), and
+    needs_human (true → cards flagged for a human via needs_human; false → the rest).
     Paginate with limit; if more results remain the response includes
     ``next_cursor`` to pass back as ``cursor``.
     """
@@ -146,6 +148,7 @@ def list_cards(
         label=label,
         due_before=due_before,
         overdue=overdue,
+        needs_human=needs_human,
         limit=limit,
         cursor=cursor,
     )
@@ -468,6 +471,32 @@ def next_ready(
     return _client_instance().next_ready(
         _require_board(board_id), label=label, priority=priority
     )
+
+
+# --- needs-human handoff (M5 V13 API / KAN-246 tools) ----------------------
+
+
+@mcp.tool()
+def needs_human(card_id: int, attention_note: str | None = None) -> dict[str, Any]:
+    """Flag story ``card_id`` as needing a human — use this when you hit something
+    only a person can settle (a decision, missing access, a stuck PR). Pass an
+    optional ``attention_note`` describing the ask. Returns the updated card
+    (``needs_human=true``); it then shows on the board with a needs-human badge and
+    is findable via ``list_cards(needs_human=true)``. A human clears it with
+    ``resolve`` and typically replies via a comment — poll the card's flag +
+    comments to see the resolution. Authorized via the card's own board.
+    """
+    return _client_instance().flag_needs_human(card_id, attention_note=attention_note)
+
+
+@mcp.tool()
+def resolve(card_id: int) -> dict[str, Any]:
+    """Clear the needs-human flag on story ``card_id`` (``needs_human=false``, the
+    attention note is cleared). The human-facing counterpart to ``needs_human``;
+    typically you also add a comment explaining the resolution. Returns the updated
+    card. Authorized via the card's own board — no ``board_id`` needed.
+    """
+    return _client_instance().resolve_card(card_id)
 
 
 def main() -> None:

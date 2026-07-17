@@ -19,6 +19,7 @@ from app.schemas import (
     EpicCreate,
     LabelCreate,
     LinkCreate,
+    NeedsHumanRequest,
     PriorityEnum,
 )
 
@@ -93,6 +94,8 @@ def test_card_read_dependency_arrays_default_empty():
         epic_id=None,
         priority="none",
         due_date=None,
+        needs_human=False,
+        attention_note=None,
         created_at="2026-07-09T00:00:00Z",
         updated_at="2026-07-09T00:00:00Z",
     )
@@ -125,6 +128,8 @@ def test_card_read_links_default_empty():
         epic_id=None,
         priority="none",
         due_date=None,
+        needs_human=False,
+        attention_note=None,
         created_at="2026-07-10T00:00:00Z",
         updated_at="2026-07-10T00:00:00Z",
     )
@@ -198,3 +203,30 @@ def test_label_create_requires_non_empty_name_and_color():
             LabelCreate(name=bad, color="#000")
         with pytest.raises(ValidationError):
             LabelCreate(name="ok", color=bad)
+
+
+# --- needs-human handoff (M5 V13, KAN-246) ---------------------------------
+
+
+def test_needs_human_request_note_optional():
+    # The note is optional — an empty request flags the card without a note.
+    assert NeedsHumanRequest().attention_note is None
+    assert NeedsHumanRequest(attention_note=None).attention_note is None
+    assert (
+        NeedsHumanRequest(attention_note="need a prod db password").attention_note
+        == "need a prod db password"
+    )
+
+
+def test_needs_human_request_rejects_blank_note():
+    # A present-but-blank note is a mistake — reject it (mirrors CommentCreate).
+    for bad in ("", "   ", "\t\n"):
+        with pytest.raises(ValidationError):
+            NeedsHumanRequest(attention_note=bad)
+
+
+def test_card_read_exposes_needs_human_fields():
+    # CardRead carries the flag + note (from_attributes reads the real columns).
+    fields = CardRead.model_fields
+    assert "needs_human" in fields
+    assert "attention_note" in fields

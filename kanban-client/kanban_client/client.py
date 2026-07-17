@@ -219,6 +219,7 @@ class KanbanClient:
         label: int | None = None,
         due_before: str | None = None,
         overdue: bool | None = None,
+        needs_human: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
     ) -> dict[str, Any]:
@@ -232,6 +233,7 @@ class KanbanClient:
                 "label": label,
                 "due_before": due_before,
                 "overdue": overdue,
+                "needs_human": needs_human,
                 "limit": limit,
                 "cursor": cursor,
             }
@@ -493,3 +495,22 @@ class KanbanClient:
         if response.status_code == 204:
             return {"card": None}
         return {"card": response.json()}
+
+    # --- needs-human handoff (M5 V13 API / KAN-246 adapter) -----------------
+
+    def flag_needs_human(
+        self, card_id: int, *, attention_note: str | None = None
+    ) -> dict[str, Any]:
+        """Flag card ``card_id`` as needing a human, with an optional
+        ``attention_note`` describing the ask. Returns the updated card
+        (``needs_human=true``). Records an ``attention`` activity event."""
+        payload = _clean({"attention_note": attention_note})
+        return self._request(
+            "POST", f"/cards/{card_id}/needs-human", json=payload
+        ).json()
+
+    def resolve_card(self, card_id: int) -> dict[str, Any]:
+        """Clear the needs-human flag on card ``card_id`` (``needs_human=false``,
+        note cleared). Returns the updated card. Records a ``resolved`` activity
+        event. The resolution channel for the agent is the card's comments."""
+        return self._request("POST", f"/cards/{card_id}/resolve").json()

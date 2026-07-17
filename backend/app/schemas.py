@@ -112,6 +112,23 @@ class CardMove(BaseModel):
     position: int | None = Field(default=None, ge=0)
 
 
+class NeedsHumanRequest(BaseModel):
+    """Flag a card as needing a human (M5 V13, KAN-246): ``POST
+    /cards/{id}/needs-human`` with an optional ``attention_note`` describing the
+    ask (the decision to make, the access that's missing, why a PR is stuck). The
+    note is optional and, when given, must not be blank; omit it (or send null) to
+    flag the card without a note."""
+
+    attention_note: str | None = None
+
+    @field_validator("attention_note")
+    @classmethod
+    def note_non_empty(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            raise ValueError("attention_note must not be empty")
+        return v
+
+
 class LinkCreate(BaseModel):
     """Attach a work-link to a card (KAN-32): ``POST /cards/{id}/links`` with a
     ``label`` (e.g. "PR", "branch", "CI") and a ``url`` (the PR URL, branch, CI run,
@@ -207,6 +224,12 @@ class CardRead(BaseModel):
     # column), mirroring ``links`` — empty when the card has none.
     priority: PriorityEnum
     due_date: datetime | None
+    # Needs-human handoff flag (M5 V13, KAN-246). ``needs_human`` is the boolean
+    # flag an agent raises when a card needs a human; ``attention_note`` is the
+    # optional ask it left. Both are real columns, so from_attributes reads them
+    # directly. A resolved card reads ``needs_human=false`` + ``attention_note=null``.
+    needs_human: bool
+    attention_note: str | None
     labels: list[LabelRead] = []
     # Card-to-card dependencies (KAN-28), populated by the router from the
     # card_dependency table (not ORM-mapped columns): ids of cards that block this

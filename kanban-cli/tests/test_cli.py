@@ -100,6 +100,12 @@ class FakeClient:
     def next_ready(self, board_id, **kw):
         return self._call("next_ready", board_id=board_id, **kw)
 
+    def flag_needs_human(self, card_id, **kw):
+        return self._call("flag_needs_human", card_id=card_id, **kw)
+
+    def resolve_card(self, card_id):
+        return self._call("resolve_card", card_id=card_id)
+
 
 @pytest.fixture(autouse=True)
 def isolate_config(monkeypatch, tmp_path):
@@ -144,6 +150,7 @@ def test_list_maps_all_filters(monkeypatch, env):
                 "label": None,
                 "due_before": None,
                 "overdue": None,
+                "needs_human": None,
                 "limit": 10,
             },
         )
@@ -161,6 +168,32 @@ def test_list_maps_card_field_filters(monkeypatch, env):
     assert call["label"] == 4
     assert call["due_before"] == "2026-08-01"
     assert call["overdue"] is True
+
+
+def test_list_needs_human_filter(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"cards": [CARD]}))
+    assert cli.run(["list", "--needs-human"]) == 0
+    assert fake.calls[0][1]["needs_human"] is True
+
+
+def test_needs_human_with_note(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient())
+    assert cli.run(["needs-human", "1", "--note", "decide the region"]) == 0
+    assert fake.calls == [
+        ("flag_needs_human", {"card_id": 1, "attention_note": "decide the region"})
+    ]
+
+
+def test_needs_human_without_note(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient())
+    assert cli.run(["needs-human", "2"]) == 0
+    assert fake.calls == [("flag_needs_human", {"card_id": 2, "attention_note": None})]
+
+
+def test_resolve(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient())
+    assert cli.run(["resolve", "7"]) == 0
+    assert fake.calls == [("resolve_card", {"card_id": 7})]
 
 
 def test_get_passes_card_id(monkeypatch, env):
