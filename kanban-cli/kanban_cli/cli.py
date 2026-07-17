@@ -90,6 +90,9 @@ def _humanize(result: Any, *, noun: str = "card") -> str:
     if isinstance(result, dict) and "labels" in result:  # list_labels
         labels = result["labels"]
         return "\n".join(_label_line(la) for la in labels) if labels else "(no labels)"
+    if isinstance(result, dict) and "card" in result:  # dispatch / next (peek/claim)
+        card = result["card"]
+        return _card_line(card) if card else "(no card ready)"
     if isinstance(result, dict) and "deleted" in result:  # delete_{card,epic,label}
         return f"deleted {noun} {result['deleted']}"
     if isinstance(result, dict) and "status" in result:  # warmup
@@ -225,6 +228,20 @@ def _cmd_delete(client: KanbanClient, config: Config, args: argparse.Namespace) 
             f"refusing to delete card {args.card_id} without confirmation; pass --yes"
         )
     return client.delete_card(args.card_id)
+
+
+def _cmd_next(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    """Peek at (or, with ``--claim``, atomically dispatch) the next ready card on a
+    board (M5 V12, KAN-245). Both need a board — the dispatch endpoints are
+    path-scoped with no API-side fallback."""
+    board = _resolve_board(args.board, config)
+    if board is None:
+        raise ConfigError("a board is required; pass --board or set KANBAN_BOARD_ID")
+    if args.claim:
+        return client.dispatch(
+            board, assignee=args.assignee, label=args.label, priority=args.priority
+        )
+    return client.next_ready(board, label=args.label, priority=args.priority)
 
 
 # --- ops handlers -----------------------------------------------------------
@@ -509,6 +526,24 @@ def build_parser() -> argparse.ArgumentParser:
     p_delete.add_argument("card_id", type=int)
     p_delete.add_argument("--yes", action="store_true", help="confirm the deletion")
     p_delete.set_defaults(func=_cmd_delete)
+
+    # ``next`` peeks at the next ready-to-work card; ``--claim`` atomically
+    # dispatches it (move to in_progress + assign) via the fleet-safe endpoint.
+    p_next = sub.add_parser(
+        "next",
+        parents=[common],
+        help="show the next ready card (--claim to atomically dispatch it)",
+    )
+    p_next.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
+    p_next.add_argument(
+        "--claim", action="store_true", help="atomically claim it (move to in_progress + assign)"
+    )
+    p_next.add_argument("--assignee", help="who to claim it as (with --claim; default: you)")
+    p_next.add_argument("--label", type=int, metavar="LABEL_ID", help="only cards with this label")
+    p_next.add_argument(
+        "--priority", choices=PRIORITIES, help="only cards at this priority or higher"
+    )
+    p_next.set_defaults(func=_cmd_next)
 
     # --- board subcommands (nested group; parity with /api/v1/boards) --------
     p_board = sub.add_parser("board", help="manage boards (list / create)")

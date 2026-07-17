@@ -450,3 +450,15 @@ class TokenCreated(TokenRead):
     retrieved again (R7.1)."""
 
     token: str
+
+
+class DispatchRequest(BaseModel):
+    """Optional body for ``POST /boards/{id}/dispatch`` (M5 V12, KAN-245). All
+    fields optional: ``assignee`` is who to claim the selected card as (defaults to
+    the caller's own identity); ``label`` (a label id) and ``priority`` (a
+    **minimum** priority — cards at that rank or above) narrow which ready card is
+    chosen. An empty/absent body dispatches the next ready card to the caller."""
+
+    assignee: str | None = None
+    label: int | None = None
+    priority: PriorityEnum | None = None
