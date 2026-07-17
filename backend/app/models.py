@@ -55,7 +55,18 @@ VALID_ACTIVITY_ENTITY_TYPES = ("card", "epic", "board")
 # ``restored`` (KAN-20) is a distinct lifecycle event from ``deleted`` — a trashed
 # card/epic brought back to life — so the audit feed can badge it on its own (rather
 # than muddying it as an "updated"). Added to the CHECK via migration 0013.
-VALID_ACTIVITY_ACTIONS = ("created", "updated", "deleted", "moved", "restored")
+# ``attention``/``resolved`` (M5 V13, KAN-246) are the human↔agent handoff events:
+# an agent flags a card ``needs-human`` (attention) and a human clears it (resolved).
+# Added to the CHECK via migration 0015.
+VALID_ACTIVITY_ACTIONS = (
+    "created",
+    "updated",
+    "deleted",
+    "moved",
+    "restored",
+    "attention",
+    "resolved",
+)
 
 
 class Board(Base):
@@ -353,6 +364,17 @@ class Card(Base):
     due_date: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Needs-human handoff flag (M5 V13, KAN-246). An agent sets ``needs_human`` when
+    # it hits something only a human can settle (a decision, missing access, a stuck
+    # PR) and leaves an optional ``attention_note`` describing the ask; a human then
+    # clears the flag (``POST /cards/{id}/resolve``) once handled. NOT NULL with a
+    # ``false`` server default so every existing row stays valid after the additive
+    # migration (R5.3). The resolution *channel* is the existing comments feature
+    # (KAN-33) — the agent discovers resolution via the cleared flag + a human note.
+    needs_human: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    attention_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Soft-delete tombstone (KAN-19, R5.2). NULL = live; a timestamp = deleted.
     # DELETE sets this instead of removing the row; default reads (list/get, the
     # ordering helpers, autosync) filter it out (``deleted_at IS NULL``) so a
@@ -404,7 +426,8 @@ class Activity(Base):
             name="ck_activity_entity_type",
         ),
         CheckConstraint(
-            "action IN ('created', 'updated', 'deleted', 'moved', 'restored')",
+            "action IN ('created', 'updated', 'deleted', 'moved', 'restored', "
+            "'attention', 'resolved')",
             name="ck_activity_action",
         ),
     )

@@ -42,6 +42,8 @@ EXPECTED_TOOLS = {
     "delete_label",
     "dispatch",
     "next",
+    "needs_human",
+    "resolve",
 }
 
 

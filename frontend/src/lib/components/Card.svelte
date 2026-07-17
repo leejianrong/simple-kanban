@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Ban, CalendarClock, Link as LinkIcon, Pencil, Trash2 } from "lucide-svelte";
+  import { Ban, CalendarClock, Hand, Link as LinkIcon, Pencil, Trash2 } from "lucide-svelte";
   import type { Card, Priority } from "../api";
   import { cardById, epicFor, removeCard } from "../board.svelte";
   import CardModal from "./CardModal.svelte";
@@ -125,6 +125,12 @@
         <span class="blocked-badge" title="Blocked by an unfinished card">
           <Ban size={11} aria-hidden="true" />
           Blocked
+        </span>
+      {/if}
+      {#if card.needs_human}
+        <span class="needs-human-badge" title={card.attention_note ?? "Flagged for a human"}>
+          <Hand size={11} aria-hidden="true" />
+          Needs human
         </span>
       {/if}
       {#if epic}

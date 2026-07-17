@@ -28,6 +28,10 @@ export interface Card {
   priority: Priority;
   due_date: string | null;
   labels: Label[];
+  // Needs-human handoff (M5 V13, KAN-246): `needs_human` is true when an agent
+  // flagged the card for a human; `attention_note` is the optional ask it left.
+  needs_human: boolean;
+  attention_note: string | null;
   // Card-to-card dependencies (KAN-28/KAN-30): ids of cards that block this one
   // (blocked_by) and ids of cards this one blocks (blocks). `blocked` is the
   // derived signal — true when >=1 blocker is not yet done (KAN-29).
@@ -326,6 +330,27 @@ export async function deleteComment(cardId: number, commentId: number): Promise<
     method: "DELETE",
   });
   if (!res.ok) throw new ApiError(res.status, await parseError(res));
+}
+
+// --- Needs-human handoff (M5 V13, KAN-246) ---------------------------------
+// An agent flags a card as needing a human (with an optional note); a human
+// clears it. Both return the refreshed card; the resolution channel for the agent
+// is the card's comments. Server-authoritative like every mutation (refetch after).
+
+export async function needsHuman(cardId: number, attentionNote?: string | null): Promise<Card> {
+  const res = await fetch(`${API}/cards/${cardId}/needs-human`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ attention_note: attentionNote ?? null }),
+  });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function resolveCard(cardId: number): Promise<Card> {
+  const res = await fetch(`${API}/cards/${cardId}/resolve`, { method: "POST" });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
 }
 
 export async function listEpics(boardId?: number): Promise<Epic[]> {
