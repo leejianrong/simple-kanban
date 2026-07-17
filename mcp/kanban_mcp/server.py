@@ -127,6 +127,8 @@ def list_cards(
     due_before: str | None = None,
     overdue: bool | None = None,
     needs_human: bool | None = None,
+    assignee: str | None = None,
+    sort: str | None = None,
     limit: int | None = None,
     cursor: str | None = None,
 ) -> dict[str, Any]:
@@ -134,10 +136,14 @@ def list_cards(
     KANBAN_BOARD_ID; omit both to span all your boards). Other filters (AND-ed):
     column, epic_id, updated_since (an ISO-8601 timestamp — stories changed
     at/after it), priority, label (a label id), due_before (an ISO-8601 timestamp —
-    stories due strictly before it), overdue (true → past-due and not done), and
-    needs_human (true → cards flagged for a human via needs_human; false → the rest).
-    Paginate with limit; if more results remain the response includes
-    ``next_cursor`` to pass back as ``cursor``.
+    stories due strictly before it), overdue (true → past-due and not done),
+    needs_human (true → cards flagged for a human via needs_human; false → the rest),
+    and assignee (exact match). ``sort`` re-orders the result — comma-separated keys
+    with an optional ``-`` for descending (e.g. ``-priority``, ``-due_date,position``;
+    fields: position/priority/due_date/created_at/updated_at/story_points/assignee/
+    title/column/id). ``priority`` sorts by rank (none→urgent). Paginate with limit;
+    if more results remain the response includes ``next_cursor`` to pass back as
+    ``cursor`` (not available together with ``sort``).
     """
     return _client_instance().list_cards(
         board_id=_board(board_id),
@@ -149,6 +155,8 @@ def list_cards(
         due_before=due_before,
         overdue=overdue,
         needs_human=needs_human,
+        assignee=assignee,
+        sort=sort,
         limit=limit,
         cursor=cursor,
     )
@@ -520,6 +528,38 @@ def metrics(
     return _client_instance().board_metrics(
         _require_board(board_id), since=since, window=window
     )
+
+
+# --- saved views (M5 V14 API / KAN-247 tools) ------------------------------
+
+
+@mcp.tool()
+def list_views(board_id: int | None = None) -> dict[str, Any]:
+    """List a board's saved views (id, name, query). ``board_id`` targets one board
+    (defaults to KANBAN_BOARD_ID). A view's ``query`` is the same filter+sort grammar
+    ``list_cards`` takes — spread it as ``list_cards`` args to reproduce the view's
+    cards. Returns ``{"views": [...]}``."""
+    return _client_instance().list_views(_require_board(board_id))
+
+
+@mcp.tool()
+def create_view(
+    name: str, query: dict[str, Any] | None = None, board_id: int | None = None
+) -> dict[str, Any]:
+    """Create a saved view — a named, persisted card query on a board. ``query`` is
+    the structured filter+sort grammar (any of column/epic_id/priority/label/
+    due_before/overdue/needs_human/assignee/sort — same keys as ``list_cards``), e.g.
+    ``{"assignee": "agent-7", "sort": "-priority"}``; omit it for an unfiltered view.
+    ``board_id`` targets one board (defaults to KANBAN_BOARD_ID). Returns the created
+    view."""
+    return _client_instance().create_view(_require_board(board_id), name, query)
+
+
+@mcp.tool()
+def delete_view(view_id: int, board_id: int | None = None) -> dict[str, Any]:
+    """Delete a saved view by id on a board. ``board_id`` targets one board (defaults
+    to KANBAN_BOARD_ID). 404 if no such view is on that board."""
+    return _client_instance().delete_view(_require_board(board_id), view_id)
 
 
 def main() -> None:

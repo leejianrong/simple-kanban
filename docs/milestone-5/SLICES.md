@@ -78,6 +78,20 @@ the MCP tool + `kan` verb, then any UI.
 - **Tests:** integration — each filter + combinations; save/list/delete a view; a view's query
   reproduces its result set. e2e — switch views.
 - **Acceptance:** save + switch "needs me"; suite green. Additive migration.
+- **Shipped (KAN-247):** `GET /cards` gained an `assignee` filter + a `sort` grammar — comma-separated
+  keys, `-` prefix = descending (`sort=-priority,position`); `priority` sorts by rank (none→urgent),
+  NULLs sink, `id` is the stable tiebreaker; valid fields: `position`/`priority`/`due_date`/
+  `created_at`/`updated_at`/`story_points`/`assignee`/`title`/`column`/`id`. A custom `sort` overrides
+  the keyset order, so it is rejected with `cursor` (422) and emits no `X-Next-Cursor`. The grammar is
+  one Pydantic model (`schemas.CardQuery`, field names = the `GET /cards` params) reused by the query
+  API and the saved-view store; the SQL sort builder lives in `app/card_query.py`. `saved_view`
+  (`id, board_id FK CASCADE, name, query JSON, created_at`, migration `0016_saved_views`) is CRUD'd
+  at `GET/POST/GET-one/DELETE /api/v1/boards/{id}/views` (READ to list/get, WRITE to create/delete;
+  cross-board id → 404). A view's stored `query` (e.g. `{"priority":"high","assignee":"me","sort":
+  "-priority"}`) replays verbatim as `GET /cards` params — reproduction by construction. Parity:
+  `kan view list|create|delete` + `kan list --assignee/--sort`; MCP `list_views`/`create_view`/
+  `delete_view` + `list_cards` `assignee`/`sort`. UI: a query bar with a saved-view dropdown, live
+  filters (priority/assignee/needs-human/sort), Save-view, and a board/table toggle (sortable table).
 
 ## V15 · Full-text search
 

@@ -45,6 +45,9 @@ EXPECTED_TOOLS = {
     "needs_human",
     "resolve",
     "metrics",
+    "list_views",
+    "create_view",
+    "delete_view",
 }
 
 
@@ -229,3 +232,64 @@ def test_dispatch_requires_a_board(monkeypatch):
 
     with pytest.raises(ValueError):
         server.dispatch()
+
+
+# --- saved-view + sort tools (M5 V14, KAN-247) -----------------------------
+
+
+def test_list_cards_passes_sort_and_assignee(monkeypatch):
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["params"] = dict(request.url.params)
+        return httpx.Response(200, json=[])
+
+    client = KanbanClient("http://test", transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(server, "_client", client)
+    monkeypatch.setattr(server, "_default_board_id", None)
+    server.list_cards(board_id=3, sort="-priority", assignee="agent-7")
+    assert seen["params"] == {"board_id": "3", "sort": "-priority", "assignee": "agent-7"}
+
+
+def test_create_view_posts_name_and_query(monkeypatch):
+    seen = _capture_client(
+        monkeypatch,
+        httpx.Response(201, json={"id": 1, "name": "mine", "query": {"assignee": "a"}}),
+    )
+    out = server.create_view("mine", {"assignee": "a"}, board_id=3)
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/api/v1/boards/3/views"
+    assert json.loads(seen["content"]) == {"name": "mine", "query": {"assignee": "a"}}
+    assert out == {"id": 1, "name": "mine", "query": {"assignee": "a"}}
+
+
+def test_create_view_defaults_query_to_empty(monkeypatch):
+    seen = _capture_client(monkeypatch, httpx.Response(201, json={"id": 1}))
+    server.create_view("all", board_id=3)
+    assert json.loads(seen["content"]) == {"name": "all", "query": {}}
+
+
+def test_list_views_reads_board_views(monkeypatch):
+    seen = _capture_client(monkeypatch, httpx.Response(200, json=[{"id": 1}]))
+    out = server.list_views(board_id=3)
+    assert seen["method"] == "GET"
+    assert seen["path"] == "/api/v1/boards/3/views"
+    assert out == {"views": [{"id": 1}]}
+
+
+def test_delete_view_deletes_path(monkeypatch):
+    seen = _capture_client(monkeypatch, httpx.Response(204))
+    out = server.delete_view(5, board_id=3)
+    assert seen["method"] == "DELETE"
+    assert seen["path"] == "/api/v1/boards/3/views/5"
+    assert out == {"deleted": 5}
+
+
+def test_view_tools_require_a_board(monkeypatch):
+    _capture_client(monkeypatch, httpx.Response(200, json=[]))
+    import pytest
+
+    with pytest.raises(ValueError):
+        server.list_views()
+    with pytest.raises(ValueError):
+        server.create_view("x")
