@@ -27,6 +27,7 @@ from mcp.server.fastmcp import FastMCP
 from .config import load_config
 
 Column = Literal["todo", "in_progress", "done"]
+Priority = Literal["none", "low", "medium", "high", "urgent"]
 
 mcp = FastMCP("kanban")
 
@@ -111,20 +112,30 @@ def list_cards(
     column: Column | None = None,
     epic_id: int | None = None,
     updated_since: str | None = None,
+    priority: Priority | None = None,
+    label: int | None = None,
+    due_before: str | None = None,
+    overdue: bool | None = None,
     limit: int | None = None,
     cursor: str | None = None,
 ) -> dict[str, Any]:
     """List/query stories. ``board_id`` targets one board (defaults to
     KANBAN_BOARD_ID; omit both to span all your boards). Other filters (AND-ed):
-    column, epic_id, and updated_since (an ISO-8601 timestamp — stories changed
-    at/after it). Paginate with limit; if more results remain the response
-    includes ``next_cursor`` to pass back as ``cursor``.
+    column, epic_id, updated_since (an ISO-8601 timestamp — stories changed
+    at/after it), priority, label (a label id), due_before (an ISO-8601 timestamp —
+    stories due strictly before it), and overdue (true → past-due and not done).
+    Paginate with limit; if more results remain the response includes
+    ``next_cursor`` to pass back as ``cursor``.
     """
     return _client_instance().list_cards(
         board_id=_board(board_id),
         column=column,
         epic_id=epic_id,
         updated_since=updated_since,
+        priority=priority,
+        label=label,
+        due_before=due_before,
+        overdue=overdue,
         limit=limit,
         cursor=cursor,
     )
@@ -159,12 +170,17 @@ def create_card(
     story_points: int | None = None,
     assignee: str | None = None,
     epic_id: int | None = None,
+    priority: Priority | None = None,
+    due_date: str | None = None,
+    label_ids: list[int] | None = None,
 ) -> dict[str, Any]:
     """Create a story. Only ``title`` is required; it lands at the end of its
     column (default ``todo``). ``board_id`` targets one board (defaults to
     KANBAN_BOARD_ID; omit both to use your earliest board). ``story_points`` must
     be one of 1/2/3/5/8/13. ``epic_id`` links it to an existing epic on the same
-    board.
+    board. ``priority`` is one of none/low/medium/high/urgent (default none);
+    ``due_date`` is an ISO-8601 timestamp; ``label_ids`` attaches board labels
+    (each must belong to the card's board — see create_label/list_labels).
     """
     return _client_instance().create_card(
         title,
@@ -174,6 +190,9 @@ def create_card(
         story_points=story_points,
         assignee=assignee,
         epic_id=epic_id,
+        priority=priority,
+        due_date=due_date,
+        label_ids=label_ids,
     )
 
 
@@ -220,10 +239,15 @@ def update_card(
     story_points: int | None = None,
     assignee: str | None = None,
     epic_id: int | None = None,
+    priority: Priority | None = None,
+    due_date: str | None = None,
+    label_ids: list[int] | None = None,
 ) -> dict[str, Any]:
     """Edit a story's fields (only the arguments you pass are changed). Use
-    move_card to change column/position, not this. Authorized via the card's own
-    board — no ``board_id`` needed.
+    move_card to change column/position, not this. ``priority`` re-ranks;
+    ``due_date`` is an ISO-8601 timestamp; ``label_ids`` **replaces** the card's
+    label set (``[]`` clears it — each id must belong to the card's board).
+    Authorized via the card's own board — no ``board_id`` needed.
     """
     return _client_instance().update_card(
         card_id,
@@ -232,6 +256,9 @@ def update_card(
         story_points=story_points,
         assignee=assignee,
         epic_id=epic_id,
+        priority=priority,
+        due_date=due_date,
+        label_ids=label_ids,
     )
 
 
@@ -357,6 +384,38 @@ def list_comments(card_id: int) -> dict[str, Any]:
     via the card's own board — no ``board_id`` needed.
     """
     return _client_instance().list_comments(card_id)
+
+
+# --- board labels (M5 V11 API / KAN-244 tools) ----------------------------
+
+
+@mcp.tool()
+def list_labels(board_id: int | None = None) -> dict[str, Any]:
+    """List a board's labels (id, name, color). ``board_id`` targets one board
+    (defaults to KANBAN_BOARD_ID). Use the returned ids in ``label_ids`` on
+    create_card/update_card, or as the ``label`` filter on list_cards."""
+    resolved = _board(board_id)
+    if resolved is None:
+        raise ValueError("board_id is required (set KANBAN_BOARD_ID or pass board_id)")
+    return _client_instance().list_labels(resolved)
+
+
+@mcp.tool()
+def create_label(name: str, color: str, board_id: int | None = None) -> dict[str, Any]:
+    """Create a board-scoped label — a ``name`` and a ``color`` (e.g. a hex like
+    ``#0ea5e9``). ``board_id`` targets one board (defaults to KANBAN_BOARD_ID).
+    Returns the created label; attach it to cards via ``label_ids``."""
+    resolved = _board(board_id)
+    if resolved is None:
+        raise ValueError("board_id is required (set KANBAN_BOARD_ID or pass board_id)")
+    return _client_instance().create_label(resolved, name, color)
+
+
+@mcp.tool()
+def delete_label(label_id: int) -> dict[str, Any]:
+    """Delete a label by id; it detaches from every card that carried it.
+    Authorized via the label's own board — no ``board_id`` needed."""
+    return _client_instance().delete_label(label_id)
 
 
 def main() -> None:

@@ -38,6 +38,12 @@ from sqlalchemy.orm import Mapped, mapped_column
 from .db import Base
 
 VALID_COLUMNS = ("todo", "in_progress", "done")
+# Card priority (M5 V11, KAN-244). A plain varchar guarded by a CHECK constraint
+# (the same pattern as ``card.column`` — ADR 0008) so adding a priority value later
+# needs no ``ALTER TYPE`` migration. ``none`` is the default (an unranked card).
+# These values live in **three** places that must stay in sync: ``VALID_PRIORITIES``
+# + the CHECK here, ``PriorityEnum`` (schemas), and the ``Priority`` type (api.ts).
+VALID_PRIORITIES = ("none", "low", "medium", "high", "urgent")
 # Board-membership roles (KAN-12), aligned with ADR 0013's ownership language.
 # A plain varchar guarded by a CHECK constraint (the same pattern as ``card.column``)
 # so adding a role later needs no ``ALTER TYPE`` migration.
@@ -253,12 +259,62 @@ class CardComment(Base):
     )
 
 
+class Label(Base):
+    """A board-scoped, colored tag a card can carry (M5 V11, KAN-244).
+
+    Labels belong to a board (``board_id`` FK ``ON DELETE CASCADE`` — deleting a
+    board removes its labels, consistent with the app's hard-delete model) and are
+    attached to cards through the :class:`CardLabel` M:N join. ``name`` +
+    ``color`` (an arbitrary string, typically a hex like ``#0ea5e9``) are the
+    display fields; the non-empty ``name`` rule is enforced by the Pydantic schema
+    (:class:`app.schemas.LabelCreate`), not the table.
+    """
+
+    __tablename__ = "label"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    board_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("board.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    color: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class CardLabel(Base):
+    """The M:N join between a card and a label (M5 V11, KAN-244).
+
+    A composite primary key ``(card_id, label_id)`` keeps each (card, label) pair
+    singular. Both FKs ``ON DELETE CASCADE`` so deleting a card **or** a label
+    detaches the pairing (deleting a label removes it from every card that had it —
+    the tested cascade). That a label belongs to the card's board is enforced in
+    ``routers/cards.py`` (``_validate_labels``, 422), mirroring ``_validate_epic`` —
+    it can't be a table constraint.
+    """
+
+    __tablename__ = "card_label"
+
+    card_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("card.id", ondelete="CASCADE"), primary_key=True
+    )
+    label_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("label.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
 class Card(Base):
     __tablename__ = "card"
     __table_args__ = (
         CheckConstraint(
             "\"column\" IN ('todo', 'in_progress', 'done')",
             name="ck_card_column",
+        ),
+        # Priority (M5 V11) — varchar + CHECK, the ``column`` pattern (ADR 0008).
+        CheckConstraint(
+            "priority IN ('none', 'low', 'medium', 'high', 'urgent')",
+            name="ck_card_priority",
         ),
     )
 
@@ -286,6 +342,17 @@ class Card(Base):
     )
     story_points: Mapped[int | None] = mapped_column(Integer, nullable=True)
     assignee: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Priority (M5 V11, KAN-244). A varchar guarded by ``ck_card_priority`` (the
+    # ``column`` pattern, ADR 0008). NOT NULL with a ``'none'`` server default so
+    # every existing row stays valid after the additive migration (R5.3).
+    priority: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=text("'none'")
+    )
+    # Optional due date (M5 V11). NULL = no due date. The *overdue* signal
+    # (due_date < now AND not done) is derived in the query API, not stored.
+    due_date: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # Soft-delete tombstone (KAN-19, R5.2). NULL = live; a timestamp = deleted.
     # DELETE sets this instead of removing the row; default reads (list/get, the
     # ordering helpers, autosync) filter it out (``deleted_at IS NULL``) so a

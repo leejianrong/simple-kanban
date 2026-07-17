@@ -409,6 +409,93 @@ main {
   font-size: 0.875rem;
   line-height: 1.35;
 }
+/* Priority badge (M5 V11, KAN-244): a colored dot + level, hidden for "none". */
+.priority-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+.priority-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+/* Labels + due pill row on the card face (M5 V11, KAN-244). */
+.card-meta {
+  margin-top: 0.4rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+}
+.label-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  max-width: 14ch;
+  font-size: 0.64rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.06rem 0.4rem;
+}
+.label-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+.label-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.due-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.64rem;
+  font-weight: 600;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.06rem 0.4rem;
+}
+.due-pill.overdue {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: transparent;
+}
+/* Label multi-select in the create/edit form (M5 V11, KAN-244): toggle chips. */
+.label-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.label-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.1rem 0.45rem;
+}
+.label-toggle.selected {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
 /* Dependency references on the card face (KAN-30): tickets this card is blocked
    by / blocks, each hover-titled with the referenced card's full title. */
 .deps {
@@ -731,7 +818,8 @@ button.danger {
   font-size: 0.64rem;
   color: var(--muted);
 }
-.comment-empty {
+.comment-empty,
+.rail-empty {
   margin: 0;
   font-size: 0.72rem;
   color: var(--muted);

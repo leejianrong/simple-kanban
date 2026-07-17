@@ -23,14 +23,14 @@ from collections.abc import Sequence
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import func, or_, select, tuple_
+from sqlalchemy import and_, func, or_, select, tuple_
 from sqlalchemy.orm import Session, aliased
 
 from ..activity import record_activity
 from ..auth_models import User
 from ..authz import Access, authorize_board, get_principal, visible_board_ids
 from ..db import get_db
-from ..models import Card, CardComment, CardDependency, CardLink, Epic
+from ..models import Card, CardComment, CardDependency, CardLabel, CardLink, Epic, Label
 from ..ordering import next_position, renumber_column
 from ..pagination import NEXT_CURSOR_HEADER, decode_cursor, encode_cursor
 from ..schemas import (
@@ -44,6 +44,7 @@ from ..schemas import (
     CommentRead,
     DependencyCreate,
     LinkCreate,
+    PriorityEnum,
 )
 from .boards import resolve_board_id
 
@@ -147,6 +148,7 @@ def _attach_dependencies(db: Session, cards: Sequence[Card]) -> Sequence[Card]:
         card.blocks = sorted(blocks.get(card.id, []))
         card.blocked = active_blockers.get(card.id, 0) > 0
     _attach_links(db, cards)
+    _attach_labels(db, cards)
     return cards
 
 
@@ -170,11 +172,69 @@ def _attach_links(db: Session, cards: Sequence[Card]) -> None:
         card.links = by_card.get(card.id, [])
 
 
+def _attach_labels(db: Session, cards: Sequence[Card]) -> None:
+    """Populate the transient ``labels`` list on each card from the ``card_label``
+    join (M5 V11, KAN-244), ordered by label id. One grouped query over all the
+    given cards — a single round-trip, no per-card N+1 (mirrors ``_attach_links``).
+    Called from ``_attach_dependencies`` so every card-returning route carries its
+    labels.
+    """
+    ids = [c.id for c in cards]
+    if not ids:
+        return
+    rows = db.execute(
+        select(CardLabel.card_id, Label)
+        .join(Label, Label.id == CardLabel.label_id)
+        .where(CardLabel.card_id.in_(ids))
+        .order_by(Label.id)
+    ).all()
+    by_card: dict[int, list[Label]] = defaultdict(list)
+    for card_id, label in rows:
+        by_card[card_id].append(label)
+    for card in cards:
+        card.labels = by_card.get(card.id, [])
+
+
 def _attach_one(db: Session, card: Card) -> Card:
-    """Attach dependency arrays + work-links to a single card (thin wrapper on the
-    batch helper)."""
+    """Attach dependency arrays + work-links + labels to a single card (thin
+    wrapper on the batch helper)."""
     _attach_dependencies(db, [card])
     return card
+
+
+def _validate_labels(
+    db: Session, label_ids: list[int] | None, board_id: int
+) -> list[int]:
+    """Every id in ``label_ids`` (if given) must reference an existing label **on
+    the same board** as the card (M5 V11 — a label is board-scoped, mirroring
+    ``_validate_epic``); 422 otherwise. Returns the de-duplicated list of ids
+    (order preserved). ``None`` → ``[]`` (no labels)."""
+    if not label_ids:
+        return []
+    # De-dupe while preserving order so a caller repeating an id is harmless.
+    unique = list(dict.fromkeys(label_ids))
+    found = set(
+        db.scalars(
+            select(Label.id).where(Label.id.in_(unique), Label.board_id == board_id)
+        ).all()
+    )
+    missing = [lid for lid in unique if lid not in found]
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="every label_id must reference a label on the card's board",
+        )
+    return unique
+
+
+def _set_labels(db: Session, card: Card, label_ids: list[int]) -> None:
+    """Replace a card's label set with exactly ``label_ids`` (already validated).
+    Deletes the existing ``card_label`` rows for the card and inserts the new ones —
+    a full replace so ``label_ids=[]`` clears them. Does not commit (the caller
+    commits in the same transaction as the rest of the mutation)."""
+    db.execute(CardLabel.__table__.delete().where(CardLabel.card_id == card.id))
+    for lid in label_ids:
+        db.add(CardLabel(card_id=card.id, label_id=lid))
 
 
 def _validate_epic(db: Session, epic_id: int | None, board_id: int) -> None:
@@ -209,6 +269,10 @@ def list_cards(
     epic_id: int | None = None,
     updated_since: datetime | None = None,
     blocked: bool | None = None,
+    priority: PriorityEnum | None = None,
+    label: int | None = None,
+    due_before: datetime | None = None,
+    overdue: bool | None = None,
     limit: int | None = Query(default=None, ge=1, le=200),
     cursor: str | None = None,
 ) -> list[Card]:
@@ -228,6 +292,12 @@ def list_cards(
     all blockers done). The ``blocked`` field is on every card in the response
     regardless of this filter. It is a SQL ``EXISTS`` predicate, so it AND-s with
     the other filters and keyset pagination stays exact.
+
+    Card-field filters (M5 V11, KAN-244): ``priority`` (exact match on the enum);
+    ``label`` (a label id — cards carrying that label); ``due_before`` (an ISO-8601
+    timestamp — cards with a ``due_date`` strictly before it; null due dates are
+    excluded); ``overdue`` (``true`` → cards past their ``due_date`` and not yet
+    ``done``; ``false`` → the null-safe complement).
 
     Pagination is keyset over ``(updated_at, id)``: pass ``limit`` to cap the
     page; when a full page is returned the next page's opaque cursor rides the
@@ -258,6 +328,37 @@ def list_cards(
     if blocked is not None:
         predicate = _blocked_predicate()
         query = query.where(predicate if blocked else ~predicate)
+    if priority is not None:
+        query = query.where(Card.priority == priority.value)
+    if label is not None:
+        # Cards carrying the given label (M5 V11). A subquery over the join keeps it
+        # composing cleanly with the other filters + keyset pagination.
+        query = query.where(
+            Card.id.in_(
+                select(CardLabel.card_id).where(CardLabel.label_id == label)
+            )
+        )
+    if due_before is not None:
+        # A NULL due_date is naturally excluded by ``<`` (no due date = not due).
+        query = query.where(Card.due_date < due_before)
+    if overdue is not None:
+        # Overdue = has a due date in the past AND not yet done (M5 V11, R4.3).
+        overdue_pred = and_(
+            Card.due_date.is_not(None),
+            Card.due_date < func.now(),
+            Card.column != ColumnEnum.done.value,
+        )
+        if overdue:
+            query = query.where(overdue_pred)
+        else:
+            # Null-safe negation: no due date, not yet due, or already done.
+            query = query.where(
+                or_(
+                    Card.due_date.is_(None),
+                    Card.due_date >= func.now(),
+                    Card.column == ColumnEnum.done.value,
+                )
+            )
     if cursor is not None:
         try:
             cursor_updated_at, cursor_id = decode_cursor(cursor)
@@ -321,6 +422,7 @@ def create_card(
     board_id = resolve_board_id(db, payload.board_id)
     authorize_board(db, principal, board_id, Access.WRITE)
     _validate_epic(db, payload.epic_id, board_id)
+    label_ids = _validate_labels(db, payload.label_ids, board_id)
     card = Card(
         board_id=board_id,
         title=payload.title,
@@ -330,11 +432,16 @@ def create_card(
         story_points=payload.story_points,
         assignee=payload.assignee,
         epic_id=payload.epic_id,
+        priority=payload.priority.value,
+        due_date=payload.due_date,
     )
     db.add(card)
     db.commit()
     # Refresh so server-assigned fields (id, ticket_number, timestamps) are populated.
     db.refresh(card)
+    if label_ids:
+        _set_labels(db, card, label_ids)
+        db.commit()
     record_activity(
         db,
         principal,
@@ -377,8 +484,17 @@ def update_card(
         )
     if "epic_id" in data:
         _validate_epic(db, data["epic_id"], card.board_id)
+    # ``label_ids`` isn't a card column — it replaces the card_label join, so pull
+    # it out of the field-edit loop and apply it separately (M5 V11).
+    label_ids_sent = "label_ids" in data
+    label_ids = _validate_labels(db, data.pop("label_ids", None), card.board_id)
+    # ``priority`` is an enum on the schema but a varchar column — store its value.
+    if data.get("priority") is not None:
+        data["priority"] = PriorityEnum(data["priority"]).value
     for field, value in data.items():
         setattr(card, field, value)
+    if label_ids_sent:
+        _set_labels(db, card, label_ids)
     record_activity(
         db,
         principal,

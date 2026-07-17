@@ -8,12 +8,15 @@ import {
   createBoard,
   createCard,
   createEpic,
+  createLabel,
   deleteBoard,
   deleteCard,
   deleteEpic,
+  deleteLabel,
   listBoards,
   listCards,
   listEpics,
+  listLabels,
   moveCard as apiMoveCard,
   removeDependency,
   removeLink,
@@ -29,6 +32,7 @@ import {
   type Epic,
   type EpicCreate,
   type EpicUpdate,
+  type Label,
 } from "./api";
 
 export const COLUMNS: { key: Column; label: string }[] = [
@@ -86,11 +90,11 @@ export async function refetchBoards(): Promise<void> {
   }
 }
 
-// Switch the active board and load its cards + epics.
+// Switch the active board and load its cards + epics + labels.
 export async function setActiveBoard(id: number): Promise<void> {
   boardStore.activeBoardId = id;
   persistActiveBoard(id);
-  await Promise.all([refetch(), refetchEpics()]);
+  await Promise.all([refetch(), refetchEpics(), refetchLabels()]);
 }
 
 export async function addBoard(name: string): Promise<void> {
@@ -110,7 +114,7 @@ export async function removeBoard(id: number): Promise<void> {
   // new one (its cards/epics were cascade-deleted server-side).
   if (boardStore.activeBoardId === id) boardStore.activeBoardId = null;
   await refetchBoards();
-  await Promise.all([refetch(), refetchEpics()]);
+  await Promise.all([refetch(), refetchEpics(), refetchLabels()]);
 }
 
 // A single reactive object; we mutate its properties (never reassign the export).
@@ -263,4 +267,42 @@ export async function removeEpic(id: number): Promise<void> {
   // Deleting an epic detaches its stories server-side (epic_id → null), so
   // refetch cards too to drop their now-stale epic tags.
   await Promise.all([refetchEpics(), refetch()]);
+}
+
+// Labels live in their own store (M5 V11, KAN-244) — board-scoped, colored tags
+// the CardForm/CardModal multi-select reads and each Card renders as chips. Loaded
+// alongside cards + epics so a card's inlined `labels` and the picker stay in step.
+export const labelStore = $state<{
+  labels: Label[];
+  loading: boolean;
+  error: string | null;
+}>({ labels: [], loading: false, error: null });
+
+export async function refetchLabels(): Promise<void> {
+  labelStore.loading = true;
+  labelStore.error = null;
+  try {
+    labelStore.labels =
+      boardStore.activeBoardId == null ? [] : await listLabels(boardStore.activeBoardId);
+  } catch (e) {
+    labelStore.error = e instanceof Error ? e.message : "Failed to load labels";
+  } finally {
+    labelStore.loading = false;
+  }
+}
+
+// Create a label on the active board, then refetch the label list (server
+// authoritative). Returns the created label so a caller can attach it immediately.
+export async function addLabel(name: string, color: string): Promise<Label | null> {
+  if (boardStore.activeBoardId == null) return null;
+  const created = await createLabel(boardStore.activeBoardId, { name, color });
+  await refetchLabels();
+  return created;
+}
+
+// Delete a label board-wide; it detaches from every card server-side (cascade),
+// so refetch cards too to drop the now-stale chips.
+export async function removeLabel(id: number): Promise<void> {
+  await deleteLabel(id);
+  await Promise.all([refetchLabels(), refetch()]);
 }

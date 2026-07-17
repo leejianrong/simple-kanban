@@ -37,6 +37,9 @@ EXPECTED_TOOLS = {
     "remove_link",
     "add_comment",
     "list_comments",
+    "list_labels",
+    "create_label",
+    "delete_label",
 }
 
 

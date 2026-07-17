@@ -19,6 +19,18 @@ class ColumnEnum(str, Enum):
     done = "done"
 
 
+class PriorityEnum(str, Enum):
+    """Card priority (M5 V11, KAN-244). Mirrors ``VALID_PRIORITIES`` /
+    ``ck_card_priority`` (models) and the ``Priority`` type (api.ts) — the three
+    places that must stay in sync. ``none`` is the default (an unranked card)."""
+
+    none = "none"
+    low = "low"
+    medium = "medium"
+    high = "high"
+    urgent = "urgent"
+
+
 STORY_POINTS = {1, 2, 3, 5, 8, 13}
 
 
@@ -35,6 +47,12 @@ class CardCreate(BaseModel):
     # falls back to the default board, so pre-board clients (the MCP server, older
     # tests) keep working. The referenced board must exist (422 otherwise).
     board_id: int | None = None
+    # Card fields (M5 V11, KAN-244). ``priority`` defaults to ``none``; ``due_date``
+    # is optional. ``label_ids`` attaches board-scoped labels — each id must belong
+    # to the card's board (checked in the router, 422 otherwise). Omitted → no labels.
+    priority: PriorityEnum = PriorityEnum.none
+    due_date: datetime | None = None
+    label_ids: list[int] | None = None
 
     @field_validator("title")
     @classmethod
@@ -66,6 +84,13 @@ class CardUpdate(BaseModel):
     # Re-link the story to a different epic, or clear it with null. The referenced
     # epic must exist; enforced in the router.
     epic_id: int | None = None
+    # Card fields (M5 V11). All optional (only sent fields apply, like the rest):
+    # ``priority`` re-ranks; ``due_date`` accepts null to clear; ``label_ids``
+    # **replaces** the card's label set (``[]`` clears them). Each label id must
+    # belong to the card's board (checked in the router, 422 otherwise).
+    priority: PriorityEnum | None = None
+    due_date: datetime | None = None
+    label_ids: list[int] | None = None
 
     @field_validator("title")
     @classmethod
@@ -112,6 +137,32 @@ class LinkRead(BaseModel):
     created_at: datetime
 
 
+class LabelCreate(BaseModel):
+    """Create a board-scoped label (M5 V11, KAN-244): ``POST /boards/{id}/labels``
+    with a non-empty ``name`` and a ``color`` (an arbitrary string, typically a hex
+    like ``#0ea5e9``). The board comes from the path, not the body."""
+
+    name: Annotated[str, Field(min_length=1)]
+    color: Annotated[str, Field(min_length=1)]
+
+    @field_validator("name", "color")
+    @classmethod
+    def non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty")
+        return v
+
+
+class LabelRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    board_id: int
+    name: str
+    color: str
+    created_at: datetime
+
+
 class CommentCreate(BaseModel):
     """Post a note to a card (KAN-33): ``POST /cards/{id}/comments`` with a
     ``body``. Human/agent-authored intentional context — distinct from Epic 4's
@@ -151,6 +202,12 @@ class CardRead(BaseModel):
     story_points: int | None
     assignee: str | None
     epic_id: int | None
+    # Card fields (M5 V11, KAN-244). ``priority`` + ``due_date`` are real columns;
+    # ``labels`` is populated by the router from the card_label join (not an ORM
+    # column), mirroring ``links`` — empty when the card has none.
+    priority: PriorityEnum
+    due_date: datetime | None
+    labels: list[LabelRead] = []
     # Card-to-card dependencies (KAN-28), populated by the router from the
     # card_dependency table (not ORM-mapped columns): ids of cards that block this
     # one, and ids of cards this one blocks. Empty when there are none.

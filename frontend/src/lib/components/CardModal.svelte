@@ -7,6 +7,7 @@
     listComments,
     type Column,
     type Comment,
+    type Priority,
   } from "../api";
   import {
     addBlocker,
@@ -17,6 +18,7 @@
     editCard,
     epicFor,
     epicStore,
+    labelStore,
     moveCard,
     removeBlocker,
     removeCard,
@@ -36,18 +38,30 @@
   });
 
   const STORY_POINTS = [1, 2, 3, 5, 8, 13];
+  const PRIORITIES: Priority[] = ["none", "low", "medium", "high", "urgent"];
 
-  // Editable fields (title/description/story_points/assignee/epic) are batched
-  // behind "Save changes" (PATCH). Snapshot the initial values once so a refetch
-  // while the modal is open doesn't clobber in-progress edits; the snapshot also
-  // drives change detection. Status is NOT here — it moves the card immediately
-  // via the dedicated move endpoint (see onStatusChange).
+  // A card's due_date (ISO) → the "YYYY-MM-DD" a <input type=date> wants (local).
+  function toDateInput(iso: string | null | undefined): string {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+
+  // Editable fields (title/description/story_points/assignee/epic/priority/due/
+  // labels) are batched behind "Save changes" (PATCH). Snapshot the initial values
+  // once so a refetch while the modal is open doesn't clobber in-progress edits;
+  // the snapshot also drives change detection. Status is NOT here — it moves the
+  // card immediately via the dedicated move endpoint (see onStatusChange).
   const initial = untrack(() => ({
     title: card?.title ?? "",
     desc: card?.description ?? "",
     assignee: card?.assignee ?? "",
     pts: card?.story_points != null ? String(card.story_points) : "",
     epic: card?.epic_id != null ? String(card.epic_id) : "",
+    priority: (card?.priority ?? "none") as Priority,
+    due: toDateInput(card?.due_date),
+    labels: (card?.labels ?? []).map((l) => l.id).sort((a, b) => a - b),
   }));
 
   let title = $state(initial.title);
@@ -55,10 +69,20 @@
   let assignee = $state(initial.assignee);
   let storyPoints = $state<string>(initial.pts);
   let epicId = $state<string>(initial.epic);
+  let priority = $state<Priority>(initial.priority);
+  let dueDate = $state<string>(initial.due);
+  let labelIds = $state<number[]>([...initial.labels]);
   let submitting = $state(false);
   let error = $state<string | null>(null);
 
   const epicOptions = $derived(epicStore.epics);
+  const labelOptions = $derived(labelStore.labels);
+
+  function toggleLabel(id: number) {
+    labelIds = labelIds.includes(id)
+      ? labelIds.filter((x) => x !== id)
+      : [...labelIds, id];
+  }
   const epic = $derived(card ? epicFor(card.epic_id) : null);
   const ticket = $derived(card?.ticket_number ?? "");
   const columnLabel = $derived(
@@ -215,12 +239,19 @@
   }
 
   // --- Field edits (batched behind Save) ----------------------------------
+  const labelsDirty = $derived(
+    JSON.stringify([...labelIds].sort((a, b) => a - b)) !==
+      JSON.stringify(initial.labels),
+  );
   const dirty = $derived(
     title.trim() !== initial.title ||
       description.trim() !== initial.desc ||
       assignee.trim() !== initial.assignee ||
       storyPoints !== initial.pts ||
-      epicId !== initial.epic,
+      epicId !== initial.epic ||
+      priority !== initial.priority ||
+      dueDate !== initial.due ||
+      labelsDirty,
   );
   const canSubmit = $derived(title.trim().length > 0 && dirty && !submitting);
 
@@ -236,6 +267,9 @@
         assignee: assignee.trim() || null,
         story_points: storyPoints ? Number(storyPoints) : null,
         epic_id: epicId ? Number(epicId) : null,
+        priority,
+        due_date: dueDate ? new Date(dueDate).toISOString() : null,
+        label_ids: labelIds,
       });
       onclose();
     } catch (e) {
@@ -393,6 +427,42 @@
                   <option value={String(e.id)}>{e.ticket_number} · {e.name}</option>
                 {/each}
               </select>
+            </div>
+
+            <div class="rail-field">
+              <span class="field-label">Priority</span>
+              <select class="rail-select" bind:value={priority} aria-label="Priority">
+                {#each PRIORITIES as p}
+                  <option value={p}>{p === "none" ? "— none" : p}</option>
+                {/each}
+              </select>
+            </div>
+
+            <div class="rail-field">
+              <span class="field-label">Due date</span>
+              <input type="date" bind:value={dueDate} aria-label="Due date" />
+            </div>
+
+            <div class="rail-field">
+              <span class="field-label">Labels</span>
+              {#if labelOptions.length > 0}
+                <div class="label-picker" role="group" aria-label="Labels">
+                  {#each labelOptions as label (label.id)}
+                    <button
+                      type="button"
+                      class="label-toggle"
+                      class:selected={labelIds.includes(label.id)}
+                      onclick={() => toggleLabel(label.id)}
+                    >
+                      <span class="label-dot" style="background: {label.color}" aria-hidden="true"
+                      ></span>
+                      {label.name}
+                    </button>
+                  {/each}
+                </div>
+              {:else}
+                <p class="rail-empty">No labels on this board yet.</p>
+              {/if}
             </div>
 
             <div class="rail-field blockers-edit">
