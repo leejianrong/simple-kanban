@@ -9,6 +9,7 @@ the flat structure of the cards/epics routers (API-first, ADR 0005). Mounted by
 - GET    /boards/{id}  — read one board (viewer or above)
 - PATCH  /boards/{id}  — rename (owner only)
 - DELETE /boards/{id}  — hard-delete; its cards + epics cascade away (owner only)
+- GET    /boards/{id}/activity — the board's activity feed (viewer or above; KAN-18)
 
 **Authorization (V8 + KAN-13, ADR 0013):** every route requires a principal (`401`
 otherwise). Reads are ``Access.READ`` (viewer or above); rename/delete are
@@ -17,16 +18,17 @@ KAN-15). See :mod:`app.authz`.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session
 
 from ..activity import record_activity
 from ..auth_models import User
 from ..authz import Access, authorize_board, get_principal, visible_board_ids
 from ..db import get_db
-from ..models import Board, BoardMember
-from ..schemas import BoardCreate, BoardRead, BoardUpdate
+from ..models import Activity, Board, BoardMember
+from ..pagination import NEXT_CURSOR_HEADER, decode_cursor, encode_cursor
+from ..schemas import ActivityRead, BoardCreate, BoardRead, BoardUpdate
 
 router = APIRouter(prefix="/boards", tags=["boards"])
 
@@ -169,3 +171,55 @@ def delete_board(
     db.commit()
     # Hard delete; the FK's ON DELETE CASCADE removes this board's cards + epics.
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{board_id}/activity", response_model=list[ActivityRead])
+def list_activity(
+    board_id: int,
+    response: Response,
+    db: Session = Depends(get_db),
+    principal: User = Depends(get_principal),
+    limit: int | None = Query(default=None, ge=1, le=200),
+    cursor: str | None = None,
+) -> list[Activity]:
+    """The board's activity feed, **newest-first** (KAN-18, reading KAN-17's write
+    path). One row per successful create / update / delete / move of a card, epic or
+    board.
+
+    **Member-scoped (``Access.READ`` — viewer or above):** the board owner and any
+    member may read it; a non-member/non-owner gets ``403``, an unauthenticated
+    caller ``401``, an unknown board ``404`` (via :func:`app.authz.authorize_board`).
+
+    Pagination mirrors ``GET /cards`` exactly: keyset over ``(ts, id)`` — but
+    **descending**, since the feed is newest-first. Pass ``limit`` to cap the page;
+    when a full page is returned the next page's opaque cursor rides the
+    ``X-Next-Cursor`` response header (absent on the last page). Echo it back as
+    ``cursor`` for the next request.
+    """
+    authorize_board(db, principal, board_id, Access.READ)
+    query = (
+        select(Activity)
+        .where(Activity.board_id == board_id)
+        .order_by(Activity.ts.desc(), Activity.id.desc())
+    )
+    if cursor is not None:
+        try:
+            cursor_ts, cursor_id = decode_cursor(cursor)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="invalid cursor",
+            ) from exc
+        # Descending keyset: the next page is everything ordered *before* the cursor.
+        query = query.where(tuple_(Activity.ts, Activity.id) < (cursor_ts, cursor_id))
+    if limit is not None:
+        query = query.limit(limit)
+
+    rows = list(db.scalars(query).all())
+
+    # A full page implies there may be more — hand back the next cursor. A short
+    # (or empty) page is the last one, so no header.
+    if limit is not None and len(rows) == limit:
+        last = rows[-1]
+        response.headers[NEXT_CURSOR_HEADER] = encode_cursor(last.ts, last.id)
+    return rows
