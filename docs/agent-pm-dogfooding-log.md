@@ -641,3 +641,53 @@ Dogfooding observations about driving this board as an agent PM. Seeded from the
   - **Worktree isolation guard is consistent across agents:** several agents' first Write hit the
     shared-checkout path and was rejected, then succeeded against the worktree path — harmless, but
     brief agents that Write targets must be the worktree copy.
+- **M4 Wave 4 — EPIC-4 "Trust & History" closed: KAN-19 (soft-delete) → KAN-18 (activity feed) →
+  KAN-20 (trash & restore), all merged + `done`.** Sequencing was dictated by two hard facts, worth
+  reusing: (1) KAN-20 (trash/restore) hard-depends on KAN-19's `deleted_at` and edits the same
+  routers, so it had to land *after* KAN-19; (2) the reliable disjoint parallel split was again
+  **backend-router A vs backend-router B + frontend** — KAN-19 (models + `cards.py`/`epics.py` +
+  migration, no frontend) ran concurrently with KAN-18 (`boards.py` + a new frontend panel), whose
+  only shared file was `schemas.py` (additive append, no conflict). KAN-18's `ActivityRead` and
+  KAN-19's model columns never touched the same lines.
+  - **The activity feed was two cards, split at the write/read seam.** KAN-17 had already shipped the
+    `Activity` model + write path (hooked into every mutating route); KAN-18 was *only* the read
+    endpoint + panel. Briefing the agent explicitly "the write path exists, do NOT re-add it" kept it
+    from scope-creeping into a migration it didn't need. Lesson: **when a feed/audit feature is
+    half-built, name the exact seam in the brief.**
+  - **`kan login` isn't in a released binary — had to cut v0.2.3.** The published v0.2.2 CLI predated
+    KAN-199 (config-file/login), so "install the published CLI and run `kan login`" was impossible
+    until a new tag was pushed. `release-cli.yml` + `publish-mcp-image.yml` are `v*`-tag-gated;
+    tagging `v0.2.3` produced the login-capable binary. **Reminder (already logged): code-complete ≠
+    downloadable — a feature only ships to users on a version tag.**
+  - **The Intel-mac release leg silently ships nothing.** `release-cli.yml`'s `macos-13`
+    (`kan-macos-x86_64`) leg sits `queued` waiting for a scarce runner, so *every* release
+    (v0.2.0–v0.2.3) attaches Linux + macOS-arm64 but no Intel-mac binary, and the overall run shows
+    "queued" indefinitely (reads like a hung release). Because each matrix leg attaches its own asset
+    independently, the other two publish fine. Filed as **KAN-225** (drop the leg → arm64 + Rosetta,
+    or bound it with a timeout). Note: a Linux container can't fix this — PyInstaller can't
+    cross-compile a macOS binary.
+  - **Prod-verify caught nothing that CI didn't, but the SPA fallback nearly fooled the probe.** In
+    prod an unmatched `/api/v1/...` GET returns **200 `text/html`** (the SPA catch-all serving
+    `index.html`), *not* 404. A status-code-only check of a not-yet-deployed endpoint therefore looks
+    like success. **Always assert `content-type: application/json` (or grep the body) when
+    prod-verifying an API endpoint** — I confirmed KAN-18 by content-type, not status. The full
+    KAN-20 lifecycle prod-verify (create→soft-delete→trash→restore→re-delete→purge→404, plus a
+    `restored` event in the live feed) all passed.
+  - **Shared local Postgres is a cross-worktree hazard.** Two concurrent worktree agents share the
+    one `docker compose` Postgres on `:5432`. The KAN-19 agent's `alembic upgrade head` stamped its
+    new revision onto that shared DB; the KAN-18 agent (branched off older `main`) then failed to
+    boot its backend against a DB ahead of its own migration chain. Both agents independently
+    worked around it by running against a throwaway `postgres:17` on an alt port with a
+    `DATABASE_URL` override. Integration tests were unaffected (isolated testcontainers). **Brief
+    parallel agents to use a throwaway DB for any manual run/e2e, never the shared `:5432`.**
+  - **An agent committed a machine-local absolute path into an e2e test.** KAN-18's `activity.spec.ts`
+    hardcoded its worktree path in `page.screenshot({ path: "/home/jian/.../worktrees/agent-…/…png" })`,
+    which passed locally and failed CI with `ENOENT` (`/home/runner/...`). Fix: `testInfo.outputPath(…)`
+    — Playwright's per-test output dir, CI-safe on any runner. **Brief UI agents up front: screenshots
+    for PM review go to the worktree root as loose files; anything a committed test writes must use
+    `testInfo.outputPath`, never an absolute path.** (KAN-20's agent, briefed with this, got it right.)
+  - **`restored` needed a CHECK-vocabulary migration.** The `activity.action` CHECK only allowed
+    `created/updated/deleted/moved`; KAN-20 added `restored` via a drop+recreate-CHECK migration
+    (`0013`) rather than mislabel a restore as `updated`. Clean linear chain
+    `0012 → 1f2fe64fcab2 → 0013`; purge is intentionally *not* audited (a second `deleted` row would
+    confuse the feed — a `purged` action is a possible follow-up).
