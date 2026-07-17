@@ -111,6 +111,18 @@ the MCP tool + `kan` verb, then any UI.
 - **Tests:** integration — activity filters; the in-flight query. e2e — dashboard renders in-flight,
   needs-attention, activity; light + dark screenshots (CI-safe via `testInfo.outputPath`).
 - **Acceptance:** the mission-control demo; suite green. Frontend + small API extension — deploys.
+- **Shipped (KAN-249):** the **Dashboard** nav view (`frontend/src/lib/components/Dashboard.svelte`,
+  state in `dashboard.svelte.ts`) composes, for the active board: a headline **stat strip**
+  (completed / in-progress / needs-attention / median cycle time), **in-flight-by-assignee** (cards in
+  `in_progress` grouped by assignee, each with its PR/work-link chips + handoff/blocked badges),
+  **needs-attention** (V13's `needs_human=true` cards with their `attention_note`), **flow metrics**
+  (V17's `GET /boards/{id}/metrics` rendered as a per-assignee throughput/WIP grouped bar, an aging-WIP
+  bar list with a *stale* flag, and a cycle-time stat readout — theme-aware CSS bars, no chart libs,
+  teal/violet series validated CVD-safe with a legend + direct labels), a **recent-activity** feed
+  filterable by actor/action, and an optional **board snapshot** reusing V14's `BoardTable`. Read-only,
+  refresh-on-demand / on board switch (no websockets). The activity endpoint gained optional
+  `actor=` (exact `actor_label`) + `action=` filters (AND-ed, compose with the cursor) — the only
+  backend change; no migration.
 
 ## V17 · Fleet reporting
 

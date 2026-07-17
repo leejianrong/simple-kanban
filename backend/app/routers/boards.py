@@ -196,6 +196,14 @@ def list_activity(
     principal: User = Depends(get_principal),
     limit: int | None = Query(default=None, ge=1, le=200),
     cursor: str | None = None,
+    actor: str | None = Query(
+        default=None,
+        description="filter to rows whose actor_label equals this (an email / agent handle)",
+    ),
+    action: str | None = Query(
+        default=None,
+        description="filter to rows with this action (created/updated/deleted/moved/restored/…)",
+    ),
 ) -> list[Activity]:
     """The board's activity feed, **newest-first** (KAN-18, reading KAN-17's write
     path). One row per successful create / update / delete / move of a card, epic or
@@ -204,6 +212,12 @@ def list_activity(
     **Member-scoped (``Access.READ`` — viewer or above):** the board owner and any
     member may read it; a non-member/non-owner gets ``403``, an unauthenticated
     caller ``401``, an unknown board ``404`` (via :func:`app.authz.authorize_board`).
+
+    Optional filters (M5 V16, KAN-249), AND-ed with each other and with pagination:
+    ``actor`` (exact match on ``actor_label`` — an actor's email / agent handle) and
+    ``action`` (exact match on the action verb). Both narrow the feed so the
+    awareness dashboard can slice it by *who* did *what*; the cursor still pages
+    within the filtered result.
 
     Pagination mirrors ``GET /cards`` exactly: keyset over ``(ts, id)`` — but
     **descending**, since the feed is newest-first. Pass ``limit`` to cap the page;
@@ -217,6 +231,10 @@ def list_activity(
         .where(Activity.board_id == board_id)
         .order_by(Activity.ts.desc(), Activity.id.desc())
     )
+    if actor is not None:
+        query = query.where(Activity.actor_label == actor)
+    if action is not None:
+        query = query.where(Activity.action == action)
     if cursor is not None:
         try:
             cursor_ts, cursor_id = decode_cursor(cursor)

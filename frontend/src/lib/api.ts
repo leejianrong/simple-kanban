@@ -666,16 +666,76 @@ const NEXT_CURSOR_HEADER = "X-Next-Cursor";
 
 export async function listActivity(
   boardId: number,
-  opts: { limit?: number; cursor?: string } = {},
+  // M5 V16 (KAN-249): optional `actor` (exact actor_label) + `action` filters,
+  // AND-ed server-side, so the dashboard can slice the feed by who did what.
+  opts: { limit?: number; cursor?: string; actor?: string; action?: string } = {},
 ): Promise<ActivityPage> {
   const qs = new URLSearchParams();
   if (opts.limit != null) qs.set("limit", String(opts.limit));
   if (opts.cursor != null) qs.set("cursor", opts.cursor);
+  if (opts.actor) qs.set("actor", opts.actor);
+  if (opts.action) qs.set("action", opts.action);
   const suffix = qs.toString() ? `?${qs}` : "";
   const res = await fetch(`${API}/boards/${boardId}/activity${suffix}`);
   if (!res.ok) throw new ApiError(res.status, await parseError(res));
   const entries: Activity[] = await res.json();
   return { entries, nextCursor: res.headers.get(NEXT_CURSOR_HEADER) };
+}
+
+// --- Board metrics (M5 V17 API, surfaced in the UI by V16, KAN-249/KAN-250) --
+// Derived fleet-flow metrics for a board over a period — throughput, cycle time,
+// aging WIP, and a per-assignee breakdown. All computed server-side from the
+// activity feed + card timestamps (no stored metric). Read-only; owner/member-gated.
+
+export interface CycleTimeMetrics {
+  count: number;
+  avg_seconds: number | null;
+  median_seconds: number | null;
+  p90_seconds: number | null;
+}
+
+export interface AgingWipItem {
+  card_id: number;
+  ticket_number: string;
+  assignee: string | null;
+  age_seconds: number;
+}
+
+export interface AgingWipMetrics {
+  count: number;
+  avg_seconds: number | null;
+  max_seconds: number | null;
+  items: AgingWipItem[];
+}
+
+export interface AssigneeMetrics {
+  assignee: string | null;
+  throughput: number;
+  wip: number;
+}
+
+export interface BoardMetrics {
+  board_id: number;
+  generated_at: string;
+  since: string | null;
+  until: string;
+  throughput: number;
+  cycle_time: CycleTimeMetrics;
+  aging_wip: AgingWipMetrics;
+  by_assignee: AssigneeMetrics[];
+}
+
+export async function getBoardMetrics(
+  boardId: number,
+  opts: { since?: string; window?: string } = {},
+): Promise<BoardMetrics> {
+  const qs = new URLSearchParams();
+  if (opts.since) qs.set("since", opts.since);
+  if (opts.window) qs.set("window", opts.window);
+  const suffix = qs.toString() ? `?${qs}` : "";
+  const res = await fetch(`${API}/boards/${boardId}/metrics${suffix}`);
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
 }
 
 // --- Auth (Milestone 3 V6, ADR 0011) ---------------------------------------
