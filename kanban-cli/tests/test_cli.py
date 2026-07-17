@@ -164,6 +164,7 @@ def test_list_maps_all_filters(monkeypatch, env):
                 "overdue": None,
                 "needs_human": None,
                 "assignee": None,
+                "q": None,
                 "sort": None,
                 "limit": 10,
             },
@@ -191,6 +192,13 @@ def test_list_maps_assignee_and_sort(monkeypatch, env):
     call = fake.calls[0][1]
     assert call["assignee"] == "agent-7"
     assert call["sort"] == "-priority,position"
+
+
+def test_list_maps_q_search(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"cards": [CARD]}))
+    code = cli.run(["list", "--q", "login flow"])
+    assert code == 0
+    assert fake.calls[0][1]["q"] == "login flow"
 
 
 def test_view_list_calls_client(monkeypatch, env):

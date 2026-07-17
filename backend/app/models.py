@@ -25,6 +25,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Computed,
     DateTime,
     ForeignKey,
     Integer,
@@ -34,6 +35,7 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -376,6 +378,27 @@ class Card(Base):
         Boolean, nullable=False, server_default=text("false")
     )
     attention_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Full-text search vector over title + description (M5 V15, KAN-248). A Postgres
+    # ``GENERATED ALWAYS AS (...) STORED`` column (the migration owns the DDL) with a
+    # GIN index, so it is maintained by the DB on every INSERT/UPDATE — no trigger,
+    # no app-side upkeep, always consistent with the row. The title is weighted ``A``
+    # and the description ``B`` via ``setweight`` so ``ts_rank`` scores a title hit
+    # above a description-only hit (Postgres' default weights are A=1.0 > B=0.4).
+    # ``deferred`` so it is never loaded into a normal card read (it isn't a CardRead
+    # field) and only the ``q=`` search path references it (``@@
+    # websearch_to_tsquery`` + ``ts_rank``). ``Computed`` marks it read-only, so
+    # SQLAlchemy omits it from INSERT/UPDATE. Keep the expression here in step with
+    # the migration DDL (``0017_card_search_vector``).
+    search_vector: Mapped[str | None] = mapped_column(
+        TSVECTOR,
+        Computed(
+            "setweight(to_tsvector('english', coalesce(title, '')), 'A') || "
+            "setweight(to_tsvector('english', coalesce(description, '')), 'B')",
+            persisted=True,
+        ),
+        nullable=True,
+        deferred=True,
+    )
     # Soft-delete tombstone (KAN-19, R5.2). NULL = live; a timestamp = deleted.
     # DELETE sets this instead of removing the row; default reads (list/get, the
     # ordering helpers, autosync) filter it out (``deleted_at IS NULL``) so a
