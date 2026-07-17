@@ -150,9 +150,21 @@ git worktree add ../simple-kanban-review review/<name>           # review someon
 git worktree list                                                # see them all
 git worktree remove ../simple-kanban-<slice>                     # clean up when merged
 ```
-Each worktree needs its own `backend/.venv` (`uv sync`) and `frontend/node_modules` (`npm ci`); the
-Postgres from `docker compose up -d db` is shared across all of them. Agents should prefer the
-harness's built-in worktree isolation (`isolation: "worktree"`) for parallel file-mutating work.
+Each worktree needs its own `backend/.venv` (`uv sync`) and `frontend/node_modules` (`npm ci`).
+**In a worktree, do NOT use the shared `make db` (:5432)** — every worktree would share one Postgres,
+so one worktree's `alembic upgrade head` stamps a revision the others don't have on their branch and a
+second worktree can't boot against a DB ahead of its own migration chain (KAN-240). Instead give each
+worktree its own throwaway DB on a private port:
+```bash
+make worktree-db                              # ephemeral Postgres for THIS worktree (own port, no volume)
+export DATABASE_URL=$(make -s worktree-db-url)  # point backend/alembic at it
+make migrate                                  # (or from backend/: uv run alembic upgrade head)
+make worktree-db-down                         # tear it down when the worktree is done
+```
+`make db`/`make up`/`make dev` (shared :5432 compose Postgres) remain the loop for the primary
+checkout. Integration tests are unaffected — they spin up throwaway testcontainers of their own.
+Agents should prefer the harness's built-in worktree isolation (`isolation: "worktree"`) for parallel
+file-mutating work.
 
 **Pre-push hook.** `scripts/git-hooks/pre-push` (tracked) runs the fast CI checks locally — ruff +
 `tests/unit` + `svelte-check` — so a push never lands red. Integration tests stay CI-only (they need
