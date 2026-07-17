@@ -65,8 +65,11 @@ def _resolve_synced_board(db: Session, ticket: str) -> tuple[Card, Board] | None
     """Resolve the ``(card, board)`` for ``ticket``, or ``None`` when there is no
     such card, its board is missing, or the board has **not** opted into auto-sync
     (the per-board opt-out gate)."""
+    # A soft-deleted card (KAN-19) is invisible, so the webhook never resurrects it.
     card = db.scalars(
-        select(Card).where(Card.ticket_number == ticket)
+        select(Card).where(
+            Card.ticket_number == ticket, Card.deleted_at.is_(None)
+        )
     ).first()
     if card is None:
         logger.info("autosync no card for ticket=%s", ticket)

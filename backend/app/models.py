@@ -150,6 +150,13 @@ class Epic(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Soft-delete tombstone (KAN-19, R5.2). NULL = live; a timestamp = deleted.
+    # DELETE sets this instead of removing the row; default reads filter it out
+    # (``deleted_at IS NULL``). The FK from ``card.epic_id`` is intentionally left
+    # intact on soft-delete (no detach) so a future restore (KAN-20) can re-link.
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -276,6 +283,13 @@ class Card(Base):
     )
     story_points: Mapped[int | None] = mapped_column(Integer, nullable=True)
     assignee: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Soft-delete tombstone (KAN-19, R5.2). NULL = live; a timestamp = deleted.
+    # DELETE sets this instead of removing the row; default reads (list/get, the
+    # ordering helpers, autosync) filter it out (``deleted_at IS NULL``) so a
+    # deleted card leaves no phantom in a column.
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

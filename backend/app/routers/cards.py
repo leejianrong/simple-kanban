@@ -6,7 +6,7 @@ Mounted by ``main.py`` under ``/api/v1`` (e.g. ``/api/v1/cards``):
 - POST   /cards         — create a card (appended to the end of its column)
 - GET    /cards/{id}    — read one card
 - PATCH  /cards/{id}    — edit fields (title/description/story_points/assignee)
-- DELETE /cards/{id}    — hard-delete
+- DELETE /cards/{id}    — soft-delete (tombstone; excluded from default reads, KAN-19)
 - POST   /cards/{id}/move — move/reorder a card (column change + reorder within column)
 
 **Authorization (V8):** every route requires a principal (`401` otherwise) and
@@ -20,7 +20,7 @@ from collections.abc import Sequence
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import or_, select, tuple_
+from sqlalchemy import func, or_, select, tuple_
 from sqlalchemy.orm import Session, aliased
 
 from ..activity import record_activity
@@ -47,7 +47,11 @@ router = APIRouter(prefix="/cards", tags=["cards"])
 
 
 def _get_or_404(db: Session, card_id: int) -> Card:
-    card = db.get(Card, card_id)
+    # Soft-deleted cards are invisible to every default read (KAN-19, R5.2): a
+    # ``deleted_at``-set row 404s here, so GET/PATCH/move/DELETE on it all 404.
+    card = db.scalars(
+        select(Card).where(Card.id == card_id, Card.deleted_at.is_(None))
+    ).first()
     if card is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Card not found")
     return card
@@ -69,6 +73,8 @@ def _blocked_predicate():
         .where(
             CardDependency.blocked_id == Card.id,
             blocker.column != ColumnEnum.done.value,
+            # A soft-deleted blocker (KAN-19) no longer blocks — no phantom.
+            blocker.deleted_at.is_(None),
         )
         .exists()
     )
@@ -90,6 +96,10 @@ def _attach_dependencies(db: Session, cards: Sequence[Card]) -> Sequence[Card]:
     if not ids:
         return cards
     blocker = aliased(Card)
+    blocked = aliased(Card)
+    # Only edges between two **live** cards count — an edge touching a soft-deleted
+    # card (KAN-19) is dropped so it never leaves a phantom in ``blocked_by`` /
+    # ``blocks`` / the ``blocked`` flag (the outer cards here are already live).
     rows = db.execute(
         select(
             CardDependency.blocker_id,
@@ -97,11 +107,14 @@ def _attach_dependencies(db: Session, cards: Sequence[Card]) -> Sequence[Card]:
             blocker.column,
         )
         .join(blocker, blocker.id == CardDependency.blocker_id)
+        .join(blocked, blocked.id == CardDependency.blocked_id)
         .where(
             or_(
                 CardDependency.blocker_id.in_(ids),
                 CardDependency.blocked_id.in_(ids),
-            )
+            ),
+            blocker.deleted_at.is_(None),
+            blocked.deleted_at.is_(None),
         )
     ).all()
     blocked_by: dict[int, list[int]] = defaultdict(list)
@@ -154,7 +167,10 @@ def _validate_epic(db: Session, epic_id: int | None, board_id: int) -> None:
     no cross-board links); 422 otherwise."""
     if epic_id is None:
         return
-    epic = db.get(Epic, epic_id)
+    # A soft-deleted epic (KAN-19) is invisible, so it can't be linked to either.
+    epic = db.scalars(
+        select(Epic).where(Epic.id == epic_id, Epic.deleted_at.is_(None))
+    ).first()
     if epic is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -203,7 +219,12 @@ def list_cards(
     ``cursor`` for the next request. The body stays a bare ``CardRead[]`` so the
     SPA is unaffected; it re-sorts by ``position`` within each column client-side.
     """
-    query = select(Card).order_by(Card.updated_at, Card.id)
+    # Soft-deleted cards (KAN-19, R5.2) are excluded from every list read.
+    query = (
+        select(Card)
+        .where(Card.deleted_at.is_(None))
+        .order_by(Card.updated_at, Card.id)
+    )
 
     if board_id is not None:
         # Naming a board authorizes against it directly (403 if no read access).
@@ -347,9 +368,12 @@ def delete_card(
         action="deleted",
         summary=f"deleted {card.ticket_number}: {card.title}",
     )
-    db.delete(card)
+    # Soft delete (KAN-19, R5.2): tombstone the row rather than removing it, so it
+    # can be restored later (KAN-20). The row keeps its position — the vacated slot
+    # still reads as an intentional gap (ADR 0006) because default reads and the
+    # ordering helpers filter ``deleted_at`` out.
+    card.deleted_at = func.now()
     db.commit()
-    # Hard delete; the vacated position leaves an intentional gap (ADR 0006).
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -375,6 +399,7 @@ def move_card(
                 Card.board_id == card.board_id,
                 Card.column == target_column,
                 Card.id != card.id,
+                Card.deleted_at.is_(None),
             )
             .order_by(Card.position, Card.id)
         ).all()
@@ -476,7 +501,9 @@ def add_dependency(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="a card cannot block itself",
         )
-    blocker = db.get(Card, blocker_id)
+    blocker = db.scalars(
+        select(Card).where(Card.id == blocker_id, Card.deleted_at.is_(None))
+    ).first()
     if blocker is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="blocker card not found"

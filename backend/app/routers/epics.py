@@ -9,7 +9,7 @@ cards router (API-first, ADR 0005). Mounted by ``main.py`` under ``/api/v1``:
 - POST   /epics       — create an epic (EPIC-<n> assigned by the DB)
 - GET    /epics/{id}  — read one epic
 - PATCH  /epics/{id}  — edit fields (name/description)
-- DELETE /epics/{id}  — hard-delete; child stories are detached (epic_id → NULL)
+- DELETE /epics/{id}  — soft-delete (tombstone, KAN-19); child stories keep epic_id
 
 **Authorization (V8):** every route requires a principal (`401` otherwise) and
 that the principal own the epic's board (`403`); the list is scoped to the caller's
@@ -18,7 +18,7 @@ boards. See :mod:`app.authz`.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..activity import record_activity
@@ -33,7 +33,11 @@ router = APIRouter(prefix="/epics", tags=["epics"])
 
 
 def _get_or_404(db: Session, epic_id: int) -> Epic:
-    epic = db.get(Epic, epic_id)
+    # Soft-deleted epics are invisible to every default read (KAN-19, R5.2): a
+    # ``deleted_at``-set row 404s here, so GET/PATCH/DELETE on it all 404.
+    epic = db.scalars(
+        select(Epic).where(Epic.id == epic_id, Epic.deleted_at.is_(None))
+    ).first()
     if epic is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Epic not found")
     return epic
@@ -48,7 +52,8 @@ def list_epics(
     """List epics, owner-scoped (V8) and optionally scoped to one board. A
     ``board_id`` you don't own is a ``403``; omitted → all *your* boards' epics
     (the SPA always sends it to scope the Epics view)."""
-    query = select(Epic).order_by(Epic.id)
+    # Soft-deleted epics (KAN-19, R5.2) are excluded from every list read.
+    query = select(Epic).where(Epic.deleted_at.is_(None)).order_by(Epic.id)
     if board_id is not None:
         authorize_board(db, principal, board_id, Access.READ)
         query = query.where(Epic.board_id == board_id)
@@ -148,7 +153,11 @@ def delete_epic(
         action="deleted",
         summary=f"deleted {epic.ticket_number}: {epic.name}",
     )
-    db.delete(epic)
+    # Soft delete (KAN-19, R5.2): tombstone the row rather than removing it, so it
+    # can be restored later (KAN-20). Child stories keep their ``epic_id`` intact —
+    # the FK's ON DELETE SET NULL never fires because the row isn't deleted; a
+    # story just won't resolve its (now-invisible) epic in default reads. This
+    # deliberate non-detach is what lets KAN-20 restore an epic with its stories.
+    epic.deleted_at = func.now()
     db.commit()
-    # Hard delete; child stories are detached via the FK's ON DELETE SET NULL.
     return Response(status_code=status.HTTP_204_NO_CONTENT)
