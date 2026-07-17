@@ -151,36 +151,8 @@ milestone is demo-complete without them.
 
 ## Detail A — Affordances (breadboard)
 
-### UI affordances (human read/awareness surface)
-
-| Affordance | Place | Wires out |
-|---|---|---|
-| **Dashboard** nav entry | top bar (beside Board/Epics/Activity) | → Dashboard view |
-| In-flight-by-assignee panel | Dashboard | → `GET /cards?column=in_progress` (+ work-links/PR status) |
-| Needs-attention list | Dashboard | → `GET /cards?needs_human=true`; row → card detail |
-| Deepened activity feed (actor/action filters) | Dashboard / Activity | → `GET /boards/{id}/activity?actor=&action=` |
-| Metrics cards + charts | Dashboard | → `GET /boards/{id}/metrics` |
-| Table view (sortable columns) | Board area (view toggle) | → query API |
-| Saved-view switcher | top bar / view area | → `GET/POST /boards/{id}/views` |
-| Search box | top bar | → `GET /cards?q=` |
-| Priority badge · label chips · due/overdue pill | Card | (display; edits via API/CLI) |
-| Needs-human badge | Card / Column | → `needs_human` |
-
-### Non-UI affordances (agent operate surface + data)
-
-| Affordance | Kind | Wires out |
-|---|---|---|
-| `card.priority`, `card.due_date` | column (migration) | — |
-| `label` / `card_label` | tables (migration) | — |
-| `card.needs_human`, `card.attention_note` | column (migration) | — |
-| `personal_access_token.scope` | column (migration) | authz |
-| `saved_view` | table (migration) | — |
-| `card` FTS `tsvector` + GIN index | migration | search |
-| `POST /boards/{id}/dispatch`, `GET /boards/{id}/next` | endpoints | ordering + `FOR UPDATE SKIP LOCKED` |
-| `POST /cards/{id}/needs-human`, `/resolve` | endpoints | activity |
-| `GET/POST/DELETE /boards/{id}/views` | endpoints | `saved_view` |
-| `GET /boards/{id}/metrics` | endpoint | activity feed + timestamps |
-| query API filters (`priority`,`label`,`due`,`needs_human`,`assignee`,`q`) + sort | handler | — |
-| MCP tools + `kan` verbs for all of the above | adapters | `/api/v1` |
+The concrete affordances (UI + non-UI) and the wiring diagram for Shape A live in a dedicated
+breadboard: **[BREADBOARD.md](BREADBOARD.md)**. It groups the affordances by the two surfaces — the
+agent *operate* surface (API/MCP/CLI write path) and the human *observe* surface (the read-first SPA).
 
 Slicing follows in [SLICES.md](SLICES.md).

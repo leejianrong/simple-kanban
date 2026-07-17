@@ -4,7 +4,7 @@ shaping: true
 
 # Milestone 5 — Slices (Shape A)
 
-Vertical increments of the [Shape A breadboard](SHAPING.md#detail-a--affordances-breadboard). Each
+Vertical increments of the [Shape A breadboard](BREADBOARD.md). Each
 ends in **observable behaviour** and ships as its own PR behind CI, matching the M1–M4 cadence.
 
 Numbering continues the **global V-series** (M2 = V1–V5, M3 = V6–V10; M4 was tracked directly on the
