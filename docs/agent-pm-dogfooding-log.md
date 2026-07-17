@@ -691,3 +691,47 @@ Dogfooding observations about driving this board as an agent PM. Seeded from the
     (`0013`) rather than mislabel a restore as `updated`. Clean linear chain
     `0012 → 1f2fe64fcab2 → 0013`; purge is intentionally *not* audited (a second `deleted` row would
     confuse the feed — a `purged` action is a possible follow-up).
+- **M5 — all 7 must-have slices shipped in 4 waves of 1–3 parallel agents (V11–V17): card fields,
+  dispatch, needs-human, saved views, search, dashboard, reporting.** The milestone reframed the board
+  as a human↔multi-agent coordination surface (agents operate via API/MCP/CLI; humans observe via a
+  read-first dashboard). Each slice: implement in a worktree → PR → adversarial review → CI green →
+  land → Fly deploy → prod-verify → `done`. Reusable learnings from running it as PM:
+  - **The parallelism reality for this repo: cores are disjoint, adapters are not.** Two full-stack
+    slices can always split their *substantive* work (e.g. `boards.py`+`ordering.py` vs
+    `cards.py`+`models.py`), but they *always* collide on the thin shared adapters
+    (`kanban-cli/cli.py`, `mcp/server.py`, `kanban-client/client.py`), `schemas.py`, and the frontend
+    shell (`App.svelte`, `api.ts`). So "provably disjoint" is never literally true here — the working
+    rule is: **land the first PR, then the second does a mechanical keep-both rebase** of the adapter
+    files (V13-after-V12, V14-after-V17). Brief both agents to APPEND/localize adapter additions (new
+    verb at the end of the list, don't reflow) so the rebase is trivial. Occasionally git auto-merges
+    them with no rebase at all (V16 after V15).
+  - **Migration pairing rule: at most ONE migration per parallel pair.** Two slices branched off the
+    same `main` each adding a migration = two alembic heads when the second lands. Every M5 wave was
+    paired so only one carried a migration (V12∅‖V13mig, V14mig‖V17∅, V15mig‖V16∅); the migration
+    slice **lands alone**, the no-migration sibling lands first if ready. Zero heads conflicts all
+    milestone.
+  - **The "Bash isn't sandboxed to the worktree" hazard bites even with the warning in the brief.**
+    V14's agent's very first `git switch -c` ran (via a stray `cd`) in the PARENT checkout, moving the
+    primary checkout onto an empty branch. No damage (the primary was already back on `main` from a
+    prior `git switch`, and the real work was safe on the worktree branch) — but recovery meant
+    deleting a stray local branch. The agent also had to push via refspec (`HEAD:feat/…`) since its
+    local branch kept the `worktree-agent-…` name. **Reinforce "run ALL git in THIS worktree; never
+    cd into the parent" — and consider a hard guard, because agents still slip on the first command.**
+  - **Deploy poll gotcha: every merge fires TWO `deploy.yml` `workflow_run` events** — a real
+    `success` and a deduped `skipped` no-op. Polling `head -1` can catch the `skipped` one and look
+    like a skipped deploy (it happened on V15). Poll for `conclusion==success`, or — better —
+    **prod-verify the feature directly** (a working `q=` search proved V15 deployed regardless of the
+    misleading `skipped`).
+  - **Validate chart palettes for CVD.** V16's dashboard agent ran the dataviz palette validator and
+    found the app's teal+green two-series pair fails the normal-vision ΔE floor; it switched to
+    teal+violet and added value labels + a legend as a secondary (non-color) encoding.
+  - **Prod-verify concurrency + derived metrics with real round-trips.** Dispatch: seed two cards,
+    confirm priority order + that a second dispatch gets the next one (the `FOR UPDATE SKIP LOCKED`
+    unit of the fleet-safety test). Metrics: dispatch→done a throwaway card and confirm it shows in
+    per-assignee throughput (validates the activity-summary parsing in prod). Fields: assert 422 on
+    both a bad-enum and a cross-board label.
+  - **Known M5 tech debt:** the metrics layer derives transitions by **parsing activity summary
+    text** (`"moved … to in_progress"`, `"dispatched …"`) — correct today but fragile; a structured
+    from/to on the activity row would harden it. And MCP/CLI parity for the activity `actor`/`action`
+    filters was left undone (endpoint is the contract). Tail slices **V18 (scoped tokens, Later)** and
+    **V19 (batch/templates, Nice-to-have)** + **KAN-239 (audit purge)** remain in the backlog.
