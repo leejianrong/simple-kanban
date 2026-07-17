@@ -3,6 +3,7 @@
   import { LogOut, Moon, Search, Sun } from "lucide-svelte";
   import Activity from "./lib/components/Activity.svelte";
   import Board from "./lib/components/Board.svelte";
+  import Dashboard from "./lib/components/Dashboard.svelte";
   import Brand from "./lib/components/Brand.svelte";
   import Epics from "./lib/components/Epics.svelte";
   import Landing from "./lib/components/Landing.svelte";
@@ -18,9 +19,9 @@
 
   // The board shows stories; epics + agent tokens are managed in their own views.
   // A simple top-bar toggle switches between them — no client-side router.
-  let view = $state<"board" | "epics" | "activity" | "tokens" | "members" | "trash">(
-    "board",
-  );
+  let view = $state<
+    "board" | "dashboard" | "epics" | "activity" | "tokens" | "members" | "trash"
+  >("board");
 
   // Tokens are user-scoped (not board-scoped), so load them lazily the first time
   // the Tokens view is opened.
@@ -86,6 +87,7 @@
     <Brand />
     <nav class="topbar-nav">
       <button class:active={view === "board"} onclick={() => show("board")}>Board</button>
+      <button class:active={view === "dashboard"} onclick={() => show("dashboard")}>Dashboard</button>
       <button class:active={view === "epics"} onclick={() => show("epics")}>Epics</button>
       <button class:active={view === "activity"} onclick={() => show("activity")}>Activity</button>
       <button class:active={view === "tokens"} onclick={() => show("tokens")}>Tokens</button>
@@ -129,6 +131,8 @@
   <main>
     {#if view === "board"}
       <Board />
+    {:else if view === "dashboard"}
+      <Dashboard navigate={() => show("board")} />
     {:else if view === "epics"}
       <Epics />
     {:else if view === "activity"}
