@@ -1,0 +1,28 @@
+# treehouse — reusable pool of git worktrees for parallel AI-agent sessions.
+# https://github.com/kunchenguid/treehouse
+#
+# Why this exists: agent worktrees must NOT accumulate as one-off checkouts (that
+# bloats disk — see docs/agent-pm-dogfooding-log.md and the dev-playbook). treehouse
+# keeps a bounded, recycled pool of detached-HEAD worktrees instead.
+#
+# Usage:
+#   treehouse get                # acquire a tree + open a subshell (exit returns it)
+#   p=$(treehouse get --lease)   # acquire without a subshell; prints the path
+#   treehouse return <path>      # release a leased tree back to the pool
+#   treehouse status             # show the pool + who holds what
+#   treehouse prune --yes        # reclaim idle, merged, clean trees
+#
+# Pre-warming: repo-level hooks are NOT supported (hooks are user-level, in
+# ~/.config/treehouse/config.toml, and would apply to every repo). So after
+# acquiring a fresh tree, warm it with the repo's one-shot installer:
+#   cd <tree> && make install        # backend `uv sync` + frontend `npm ci`
+# The pre-push hook is inherited automatically (worktrees share .git/hooks).
+# Each tree still needs its own DB — use `make worktree-db` (never the shared :5432).
+
+# Bounded pool: enough for 1-3 agents working in parallel plus a little headroom.
+# Keep this small — every tree is a full checkout (+ its own .venv / node_modules).
+max_trees = 4
+
+# Worktree root. Empty = $HOME, so trees live under ~/.treehouse/ - OUTSIDE this
+# repo, so they never show up as untracked files or get committed by accident.
+root = ""
