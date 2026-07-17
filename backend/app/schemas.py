@@ -321,6 +321,28 @@ class MemberRead(BaseModel):
     updated_at: datetime
 
 
+class ActivityRead(BaseModel):
+    """One append-only audit record of a board-domain mutation (KAN-17 write path,
+    KAN-18 read side). Mirrors the ``Activity`` model's real columns; there is no
+    ``ticket_number`` on an activity row (``entity_id`` is a plain int, the entity
+    may already be deleted) — the human ticket, when there is one, is embedded in
+    ``summary`` (e.g. ``"created KAN-3: Fix login"``)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    board_id: int
+    # The acting user (UUID), or null once that user is deleted (SET NULL).
+    actor_user_id: uuid.UUID | None
+    # Denormalised human handle for the actor (email / assignee), survives deletion.
+    actor_label: str | None
+    entity_type: str
+    entity_id: int
+    action: str
+    summary: str
+    ts: datetime
+
+
 class TokenCreate(BaseModel):
     """Create a personal access token (M3 V9, ADR 0014). Only a name (and an
     optional expiry); the secret is server-generated, never client-supplied."""

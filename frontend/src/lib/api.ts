@@ -427,6 +427,51 @@ export async function removeMember(boardId: number, memberId: number): Promise<v
   if (!res.ok) throw new ApiError(res.status, await parseError(res));
 }
 
+// --- Activity feed (KAN-18, reading KAN-17's write path) --------------------
+// One append-only audit record per board-domain mutation. The feed is
+// member-scoped (owner + members can read) and newest-first, keyset-paginated
+// over the X-Next-Cursor response header exactly like GET /cards.
+
+export type ActivityEntityType = "card" | "epic" | "board";
+export type ActivityAction = "created" | "updated" | "deleted" | "moved";
+
+export interface Activity {
+  id: number;
+  board_id: number;
+  // The acting user (UUID), or null once that user is deleted (SET NULL).
+  actor_user_id: string | null;
+  // Denormalised human handle for the actor (email / assignee), survives deletion.
+  actor_label: string | null;
+  entity_type: ActivityEntityType;
+  entity_id: number;
+  action: ActivityAction;
+  summary: string;
+  ts: string;
+}
+
+// A page of activity plus the opaque cursor for the next (older) page, or null on
+// the last page — the caller echoes it back to page through the feed.
+export interface ActivityPage {
+  entries: Activity[];
+  nextCursor: string | null;
+}
+
+const NEXT_CURSOR_HEADER = "X-Next-Cursor";
+
+export async function listActivity(
+  boardId: number,
+  opts: { limit?: number; cursor?: string } = {},
+): Promise<ActivityPage> {
+  const qs = new URLSearchParams();
+  if (opts.limit != null) qs.set("limit", String(opts.limit));
+  if (opts.cursor != null) qs.set("cursor", opts.cursor);
+  const suffix = qs.toString() ? `?${qs}` : "";
+  const res = await fetch(`${API}/boards/${boardId}/activity${suffix}`);
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  const entries: Activity[] = await res.json();
+  return { entries, nextCursor: res.headers.get(NEXT_CURSOR_HEADER) };
+}
+
 // --- Auth (Milestone 3 V6, ADR 0011) ---------------------------------------
 // The fastapi-users auth + identity routes live at the origin root (/auth,
 // /users), NOT under /api/v1 — they're session plumbing, so no API prefix.
