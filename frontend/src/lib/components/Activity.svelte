@@ -8,6 +8,7 @@
     Plus,
     Pencil,
     RefreshCw,
+    RotateCcw,
     Trash2,
     History,
   } from "lucide-svelte";
@@ -32,6 +33,7 @@
     updated: Pencil,
     moved: ArrowLeftRight,
     deleted: Trash2,
+    restored: RotateCcw,
   } as const;
 
   function actorInitial(label: string | null): string {
@@ -166,7 +168,8 @@
     background: var(--danger-soft);
     color: var(--danger);
   }
-  .feed-icon[data-action="created"] {
+  .feed-icon[data-action="created"],
+  .feed-icon[data-action="restored"] {
     background: var(--accent-soft);
     color: var(--accent);
   }

@@ -177,6 +177,55 @@ export async function deleteCard(id: number): Promise<void> {
   if (!res.ok) throw new ApiError(res.status, await parseError(res));
 }
 
+// --- Trash & restore (KAN-20) ----------------------------------------------
+// Soft-deleted (KAN-19) cards/epics can be listed, restored (un-tombstoned), or
+// purged (permanent hard-delete). `deleted_at` is exposed only on these trash
+// listings — the normal Card/Epic reads stay unchanged.
+
+export interface TrashCard extends Card {
+  deleted_at: string;
+}
+
+export interface TrashEpic extends Epic {
+  deleted_at: string;
+}
+
+export async function listTrashCards(boardId?: number): Promise<TrashCard[]> {
+  const qs = boardId != null ? `?board_id=${boardId}` : "";
+  const res = await fetch(`${API}/cards/trash${qs}`);
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function restoreCard(id: number): Promise<Card> {
+  const res = await fetch(`${API}/cards/${id}/restore`, { method: "POST" });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function purgeCard(id: number): Promise<void> {
+  const res = await fetch(`${API}/cards/${id}/purge`, { method: "DELETE" });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+}
+
+export async function listTrashEpics(boardId?: number): Promise<TrashEpic[]> {
+  const qs = boardId != null ? `?board_id=${boardId}` : "";
+  const res = await fetch(`${API}/epics/trash${qs}`);
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function restoreEpic(id: number): Promise<Epic> {
+  const res = await fetch(`${API}/epics/${id}/restore`, { method: "POST" });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function purgeEpic(id: number): Promise<void> {
+  const res = await fetch(`${API}/epics/${id}/purge`, { method: "DELETE" });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+}
+
 // --- Card dependencies (KAN-28 API, surfaced in the UI by KAN-30) -----------
 // `addDependency(cardId, blockerId)` records that `cardId` is blocked-by
 // `blockerId`; `removeDependency` clears that edge. Both return the (refreshed)
@@ -433,7 +482,7 @@ export async function removeMember(boardId: number, memberId: number): Promise<v
 // over the X-Next-Cursor response header exactly like GET /cards.
 
 export type ActivityEntityType = "card" | "epic" | "board";
-export type ActivityAction = "created" | "updated" | "deleted" | "moved";
+export type ActivityAction = "created" | "updated" | "deleted" | "moved" | "restored";
 
 export interface Activity {
   id: number;

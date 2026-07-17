@@ -169,6 +169,15 @@ class CardRead(BaseModel):
     updated_at: datetime
 
 
+class CardTrashRead(CardRead):
+    """A soft-deleted card on the trash listing path (KAN-20). Identical to
+    :class:`CardRead` plus the ``deleted_at`` tombstone — exposed **only** here (the
+    normal card reads stay unchanged), so the Trash view can show when each item was
+    deleted and order by it."""
+
+    deleted_at: datetime
+
+
 class DependencyCreate(BaseModel):
     """Add a blocker to a card (KAN-28): ``POST /cards/{id}/dependencies`` with
     ``{"blocker_id": N}`` records that card ``{id}`` is *blocked-by* card ``N``."""
@@ -217,6 +226,13 @@ class EpicRead(BaseModel):
     description: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class EpicTrashRead(EpicRead):
+    """A soft-deleted epic on the trash listing path (KAN-20). :class:`EpicRead` plus
+    the ``deleted_at`` tombstone, exposed only here (normal epic reads unchanged)."""
+
+    deleted_at: datetime
 
 
 class BoardCreate(BaseModel):

@@ -37,7 +37,7 @@ def record_activity(
     ``principal`` is the acting user (``app.authz.get_principal``): its id is stored
     as ``actor_user_id`` and its email as the denormalised ``actor_label``.
     ``entity_type`` ∈ {``card``, ``epic``, ``board``}; ``action`` ∈ {``created``,
-    ``updated``, ``deleted``, ``moved``} — both CHECK-constrained on the table.
+    ``updated``, ``deleted``, ``moved``, ``restored``} — both CHECK-constrained on the table.
     ``summary`` is a short human sentence (e.g. ``"created KAN-3: Fix login"``).
     """
     activity = Activity(

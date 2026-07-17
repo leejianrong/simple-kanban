@@ -10,6 +10,9 @@ cards router (API-first, ADR 0005). Mounted by ``main.py`` under ``/api/v1``:
 - GET    /epics/{id}  — read one epic
 - PATCH  /epics/{id}  — edit fields (name/description)
 - DELETE /epics/{id}  — soft-delete (tombstone, KAN-19); child stories keep epic_id
+- GET    /epics/trash — list this board's soft-deleted epics (KAN-20)
+- POST   /epics/{id}/restore — un-tombstone a soft-deleted epic; its stories re-link (KAN-20)
+- DELETE /epics/{id}/purge — permanently hard-delete a soft-deleted epic (KAN-20)
 
 **Authorization (V8):** every route requires a principal (`401` otherwise) and
 that the principal own the epic's board (`403`); the list is scoped to the caller's
@@ -26,7 +29,7 @@ from ..auth_models import User
 from ..authz import Access, authorize_board, get_principal, visible_board_ids
 from ..db import get_db
 from ..models import Epic
-from ..schemas import EpicCreate, EpicRead, EpicUpdate
+from ..schemas import EpicCreate, EpicRead, EpicTrashRead, EpicUpdate
 from .boards import resolve_board_id
 
 router = APIRouter(prefix="/epics", tags=["epics"])
@@ -37,6 +40,17 @@ def _get_or_404(db: Session, epic_id: int) -> Epic:
     # ``deleted_at``-set row 404s here, so GET/PATCH/DELETE on it all 404.
     epic = db.scalars(
         select(Epic).where(Epic.id == epic_id, Epic.deleted_at.is_(None))
+    ).first()
+    if epic is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Epic not found")
+    return epic
+
+
+def _get_trashed_or_404(db: Session, epic_id: int) -> Epic:
+    """Load a **soft-deleted** epic — the trash lifecycle (restore/purge, KAN-20)
+    operates only on tombstoned rows, so a live (or missing) epic 404s here."""
+    epic = db.scalars(
+        select(Epic).where(Epic.id == epic_id, Epic.deleted_at.is_not(None))
     ).first()
     if epic is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Epic not found")
@@ -54,6 +68,29 @@ def list_epics(
     (the SPA always sends it to scope the Epics view)."""
     # Soft-deleted epics (KAN-19, R5.2) are excluded from every list read.
     query = select(Epic).where(Epic.deleted_at.is_(None)).order_by(Epic.id)
+    if board_id is not None:
+        authorize_board(db, principal, board_id, Access.READ)
+        query = query.where(Epic.board_id == board_id)
+    else:
+        query = query.where(Epic.board_id.in_(visible_board_ids(principal)))
+    return list(db.scalars(query).all())
+
+
+@router.get("/trash", response_model=list[EpicTrashRead])
+def list_trashed_epics(
+    db: Session = Depends(get_db),
+    principal: User = Depends(get_principal),
+    board_id: int | None = None,
+) -> list[Epic]:
+    """List **soft-deleted** epics (KAN-20 Trash view), newest-deleted first —
+    the mirror of :func:`list_epics`. Owner/member-gated identically; declared
+    **before** the ``/{epic_id}`` routes so ``/epics/trash`` matches this.
+    ``deleted_at`` is exposed on this path only (:class:`EpicTrashRead`)."""
+    query = (
+        select(Epic)
+        .where(Epic.deleted_at.is_not(None))
+        .order_by(Epic.deleted_at.desc(), Epic.id.desc())
+    )
     if board_id is not None:
         authorize_board(db, principal, board_id, Access.READ)
         query = query.where(Epic.board_id == board_id)
@@ -159,5 +196,51 @@ def delete_epic(
     # story just won't resolve its (now-invisible) epic in default reads. This
     # deliberate non-detach is what lets KAN-20 restore an epic with its stories.
     epic.deleted_at = func.now()
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{epic_id}/restore", response_model=EpicRead)
+def restore_epic(
+    epic_id: int,
+    db: Session = Depends(get_db),
+    principal: User = Depends(get_principal),
+) -> Epic:
+    """Bring a soft-deleted epic back to life (KAN-20): clear its ``deleted_at`` so it
+    reappears in default reads. **404** unless it is currently soft-deleted.
+
+    KAN-19 left child stories' ``epic_id`` intact on soft-delete (no detach), so a
+    restored epic automatically **re-associates** its still-linked stories — nothing
+    else to do. Records a ``restored`` activity event. Owner/member-gated (WRITE)."""
+    epic = _get_trashed_or_404(db, epic_id)
+    authorize_board(db, principal, epic.board_id, Access.WRITE)
+    epic.deleted_at = None
+    record_activity(
+        db,
+        principal,
+        board_id=epic.board_id,
+        entity_type="epic",
+        entity_id=epic.id,
+        action="restored",
+        summary=f"restored {epic.ticket_number}: {epic.name}",
+    )
+    db.commit()
+    db.refresh(epic)
+    return epic
+
+
+@router.delete("/{epic_id}/purge", status_code=status.HTTP_204_NO_CONTENT)
+def purge_epic(
+    epic_id: int,
+    db: Session = Depends(get_db),
+    principal: User = Depends(get_principal),
+) -> Response:
+    """Permanently remove an epic from the trash (KAN-20) — a real ``DELETE``. The
+    ``card.epic_id`` FK is ``ON DELETE SET NULL``, so any stories still linked to it
+    are detached (not deleted). Operates **only** on an already-soft-deleted epic
+    (**404** otherwise). Owner/member-gated (WRITE)."""
+    epic = _get_trashed_or_404(db, epic_id)
+    authorize_board(db, principal, epic.board_id, Access.WRITE)
+    db.delete(epic)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
