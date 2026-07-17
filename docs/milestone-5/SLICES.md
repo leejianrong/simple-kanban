@@ -20,15 +20,18 @@ the MCP tool + `kan` verb, then any UI.
 
 | Slice | What | Parts | Ends in (demo) |
 |-------|------|-------|----------------|
-| **V11 · Card fields** | priority, labels, due date | A1 | Set `priority`/`label`/`due` on a card via `kan`; badges/chips/overdue pill render in the UI; filter the list by them |
-| **V12 · Dispatch + fleet-safe claim** | next-ready + atomic claim | A2 | Two agents call `dispatch` at once → each gets a *different* ready card, both now `in_progress` with distinct assignees; `kan next`/`kan claim` |
-| **V13 · needs-human handoff** | the `needs_human` flag | A3 | An agent flags a card `needs-human` with a note via `kan`; it shows in a "needs attention" filter; clearing it + a comment lets the agent see it's resolved |
-| **V14 · Query depth + saved views** | JQL-lite filters + saved views | A5 | Save a view "needs me" (filtered) and switch to it in the UI; the same filter grammar works from `kan list` |
-| **V15 · Full-text search** | Postgres FTS | A6 | `kan list --q "login"` and a UI search box find matching cards, ranked |
-| **V16 · Awareness dashboard** | mission control | A7 | The Dashboard shows in-flight-by-agent (+ PR/CI), a needs-attention list, the activity feed, and a table view — all read-only, refreshing |
-| **V17 · Fleet reporting** | derived metrics | A8 | `GET /boards/{id}/metrics` (and `kan`) returns throughput / cycle time / aging / per-assignee; small charts in the UI |
-| **V18 · Scoped tokens** *(Later)* | observer vs operator PAT | A4 | Create a read-only PAT; a write via it → `403`; a write PAT still works |
-| **V19 · Batch + templates** *(Nice-to-have)* | bulk ops + templates | A9 | Seed a plan from a template in one call; batch-update several cards at once |
+| **V11 · Card fields** ✅ | priority, labels, due date | A1 | Set `priority`/`label`/`due` on a card via `kan`; badges/chips/overdue pill render in the UI; filter the list by them |
+| **V12 · Dispatch + fleet-safe claim** ✅ | next-ready + atomic claim | A2 | Two agents call `dispatch` at once → each gets a *different* ready card, both now `in_progress` with distinct assignees; `kan next`/`kan claim` |
+| **V13 · needs-human handoff** ✅ | the `needs_human` flag | A3 | An agent flags a card `needs-human` with a note via `kan`; it shows in a "needs attention" filter; clearing it + a comment lets the agent see it's resolved |
+| **V14 · Query depth + saved views** ✅ | JQL-lite filters + saved views | A5 | Save a view "needs me" (filtered) and switch to it in the UI; the same filter grammar works from `kan list` |
+| **V15 · Full-text search** ✅ | Postgres FTS | A6 | `kan list --q "login"` and a UI search box find matching cards, ranked |
+| **V16 · Awareness dashboard** ✅ | mission control | A7 | The Dashboard shows in-flight-by-agent (+ PR/CI), a needs-attention list, the activity feed, and a table view — all read-only, refreshing |
+| **V17 · Fleet reporting** ✅ | derived metrics | A8 | `GET /boards/{id}/metrics` (and `kan`) returns throughput / cycle time / aging / per-assignee; small charts in the UI |
+| **V18 · Scoped tokens** *(Later — not yet built)* | observer vs operator PAT | A4 | Create a read-only PAT; a write via it → `403`; a write PAT still works |
+| **V19 · Batch + templates** *(Nice-to-have — not yet built)* | bulk ops + templates | A9 | Seed a plan from a template in one call; batch-update several cards at once |
+
+> **Status (all 7 must-haves shipped + deployed + prod-verified):** V11–V17 ✅. Remaining: V18
+> (*Later*), V19 (*Nice-to-have*). Per-slice "Shipped (KAN-…)" notes below record what each landed.
 
 ---
 
