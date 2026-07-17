@@ -17,10 +17,22 @@
 BACKEND  := backend
 FRONTEND := frontend
 
+# Per-worktree ephemeral DB (KAN-240). Each git worktree gets its own throwaway
+# Postgres on a private port so parallel worktrees don't share :5432 (and one
+# worktree's `alembic upgrade head` can't stamp a revision the others lack).
+#   WT_SLUG — filesystem-safe name for THIS worktree (its directory basename).
+#   WT_PORT — a stable host port derived from this worktree's absolute path
+#             (deterministic per path, range ~15432–17431), so re-running
+#             `make worktree-db` here always reuses the same port.
+WT_SLUG := $(shell basename "$(CURDIR)")
+WT_PORT := $(shell echo "$(CURDIR)" | cksum | awk '{print 15432 + ($$1 % 2000)}')
+WT_DB_URL := postgresql+psycopg://kanban:kanban@localhost:$(WT_PORT)/kanban
+
 .DEFAULT_GOAL := help
 
 .PHONY: help up demo down down-v clean db install migrate dev \
-        test test-integration e2e lint check
+        test test-integration e2e lint check \
+        worktree-db worktree-db-url worktree-db-down
 
 help: ## Show this help (the default target)
 	@awk 'BEGIN {FS = ":.*##"; printf "\nSimple Kanban — make targets\n\nUsage: make <target>\n\n"} \
@@ -42,6 +54,28 @@ clean: down-v ## DESTRUCTIVE alias for `down-v` — tear everything down incl. t
 
 db: ## Start just Postgres in the background (for the native hot-reload dev loop)
 	docker compose up -d db
+
+worktree-db: ## Start an EPHEMERAL Postgres for THIS worktree on its own port; prints the DATABASE_URL to export
+	@if [ -z "$$(docker ps -q -f name=^/kanban-db-$(WT_SLUG)$$)" ]; then \
+		docker rm -f kanban-db-$(WT_SLUG) >/dev/null 2>&1 || true; \
+		docker run -d --rm --name kanban-db-$(WT_SLUG) \
+			-e POSTGRES_USER=kanban -e POSTGRES_PASSWORD=kanban -e POSTGRES_DB=kanban \
+			-p $(WT_PORT):5432 postgres:17 >/dev/null; \
+		printf 'Starting kanban-db-%s on :%s ' "$(WT_SLUG)" "$(WT_PORT)"; \
+	else \
+		printf 'kanban-db-%s already running on :%s ' "$(WT_SLUG)" "$(WT_PORT)"; \
+	fi
+	@until docker exec kanban-db-$(WT_SLUG) pg_isready -U kanban -d kanban >/dev/null 2>&1; do \
+		printf '.'; sleep 1; \
+	done; echo ' ready.'
+	@echo 'export DATABASE_URL=$(WT_DB_URL)'
+	@echo '# ^ run the line above (or: export DATABASE_URL=$$(make -s worktree-db-url)) then `make migrate`'
+
+worktree-db-url: ## Print just this worktree's DATABASE_URL
+	@echo '$(WT_DB_URL)'
+
+worktree-db-down: ## Stop & remove THIS worktree's ephemeral Postgres
+	@docker rm -f kanban-db-$(WT_SLUG) >/dev/null 2>&1 && echo 'Removed kanban-db-$(WT_SLUG).' || echo 'No kanban-db-$(WT_SLUG) container to remove.'
 
 install: ## Install deps: backend `uv sync` + frontend `npm ci`
 	cd $(BACKEND) && uv sync
