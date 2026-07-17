@@ -52,6 +52,7 @@ EXIT_NOT_FOUND = 5
 _STATUS_EXIT = {401: EXIT_AUTH, 403: EXIT_FORBIDDEN, 404: EXIT_NOT_FOUND}
 
 COLUMNS = ("todo", "in_progress", "done")
+PRIORITIES = ("none", "low", "medium", "high", "urgent")
 
 
 # --- output helpers ---------------------------------------------------------
@@ -86,10 +87,17 @@ def _humanize(result: Any, *, noun: str = "card") -> str:
     if isinstance(result, dict) and "epics" in result:  # list_epics
         epics = result["epics"]
         return "\n".join(_epic_line(e) for e in epics) if epics else "(no epics)"
-    if isinstance(result, dict) and "deleted" in result:  # delete_{card,epic}
+    if isinstance(result, dict) and "labels" in result:  # list_labels
+        labels = result["labels"]
+        return "\n".join(_label_line(la) for la in labels) if labels else "(no labels)"
+    if isinstance(result, dict) and "deleted" in result:  # delete_{card,epic,label}
         return f"deleted {noun} {result['deleted']}"
     if isinstance(result, dict) and "status" in result:  # warmup
         return _warmup_line(result)
+    # A single label carries ``color`` (distinctive) — matched before the generic
+    # name-without-title branch below.
+    if isinstance(result, dict) and "color" in result and "name" in result:
+        return _label_line(result)
     # A single entity: epics/boards carry ``name`` (no ``title``); cards carry
     # ``title``. Epics additionally have a ``ticket_number`` (``EPIC-…``).
     if isinstance(result, dict) and "name" in result and "title" not in result:
@@ -125,6 +133,17 @@ def _board_line(board: dict[str, Any]) -> str:
     return "\t".join((str(board.get("id", "?")), str(board.get("name", ""))))
 
 
+def _label_line(label: dict[str, Any]) -> str:
+    """One concise line for a label: id, name, color (tab-separated)."""
+    return "\t".join(
+        (
+            str(label.get("id", "?")),
+            str(label.get("name", "")),
+            str(label.get("color", "")),
+        )
+    )
+
+
 def _warmup_line(result: dict[str, Any]) -> str:
     """One concise line for a warmup result: the status, plus any detail.
 
@@ -155,6 +174,10 @@ def _cmd_list(client: KanbanClient, config: Config, args: argparse.Namespace) ->
         board_id=_resolve_board(args.board, config),
         column=args.column,
         epic_id=args.epic,
+        priority=args.priority,
+        label=args.label,
+        due_before=args.due_before,
+        overdue=args.overdue or None,
         limit=args.limit,
     )
 
@@ -172,6 +195,9 @@ def _cmd_create(client: KanbanClient, config: Config, args: argparse.Namespace) 
         story_points=args.points,
         assignee=args.assignee,
         epic_id=args.epic,
+        priority=args.priority,
+        due_date=args.due,
+        label_ids=args.label or None,
     )
 
 
@@ -183,6 +209,9 @@ def _cmd_update(client: KanbanClient, config: Config, args: argparse.Namespace) 
         story_points=args.points,
         assignee=args.assignee,
         epic_id=args.epic,
+        priority=args.priority,
+        due_date=args.due,
+        label_ids=args.label if args.label is not None else None,
     )
 
 
@@ -250,6 +279,33 @@ def _cmd_epic_delete(client: KanbanClient, config: Config, args: argparse.Namesp
             f"refusing to delete epic {args.epic_id} without confirmation; pass --yes"
         )
     return client.delete_epic(args.epic_id)
+
+
+# --- label handlers ---------------------------------------------------------
+# Labels are board-scoped: list/create honour --board / KANBAN_BOARD_ID; delete
+# is addressed by the label's own id (authorized via its board).
+
+
+def _cmd_label_list(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    board = _resolve_board(args.board, config)
+    if board is None:
+        raise ConfigError("a board is required; pass --board or set KANBAN_BOARD_ID")
+    return client.list_labels(board)
+
+
+def _cmd_label_create(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    board = _resolve_board(args.board, config)
+    if board is None:
+        raise ConfigError("a board is required; pass --board or set KANBAN_BOARD_ID")
+    return client.create_label(board, args.name, args.color)
+
+
+def _cmd_label_delete(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    if not args.yes:
+        raise ConfigError(
+            f"refusing to delete label {args.label_id} without confirmation; pass --yes"
+        )
+    return client.delete_label(args.label_id)
 
 
 # --- config handlers (local: no client, no network) -------------------------
@@ -394,6 +450,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_list.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
     p_list.add_argument("--column", choices=COLUMNS, help="filter by column")
     p_list.add_argument("--epic", type=int, metavar="EPIC_ID", help="filter by epic id")
+    p_list.add_argument("--priority", choices=PRIORITIES, help="filter by priority")
+    p_list.add_argument("--label", type=int, metavar="LABEL_ID", help="filter by label id")
+    p_list.add_argument(
+        "--due-before", dest="due_before", metavar="ISO",
+        help="only cards due strictly before this ISO-8601 timestamp",
+    )
+    p_list.add_argument(
+        "--overdue", action="store_true", help="only past-due cards not yet done"
+    )
     p_list.add_argument("--limit", type=int, help="max cards to return")
     p_list.set_defaults(func=_cmd_list)
 
@@ -409,6 +474,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_create.add_argument("--points", type=int, metavar="N", help="story points (1/2/3/5/8/13)")
     p_create.add_argument("--assignee")
     p_create.add_argument("--epic", type=int, metavar="EPIC_ID", help="link to an epic")
+    p_create.add_argument("--priority", choices=PRIORITIES, help="priority (default: none)")
+    p_create.add_argument("--due", metavar="ISO", help="due date (ISO-8601 timestamp)")
+    p_create.add_argument(
+        "--label", type=int, action="append", metavar="LABEL_ID",
+        help="attach a label by id (repeatable)",
+    )
     p_create.set_defaults(func=_cmd_create)
 
     p_update = sub.add_parser("update", parents=[common], help="edit a card's fields")
@@ -419,6 +490,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_update.add_argument("--assignee")
     p_update.add_argument(
         "--epic", type=int, metavar="EPIC_ID", help="link to an epic (by id)"
+    )
+    p_update.add_argument("--priority", choices=PRIORITIES, help="re-rank priority")
+    p_update.add_argument("--due", metavar="ISO", help="due date (ISO-8601 timestamp)")
+    p_update.add_argument(
+        "--label", type=int, action="append", metavar="LABEL_ID",
+        help="replace the card's labels with these ids (repeatable; omit to leave unchanged)",
     )
     p_update.set_defaults(func=_cmd_update)
 
@@ -472,6 +549,27 @@ def build_parser() -> argparse.ArgumentParser:
     p_epic_delete.add_argument("epic_id", type=int)
     p_epic_delete.add_argument("--yes", action="store_true", help="confirm the deletion")
     p_epic_delete.set_defaults(func=_cmd_epic_delete, noun="epic")
+
+    # --- label subcommands (nested group; parity with /api/v1 labels) --------
+    p_label = sub.add_parser("label", help="manage labels (list / create / delete)")
+    label_sub = p_label.add_subparsers(
+        dest="label_command", metavar="<subcommand>", required=True
+    )
+
+    p_label_list = label_sub.add_parser("list", parents=[common], help="list a board's labels")
+    p_label_list.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
+    p_label_list.set_defaults(func=_cmd_label_list, noun="label")
+
+    p_label_create = label_sub.add_parser("create", parents=[common], help="create a label")
+    p_label_create.add_argument("name")
+    p_label_create.add_argument("color", help="a color string, e.g. a hex like #0ea5e9")
+    p_label_create.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
+    p_label_create.set_defaults(func=_cmd_label_create, noun="label")
+
+    p_label_delete = label_sub.add_parser("delete", parents=[common], help="delete a label")
+    p_label_delete.add_argument("label_id", type=int)
+    p_label_delete.add_argument("--yes", action="store_true", help="confirm the deletion")
+    p_label_delete.set_defaults(func=_cmd_label_delete, noun="label")
 
     # --- login / config (local: no token, no network) ------------------------
     # ``login`` saves a PAT to ~/.config/kan/config.toml without it touching argv:

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { Ban, Link as LinkIcon, Pencil, Trash2 } from "lucide-svelte";
-  import type { Card } from "../api";
+  import { Ban, CalendarClock, Link as LinkIcon, Pencil, Trash2 } from "lucide-svelte";
+  import type { Card, Priority } from "../api";
   import { cardById, epicFor, removeCard } from "../board.svelte";
   import CardModal from "./CardModal.svelte";
 
@@ -8,6 +8,30 @@
 
   // The epic this story belongs to (if any) — rendered as a tag on the face.
   const epic = $derived(epicFor(card.epic_id));
+
+  // Priority badge (M5 V11): a colored dot + label, hidden for "none". The colors
+  // are chosen to read in both light and dark themes.
+  const PRIORITY_META: Record<Priority, { label: string; color: string } | null> = {
+    none: null,
+    low: { label: "Low", color: "var(--muted)" },
+    medium: { label: "Medium", color: "#d97706" },
+    high: { label: "High", color: "#ea580c" },
+    urgent: { label: "Urgent", color: "var(--danger)" },
+  };
+  const priorityMeta = $derived(PRIORITY_META[card.priority]);
+
+  // Due / overdue pill (M5 V11): overdue = past its due date and not yet done.
+  const dueInfo = $derived.by(() => {
+    if (!card.due_date) return null;
+    const d = new Date(card.due_date);
+    if (Number.isNaN(d.getTime())) return null;
+    const overdue = d.getTime() < Date.now() && card.column !== "done";
+    return {
+      text: d.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+      title: d.toLocaleString(),
+      overdue,
+    };
+  });
 
   // Dependency references, resolved to cards for their ticket + title.
   function ref(id: number): { ticket: string; title: string } {
@@ -90,6 +114,13 @@
   >
     <div class="card-top">
       <span class="ticket">{card.ticket_number}</span>
+      {#if priorityMeta}
+        <span class="priority-badge" title="Priority: {priorityMeta.label}">
+          <span class="priority-dot" style="background: {priorityMeta.color}" aria-hidden="true"
+          ></span>
+          {priorityMeta.label}
+        </span>
+      {/if}
       {#if card.blocked}
         <span class="blocked-badge" title="Blocked by an unfinished card">
           <Ban size={11} aria-hidden="true" />
@@ -104,6 +135,22 @@
       {/if}
     </div>
     <p class="card-title">{card.title}</p>
+    {#if card.labels.length > 0 || dueInfo}
+      <div class="card-meta">
+        {#each card.labels as label (label.id)}
+          <span class="label-chip" title={label.name}>
+            <span class="label-dot" style="background: {label.color}" aria-hidden="true"></span>
+            <span class="label-name">{label.name}</span>
+          </span>
+        {/each}
+        {#if dueInfo}
+          <span class="due-pill" class:overdue={dueInfo.overdue} title="Due {dueInfo.title}">
+            <CalendarClock size={11} aria-hidden="true" />
+            {dueInfo.text}
+          </span>
+        {/if}
+      </div>
+    {/if}
     {#if blockedBy.length > 0 || blocks.length > 0}
       <div class="deps">
         {#if blockedBy.length > 0}

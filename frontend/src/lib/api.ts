@@ -7,6 +7,11 @@ const API = "/api/v1";
 
 export type Column = "todo" | "in_progress" | "done";
 
+// Card priority (M5 V11, KAN-244). Must stay in sync with the backend's
+// VALID_PRIORITIES / ck_card_priority (models) and PriorityEnum (schemas) — the
+// three-places rule. "none" is the default (an unranked card).
+export type Priority = "none" | "low" | "medium" | "high" | "urgent";
+
 export interface Card {
   id: number;
   ticket_number: string;
@@ -18,6 +23,11 @@ export interface Card {
   story_points: number | null;
   assignee: string | null;
   epic_id: number | null;
+  // Card fields (M5 V11, KAN-244): priority, optional due date (ISO string or
+  // null), and the board-scoped labels attached to this card.
+  priority: Priority;
+  due_date: string | null;
+  labels: Label[];
   // Card-to-card dependencies (KAN-28/KAN-30): ids of cards that block this one
   // (blocked_by) and ids of cards this one blocks (blocks). `blocked` is the
   // derived signal — true when >=1 blocker is not yet done (KAN-29).
@@ -28,6 +38,15 @@ export interface Card {
   links: CardLink[];
   created_at: string;
   updated_at: string;
+}
+
+// A board-scoped, colored label a card can carry (M5 V11, KAN-244).
+export interface Label {
+  id: number;
+  board_id: number;
+  name: string;
+  color: string;
+  created_at: string;
 }
 
 // A work-link on a card (KAN-32): a label (e.g. "PR", "branch", "CI") + a url.
@@ -56,16 +75,25 @@ export interface CardCreate {
   assignee?: string | null;
   epic_id?: number | null;
   board_id?: number;
+  // M5 V11: priority (default "none"), optional due date, and the label ids to
+  // attach (each must belong to the card's board).
+  priority?: Priority;
+  due_date?: string | null;
+  label_ids?: number[];
 }
 
 // Field edits only — no column (moving is done via /move, not PATCH).
 // `epic_id` re-links the story to a different epic (or null to clear).
+// `label_ids` *replaces* the card's label set ([] clears it; omit to leave it).
 export interface CardUpdate {
   title?: string;
   description?: string | null;
   story_points?: number | null;
   assignee?: string | null;
   epic_id?: number | null;
+  priority?: Priority;
+  due_date?: string | null;
+  label_ids?: number[];
 }
 
 // An epic is a grouping a story can belong to (ADR 0009), scoped to a board (V7).
@@ -329,6 +357,37 @@ export async function updateEpic(id: number, payload: EpicUpdate): Promise<Epic>
 
 export async function deleteEpic(id: number): Promise<void> {
   const res = await fetch(`${API}/epics/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+}
+
+// --- Board labels (M5 V11, KAN-244) ----------------------------------------
+// Labels are board-scoped, colored tags. List/create are addressed by board;
+// delete is addressed by the label's own id. Attach to cards via `label_ids` on
+// create/update. Server-authoritative like every mutation (refetch after).
+
+export interface LabelCreate {
+  name: string;
+  color: string;
+}
+
+export async function listLabels(boardId: number): Promise<Label[]> {
+  const res = await fetch(`${API}/boards/${boardId}/labels`);
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function createLabel(boardId: number, payload: LabelCreate): Promise<Label> {
+  const res = await fetch(`${API}/boards/${boardId}/labels`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function deleteLabel(id: number): Promise<void> {
+  const res = await fetch(`${API}/labels/${id}`, { method: "DELETE" });
   if (!res.ok) throw new ApiError(res.status, await parseError(res));
 }
 

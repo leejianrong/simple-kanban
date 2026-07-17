@@ -85,6 +85,15 @@ class FakeClient:
     def delete_epic(self, epic_id):
         return self._call("delete_epic", epic_id=epic_id)
 
+    def list_labels(self, board_id):
+        return self._call("list_labels", board_id=board_id)
+
+    def create_label(self, board_id, name, color):
+        return self._call("create_label", board_id=board_id, name=name, color=color)
+
+    def delete_label(self, label_id):
+        return self._call("delete_label", label_id=label_id)
+
 
 @pytest.fixture(autouse=True)
 def isolate_config(monkeypatch, tmp_path):
@@ -119,8 +128,33 @@ def test_list_maps_all_filters(monkeypatch, env):
     code = cli.run(["list", "--board", "3", "--column", "done", "--epic", "5", "--limit", "10"])
     assert code == 0
     assert fake.calls == [
-        ("list_cards", {"board_id": 3, "column": "done", "epic_id": 5, "limit": 10})
+        (
+            "list_cards",
+            {
+                "board_id": 3,
+                "column": "done",
+                "epic_id": 5,
+                "priority": None,
+                "label": None,
+                "due_before": None,
+                "overdue": None,
+                "limit": 10,
+            },
+        )
     ]
+
+
+def test_list_maps_card_field_filters(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"cards": [CARD]}))
+    code = cli.run(
+        ["list", "--priority", "high", "--label", "4", "--due-before", "2026-08-01", "--overdue"]
+    )
+    assert code == 0
+    call = fake.calls[0][1]
+    assert call["priority"] == "high"
+    assert call["label"] == 4
+    assert call["due_before"] == "2026-08-01"
+    assert call["overdue"] is True
 
 
 def test_get_passes_card_id(monkeypatch, env):
@@ -151,9 +185,28 @@ def test_create_maps_all_options(monkeypatch, env):
                 "story_points": 5,
                 "assignee": "alice",
                 "epic_id": 9,
+                "priority": None,
+                "due_date": None,
+                "label_ids": None,
             },
         )
     ]
+
+
+def test_create_maps_card_fields(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient())
+    code = cli.run(
+        [
+            "create", "S",
+            "--priority", "urgent", "--due", "2026-08-01T00:00:00Z",
+            "--label", "1", "--label", "2",
+        ]
+    )
+    assert code == 0
+    call = fake.calls[0][1]
+    assert call["priority"] == "urgent"
+    assert call["due_date"] == "2026-08-01T00:00:00Z"
+    assert call["label_ids"] == [1, 2]
 
 
 def test_update_maps_fields(monkeypatch, env):
@@ -170,9 +223,50 @@ def test_update_maps_fields(monkeypatch, env):
                 "story_points": 8,
                 "assignee": "bob",
                 "epic_id": None,
+                "priority": None,
+                "due_date": None,
+                "label_ids": None,
             },
         )
     ]
+
+
+def test_update_maps_card_fields(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient())
+    code = cli.run(["update", "7", "--priority", "low", "--due", "2026-09-01", "--label", "3"])
+    assert code == 0
+    call = fake.calls[0][1]
+    assert call["priority"] == "low"
+    assert call["due_date"] == "2026-09-01"
+    assert call["label_ids"] == [3]
+
+
+# --- label subcommands ------------------------------------------------------
+
+
+def test_label_list_maps_board(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"labels": []}))
+    assert cli.run(["label", "list", "--board", "2"]) == 0
+    assert fake.calls == [("list_labels", {"board_id": 2})]
+
+
+def test_label_create_passes_name_and_color(monkeypatch, env):
+    fake = patch_client(
+        monkeypatch,
+        FakeClient(result={"id": 1, "board_id": 2, "name": "bug", "color": "#ef4444"}),
+    )
+    assert cli.run(["label", "create", "bug", "#ef4444", "--board", "2"]) == 0
+    assert fake.calls == [
+        ("create_label", {"board_id": 2, "name": "bug", "color": "#ef4444"})
+    ]
+
+
+def test_label_delete_requires_yes(monkeypatch, env, capsys):
+    fake = patch_client(monkeypatch, FakeClient(result={"deleted": 5}))
+    assert cli.run(["label", "delete", "5"]) == 1  # no --yes → refused
+    assert fake.calls == []
+    assert cli.run(["label", "delete", "5", "--yes"]) == 0
+    assert fake.calls == [("delete_label", {"label_id": 5})]
 
 
 def test_move_passes_column_and_position(monkeypatch, env):

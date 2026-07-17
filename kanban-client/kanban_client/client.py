@@ -215,6 +215,10 @@ class KanbanClient:
         column: str | None = None,
         epic_id: int | None = None,
         updated_since: str | None = None,
+        priority: str | None = None,
+        label: int | None = None,
+        due_before: str | None = None,
+        overdue: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
     ) -> dict[str, Any]:
@@ -224,6 +228,10 @@ class KanbanClient:
                 "column": column,
                 "epic_id": epic_id,
                 "updated_since": updated_since,
+                "priority": priority,
+                "label": label,
+                "due_before": due_before,
+                "overdue": overdue,
                 "limit": limit,
                 "cursor": cursor,
             }
@@ -258,6 +266,9 @@ class KanbanClient:
         story_points: int | None = None,
         assignee: str | None = None,
         epic_id: int | None = None,
+        priority: str | None = None,
+        due_date: str | None = None,
+        label_ids: list[int] | None = None,
     ) -> dict[str, Any]:
         payload = _clean(
             {
@@ -268,6 +279,9 @@ class KanbanClient:
                 "story_points": story_points,
                 "assignee": assignee,
                 "epic_id": epic_id,
+                "priority": priority,
+                "due_date": due_date,
+                "label_ids": label_ids,
             }
         )
         return self._request("POST", "/cards", json=payload).json()
@@ -313,6 +327,9 @@ class KanbanClient:
         story_points: int | None = None,
         assignee: str | None = None,
         epic_id: int | None = None,
+        priority: str | None = None,
+        due_date: str | None = None,
+        label_ids: list[int] | None = None,
     ) -> dict[str, Any]:
         payload = _clean(
             {
@@ -321,6 +338,9 @@ class KanbanClient:
                 "story_points": story_points,
                 "assignee": assignee,
                 "epic_id": epic_id,
+                "priority": priority,
+                "due_date": due_date,
+                "label_ids": label_ids,
             }
         )
         return self._request("PATCH", f"/cards/{card_id}", json=payload).json()
@@ -410,3 +430,26 @@ class KanbanClient:
         """List a card's notes, oldest-first (creation order). Returns
         ``{"comments": [<comment>, ...]}``."""
         return {"comments": self._request("GET", f"/cards/{card_id}/comments").json()}
+
+    # --- board labels (M5 V11 API / KAN-244 adapter) ------------------------
+
+    def list_labels(self, board_id: int) -> dict[str, Any]:
+        """List a board's labels (id, name, color), oldest-first. Returns
+        ``{"labels": [<label>, ...]}``."""
+        return {
+            "labels": self._request("GET", f"/boards/{board_id}/labels").json()
+        }
+
+    def create_label(self, board_id: int, name: str, color: str) -> dict[str, Any]:
+        """Create a board-scoped label (``name`` + ``color`` — e.g. a hex string).
+        Returns the created label. The label can then be attached to cards on that
+        board via ``label_ids`` on create/update."""
+        return self._request(
+            "POST", f"/boards/{board_id}/labels", json={"name": name, "color": color}
+        ).json()
+
+    def delete_label(self, label_id: int) -> dict[str, Any]:
+        """Delete a label by id; it detaches from every card that carried it (ON
+        DELETE CASCADE). 204 No Content — no body to parse."""
+        self._request("DELETE", f"/labels/{label_id}")
+        return {"deleted": label_id}

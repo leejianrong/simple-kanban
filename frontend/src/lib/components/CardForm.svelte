@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { Column } from "../api";
-  import { addCard, epicStore } from "../board.svelte";
+  import type { Column, Priority } from "../api";
+  import { addCard, epicStore, labelStore } from "../board.svelte";
 
   // Create-only: the add-card affordance inside a column. Editing an existing
   // card now happens in CardModal (opened from the card face), so this form no
@@ -8,17 +8,28 @@
   let { column, onclose }: { column: Column; onclose: () => void } = $props();
 
   const STORY_POINTS = [1, 2, 3, 5, 8, 13];
+  const PRIORITIES: Priority[] = ["none", "low", "medium", "high", "urgent"];
 
   let title = $state("");
   let description = $state("");
   let assignee = $state("");
   let storyPoints = $state<string>(""); // "" = unestimated
   let epicId = $state<string>(""); // "" = no epic
+  let priority = $state<Priority>("none");
+  let dueDate = $state<string>(""); // "" = no due date (a <input type=date> value)
+  let labelIds = $state<number[]>([]); // attached label ids
   let submitting = $state(false);
   let error = $state<string | null>(null);
 
   const epicOptions = $derived(epicStore.epics);
+  const labelOptions = $derived(labelStore.labels);
   const canSubmit = $derived(title.trim().length > 0 && !submitting);
+
+  function toggleLabel(id: number) {
+    labelIds = labelIds.includes(id)
+      ? labelIds.filter((x) => x !== id)
+      : [...labelIds, id];
+  }
 
   async function submit(e: SubmitEvent) {
     e.preventDefault();
@@ -32,6 +43,9 @@
         assignee: assignee.trim() || null,
         story_points: storyPoints ? Number(storyPoints) : null,
         epic_id: epicId ? Number(epicId) : null,
+        priority,
+        due_date: dueDate ? new Date(dueDate).toISOString() : null,
+        label_ids: labelIds,
         column,
       });
       onclose();
@@ -64,6 +78,31 @@
       <option value={String(epic.id)}>{epic.ticket_number} · {epic.name}</option>
     {/each}
   </select>
+
+  <div class="row">
+    <select bind:value={priority} aria-label="Priority">
+      {#each PRIORITIES as p}
+        <option value={p}>{p === "none" ? "— priority" : p}</option>
+      {/each}
+    </select>
+    <input type="date" bind:value={dueDate} aria-label="Due date" />
+  </div>
+
+  {#if labelOptions.length > 0}
+    <div class="label-picker" role="group" aria-label="Labels">
+      {#each labelOptions as label (label.id)}
+        <button
+          type="button"
+          class="label-toggle"
+          class:selected={labelIds.includes(label.id)}
+          onclick={() => toggleLabel(label.id)}
+        >
+          <span class="label-dot" style="background: {label.color}" aria-hidden="true"></span>
+          {label.name}
+        </button>
+      {/each}
+    </div>
+  {/if}
 
   {#if error}
     <p class="form-error" role="alert">{error}</p>

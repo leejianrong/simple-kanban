@@ -17,7 +17,9 @@ from app.schemas import (
     CommentCreate,
     DependencyCreate,
     EpicCreate,
+    LabelCreate,
     LinkCreate,
+    PriorityEnum,
 )
 
 
@@ -89,6 +91,8 @@ def test_card_read_dependency_arrays_default_empty():
         story_points=None,
         assignee=None,
         epic_id=None,
+        priority="none",
+        due_date=None,
         created_at="2026-07-09T00:00:00Z",
         updated_at="2026-07-09T00:00:00Z",
     )
@@ -119,6 +123,8 @@ def test_card_read_links_default_empty():
         story_points=None,
         assignee=None,
         epic_id=None,
+        priority="none",
+        due_date=None,
         created_at="2026-07-10T00:00:00Z",
         updated_at="2026-07-10T00:00:00Z",
     )
@@ -151,3 +157,44 @@ def test_comment_create_requires_non_empty_body():
     # body is required.
     with pytest.raises(ValidationError):
         CommentCreate()
+
+
+# --- card fields: priority / due_date / labels (M5 V11, KAN-244) ------------
+
+
+def test_priority_defaults_to_none():
+    assert CardCreate(title="t").priority is PriorityEnum.none
+
+
+def test_priority_accepts_valid_values():
+    for value in ("none", "low", "medium", "high", "urgent"):
+        assert CardCreate(title="t", priority=value).priority.value == value
+
+
+def test_priority_rejects_unknown_value():
+    with pytest.raises(ValidationError):
+        CardCreate(title="t", priority="critical")
+    with pytest.raises(ValidationError):
+        CardUpdate(priority="whenever")
+
+
+def test_label_ids_default_none_and_accept_list():
+    assert CardCreate(title="t").label_ids is None
+    assert CardCreate(title="t", label_ids=[1, 2]).label_ids == [1, 2]
+    # Update accepts an empty list (a deliberate "clear all labels").
+    assert CardUpdate(label_ids=[]).label_ids == []
+
+
+def test_due_date_optional_and_parsed():
+    assert CardCreate(title="t").due_date is None
+    card = CardCreate(title="t", due_date="2026-08-01T00:00:00Z")
+    assert card.due_date is not None
+
+
+def test_label_create_requires_non_empty_name_and_color():
+    assert LabelCreate(name="bug", color="#ef4444").color == "#ef4444"
+    for bad in ("", "   ", "\t"):
+        with pytest.raises(ValidationError):
+            LabelCreate(name=bad, color="#000")
+        with pytest.raises(ValidationError):
+            LabelCreate(name="ok", color=bad)

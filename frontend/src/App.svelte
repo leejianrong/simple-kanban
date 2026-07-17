@@ -10,7 +10,7 @@
   import Tokens from "./lib/components/Tokens.svelte";
   import Members from "./lib/components/Members.svelte";
   import Trash from "./lib/components/Trash.svelte";
-  import { refetch, refetchBoards, refetchEpics } from "./lib/board.svelte";
+  import { refetch, refetchBoards, refetchEpics, refetchLabels } from "./lib/board.svelte";
   import { refetchTokens } from "./lib/tokens.svelte";
   import { setSessionUser } from "./lib/session.svelte";
   import { initTheme, themeStore, toggleTheme } from "./lib/theme.svelte";
@@ -50,6 +50,7 @@
       await refetchBoards();
       refetch();
       refetchEpics();
+      refetchLabels();
     }
   });
 

@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from .db import get_db
 from .observability import add_request_logging, configure_logging, init_error_tracking
-from .routers import boards, cards, epics, members, tokens, webhooks
+from .routers import boards, cards, epics, labels, members, tokens, webhooks
 from .users import register_auth_routes
 
 # Observability (KAN-172): configure structured JSON logging and, only when
@@ -45,6 +45,7 @@ app.include_router(boards.router, prefix="/api/v1")
 app.include_router(members.router, prefix="/api/v1")  # KAN-12: board membership
 app.include_router(cards.router, prefix="/api/v1")
 app.include_router(epics.router, prefix="/api/v1")
+app.include_router(labels.router, prefix="/api/v1")  # M5 V11 (KAN-244): card labels
 app.include_router(tokens.router, prefix="/api/v1")  # M3 V9 (ADR 0014): agent PATs
 # GitHub webhook receiver (KAN-42): standalone — auth is the HMAC signature, NOT
 # the cookie/PAT principal resolver, so it is intentionally not owner-gated.
