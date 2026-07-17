@@ -97,6 +97,8 @@ def _humanize(result: Any, *, noun: str = "card") -> str:
         return f"deleted {noun} {result['deleted']}"
     if isinstance(result, dict) and "status" in result:  # warmup
         return _warmup_line(result)
+    if isinstance(result, dict) and "throughput" in result and "cycle_time" in result:
+        return _metrics_block(result)  # board metrics (V17)
     # A single label carries ``color`` (distinctive) — matched before the generic
     # name-without-title branch below.
     if isinstance(result, dict) and "color" in result and "name" in result:
@@ -157,6 +159,60 @@ def _warmup_line(result: dict[str, Any]) -> str:
         return "ok\tAPI is awake"
     detail = result.get("detail")
     return f"{status}\t{detail}" if detail else status
+
+
+def _fmt_duration(seconds: float | None) -> str:
+    """A compact human duration (e.g. ``2h3m``, ``45s``) — ``-`` when there's none."""
+    if seconds is None:
+        return "-"
+    total = int(round(seconds))
+    if total < 60:
+        return f"{total}s"
+    minutes, secs = divmod(total, 60)
+    if minutes < 60:
+        return f"{minutes}m{secs}s" if secs else f"{minutes}m"
+    hours, minutes = divmod(minutes, 60)
+    if hours < 24:
+        return f"{hours}h{minutes}m" if minutes else f"{hours}h"
+    days, hours = divmod(hours, 24)
+    return f"{days}d{hours}h" if hours else f"{days}d"
+
+
+def _metrics_block(result: dict[str, Any]) -> str:
+    """Render board metrics (V17) as a compact multi-line stats readout."""
+    since = result.get("since") or "all time"
+    cycle = result.get("cycle_time", {})
+    aging = result.get("aging_wip", {})
+    lines = [
+        f"board {result.get('board_id', '?')}  (since: {since})",
+        f"throughput:  {result.get('throughput', 0)} done",
+        (
+            "cycle time:  "
+            f"avg {_fmt_duration(cycle.get('avg_seconds'))}  "
+            f"median {_fmt_duration(cycle.get('median_seconds'))}  "
+            f"p90 {_fmt_duration(cycle.get('p90_seconds'))}  "
+            f"(n={cycle.get('count', 0)})"
+        ),
+        (
+            "aging WIP:   "
+            f"{aging.get('count', 0)} in progress  "
+            f"avg {_fmt_duration(aging.get('avg_seconds'))}  "
+            f"max {_fmt_duration(aging.get('max_seconds'))}"
+        ),
+    ]
+    for item in aging.get("items", []):
+        assignee = item.get("assignee") or "(unassigned)"
+        lines.append(
+            f"  {item.get('ticket_number', '?')}\t{assignee}\t"
+            f"{_fmt_duration(item.get('age_seconds'))}"
+        )
+    by_assignee = result.get("by_assignee", [])
+    if by_assignee:
+        lines.append("by assignee:")
+        for row in by_assignee:
+            who = row.get("assignee") or "(unassigned)"
+            lines.append(f"  {who}\tdone {row.get('throughput', 0)}\twip {row.get('wip', 0)}")
+    return "\n".join(lines)
 
 
 # --- board resolution -------------------------------------------------------
@@ -251,6 +307,16 @@ def _cmd_needs_human(client: KanbanClient, config: Config, args: argparse.Namesp
 
 def _cmd_resolve(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
     return client.resolve_card(args.card_id)
+
+
+def _cmd_metrics(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    """Report derived flow metrics for a board (M5 V17, KAN-250). The metrics
+    endpoint is path-scoped with no API-side fallback, so a board is required
+    (``--board`` or KANBAN_BOARD_ID)."""
+    board = _resolve_board(args.board, config)
+    if board is None:
+        raise ConfigError("a board is required; pass --board or set KANBAN_BOARD_ID")
+    return client.board_metrics(board, since=args.since, window=args.window)
 
 
 # --- ops handlers -----------------------------------------------------------
@@ -571,6 +637,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_resolve.add_argument("card_id", type=int)
     p_resolve.set_defaults(func=_cmd_resolve)
+
+    # --- fleet reporting / metrics (M5 V17, KAN-250) -------------------------
+    p_metrics = sub.add_parser(
+        "metrics",
+        parents=[common],
+        help="derived flow metrics for a board (throughput / cycle time / aging / by-assignee)",
+    )
+    p_metrics.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
+    p_metrics.add_argument(
+        "--since", metavar="ISO", help="lower bound of the period (ISO-8601 timestamp)"
+    )
+    p_metrics.add_argument(
+        "--window",
+        metavar="SPAN",
+        help="relative period, e.g. 7d / 24h / 30m (ignored with --since)",
+    )
+    p_metrics.set_defaults(func=_cmd_metrics)
 
     # --- board subcommands (nested group; parity with /api/v1/boards) --------
     p_board = sub.add_parser("board", help="manage boards (list / create)")
