@@ -9,14 +9,17 @@ import {
   createCard,
   createEpic,
   createLabel,
+  createView,
   deleteBoard,
   deleteCard,
   deleteEpic,
   deleteLabel,
+  deleteView,
   listBoards,
   listCards,
   listEpics,
   listLabels,
+  listViews,
   moveCard as apiMoveCard,
   removeDependency,
   removeLink,
@@ -27,12 +30,14 @@ import {
   type Card,
   type CardCreate,
   type CardMove,
+  type CardQuery,
   type CardUpdate,
   type Column,
   type Epic,
   type EpicCreate,
   type EpicUpdate,
   type Label,
+  type SavedView,
 } from "./api";
 
 export const COLUMNS: { key: Column; label: string }[] = [
@@ -90,11 +95,14 @@ export async function refetchBoards(): Promise<void> {
   }
 }
 
-// Switch the active board and load its cards + epics + labels.
+// Switch the active board and load its cards + epics + labels + saved views.
+// Saved views belong to a board, so switching clears the active view/query first
+// (else the old board's filter would carry over to the new board's cards).
 export async function setActiveBoard(id: number): Promise<void> {
   boardStore.activeBoardId = id;
   persistActiveBoard(id);
-  await Promise.all([refetch(), refetchEpics(), refetchLabels()]);
+  clearActiveView();
+  await Promise.all([refetch(), refetchEpics(), refetchLabels(), refetchViews()]);
 }
 
 export async function addBoard(name: string): Promise<void> {
@@ -169,9 +177,13 @@ export async function refetch(): Promise<void> {
   board.loading = true;
   board.error = null;
   try {
-    // Scope to the active board; with none selected there's nothing to show.
+    // Scope to the active board; with none selected there's nothing to show. The
+    // active saved-view query (M5 V14) filters + sorts server-side — an empty
+    // query means "all cards" (identical to the pre-V14 behaviour).
     board.cards =
-      boardStore.activeBoardId == null ? [] : await listCards(boardStore.activeBoardId);
+      boardStore.activeBoardId == null
+        ? []
+        : await listCards(boardStore.activeBoardId, viewStore.query);
   } catch (e) {
     board.error = e instanceof Error ? e.message : "Failed to load cards";
   } finally {
@@ -305,4 +317,92 @@ export async function addLabel(name: string, color: string): Promise<Label | nul
 export async function removeLabel(id: number): Promise<void> {
   await deleteLabel(id);
   await Promise.all([refetchLabels(), refetch()]);
+}
+
+// Saved views + the active query (M5 V14, KAN-247). `query` is the live filter+sort
+// applied to the board (empty = all cards); `activeViewId` names the saved view it
+// came from (null = an ad-hoc/unsaved query). `mode` toggles the board vs. a
+// sortable table over the same (filtered) cards. Server-authoritative: changing the
+// query refetch()es so the board only ever shows what the server returned.
+export const viewStore = $state<{
+  views: SavedView[];
+  activeViewId: number | null;
+  query: CardQuery;
+  mode: "board" | "table";
+  loading: boolean;
+  error: string | null;
+}>({ views: [], activeViewId: null, query: {}, mode: "board", loading: false, error: null });
+
+// Reset to the unfiltered ad-hoc query (does not refetch — callers pair it with one).
+function clearActiveView(): void {
+  viewStore.activeViewId = null;
+  viewStore.query = {};
+}
+
+export async function refetchViews(): Promise<void> {
+  viewStore.loading = true;
+  viewStore.error = null;
+  try {
+    viewStore.views =
+      boardStore.activeBoardId == null ? [] : await listViews(boardStore.activeBoardId);
+  } catch (e) {
+    viewStore.error = e instanceof Error ? e.message : "Failed to load views";
+  } finally {
+    viewStore.loading = false;
+  }
+}
+
+// Activate a saved view (apply its stored query), or pass null for "All cards"
+// (the unfiltered ad-hoc query). Refetches so the board reflects the server.
+export async function setActiveView(id: number | null): Promise<void> {
+  if (id == null) {
+    clearActiveView();
+  } else {
+    const view = viewStore.views.find((v) => v.id === id);
+    if (!view) return;
+    viewStore.activeViewId = id;
+    viewStore.query = { ...view.query };
+  }
+  await refetch();
+}
+
+// Merge an ad-hoc filter/sort change into the active query. This detaches from any
+// named view (it's now an unsaved query) and refetches.
+export async function setQuery(patch: Partial<CardQuery>): Promise<void> {
+  const next: CardQuery = { ...viewStore.query };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined || value === null || value === "") {
+      delete (next as Record<string, unknown>)[key];
+    } else {
+      (next as Record<string, unknown>)[key] = value;
+    }
+  }
+  viewStore.query = next;
+  viewStore.activeViewId = null;
+  await refetch();
+}
+
+// Save the current ad-hoc query as a new named view, then select it.
+export async function saveCurrentView(name: string): Promise<void> {
+  if (boardStore.activeBoardId == null) return;
+  const created = await createView(boardStore.activeBoardId, {
+    name,
+    query: viewStore.query,
+  });
+  await refetchViews();
+  viewStore.activeViewId = created.id;
+}
+
+// Delete a saved view; if it was active, fall back to the unfiltered query.
+export async function removeView(id: number): Promise<void> {
+  if (boardStore.activeBoardId == null) return;
+  await deleteView(boardStore.activeBoardId, id);
+  const wasActive = viewStore.activeViewId === id;
+  await refetchViews();
+  if (wasActive) await setActiveView(null);
+}
+
+// Toggle the board/table presentation (client-side only — same cards).
+export function setViewMode(mode: "board" | "table"): void {
+  viewStore.mode = mode;
 }

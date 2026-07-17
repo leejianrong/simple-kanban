@@ -8,7 +8,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -551,3 +551,107 @@ class BoardMetricsRead(BaseModel):
     cycle_time: CycleTimeMetrics
     aging_wip: AgingWipMetrics
     by_assignee: list[AssigneeMetrics] = []
+
+
+# --- query grammar + saved views (M5 V14, KAN-247) --------------------------
+#
+# The "JQL-lite" filter+sort grammar shared by GET /cards and saved views. Kept
+# here (plain strings, no SQL) so both the ``CardQuery`` validator below and the
+# SQL sort builder (``app/card_query.py``) share one definition of the sortable
+# fields — no drift between "what's a valid sort" and "how it's ordered".
+
+# Allowlisted card sort fields. A leading ``-`` in a sort spec means descending;
+# ``priority`` sorts by *rank* (none→urgent), not alphabetically (see card_query).
+CARD_SORT_FIELDS = (
+    "position",
+    "priority",
+    "due_date",
+    "created_at",
+    "updated_at",
+    "story_points",
+    "assignee",
+    "title",
+    "column",
+    "id",
+)
+
+
+def parse_sort_spec(sort: str) -> list[tuple[str, bool]]:
+    """Parse a comma-separated ``sort`` spec into ``(field, descending)`` pairs.
+
+    ``"priority"`` → ascending; ``"-due_date"`` → descending;
+    ``"-priority,position"`` → two keys. Raises ``ValueError`` on an empty or
+    unknown field so both the schema validator (422) and the SQL builder reject
+    the same bad input identically."""
+    keys: list[tuple[str, bool]] = []
+    for raw in sort.split(","):
+        token = raw.strip()
+        if not token or token == "-":
+            raise ValueError("empty sort key")
+        descending = token.startswith("-")
+        field = token[1:] if descending else token
+        if field not in CARD_SORT_FIELDS:
+            raise ValueError(
+                f"unknown sort field {field!r}; valid fields: {', '.join(CARD_SORT_FIELDS)}"
+            )
+        keys.append((field, descending))
+    return keys
+
+
+class CardQuery(BaseModel):
+    """The structured filter+sort grammar (M5 V14, KAN-247) shared by ``GET
+    /cards`` and saved views.
+
+    Every field is optional and its name matches the ``GET /cards`` query param
+    exactly, so a saved view's stored ``query`` replays verbatim as query params —
+    that's what makes "a view's query reproduces its result set" hold by
+    construction. Stored as JSON on ``saved_view.query``. ``extra='forbid'`` so a
+    stored query can't smuggle an unknown key past validation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    column: ColumnEnum | None = None
+    epic_id: int | None = None
+    priority: PriorityEnum | None = None
+    label: int | None = None
+    due_before: datetime | None = None
+    overdue: bool | None = None
+    needs_human: bool | None = None
+    assignee: str | None = None
+    sort: str | None = None
+
+    @field_validator("sort")
+    @classmethod
+    def sort_is_valid(cls, v: str | None) -> str | None:
+        if v is not None:
+            parse_sort_spec(v)  # raises ValueError (→ 422) on a bad field
+        return v
+
+
+class SavedViewCreate(BaseModel):
+    """Create a saved view (M5 V14, KAN-247): a named, persisted card query on a
+    board. ``name`` is required non-empty; ``query`` is the structured filter+sort
+    grammar (``CardQuery``), stored as JSON and replayable against ``GET /cards``.
+    Omit ``query`` for an unfiltered "all cards" view."""
+
+    name: Annotated[str, Field(min_length=1)]
+    query: CardQuery = Field(default_factory=CardQuery)
+
+    @field_validator("name")
+    @classmethod
+    def name_non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("name must not be empty")
+        return v
+
+
+class SavedViewRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    board_id: int
+    name: str
+    # The stored filter+sort grammar as JSON (``{}`` = no filters). A plain dict
+    # so it round-trips exactly what was stored, ready to replay as query params.
+    query: dict[str, Any]
+    created_at: datetime

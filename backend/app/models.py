@@ -21,6 +21,7 @@ from datetime import datetime
 
 from fastapi_users_db_sqlalchemy.generics import GUID
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -453,5 +454,35 @@ class Activity(Base):
     action: Mapped[str] = mapped_column(String(16), nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     ts: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class SavedView(Base):
+    """A named, persisted card query on a board (M5 V14, KAN-247).
+
+    ``query`` is the structured filter+sort grammar (``schemas.CardQuery``) stored
+    as JSON; replaying it as ``GET /cards`` query params reproduces the view's
+    result set — the field names match the query params exactly, so a saved view is
+    a saved query, not a snapshot of rows (they stay live).
+
+    ``board_id`` FK → ``board`` (``ON DELETE CASCADE``): a saved view belongs to a
+    board and is hard-deleted with it (consistent with the app's hard-delete model).
+    The non-empty ``name`` + the grammar's validity are enforced by the Pydantic
+    schema (``schemas.SavedViewCreate``), not the table.
+    """
+
+    __tablename__ = "saved_view"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    board_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("board.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # The filter+sort grammar as JSON (``{}`` = no filters, all cards). Portable
+    # ``JSON`` type (maps to Postgres ``json``); always written by the router from a
+    # validated ``CardQuery``, so no server_default is needed.
+    query: Mapped[dict] = mapped_column(JSON, nullable=False, server_default=text("'{}'"))
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

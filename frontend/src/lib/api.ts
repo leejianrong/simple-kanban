@@ -167,9 +167,38 @@ async function parseError(res: Response): Promise<string> {
   return `Request failed (${res.status})`;
 }
 
-export async function listCards(boardId?: number): Promise<Card[]> {
-  const qs = boardId != null ? `?board_id=${boardId}` : "";
-  const res = await fetch(`${API}/cards${qs}`);
+// The structured filter+sort grammar (M5 V14, KAN-247), shared by GET /cards and
+// saved views. Every field is optional and matches a GET /cards query param, so a
+// saved view's stored `query` replays verbatim. `sort` is a comma-separated list
+// of keys, '-' prefix = descending (e.g. "-priority,position").
+export interface CardQuery {
+  column?: Column;
+  epic_id?: number;
+  priority?: Priority;
+  label?: number;
+  due_before?: string;
+  overdue?: boolean;
+  needs_human?: boolean;
+  assignee?: string;
+  sort?: string;
+}
+
+// Serialize a CardQuery into query params, skipping unset/empty values.
+function cardQueryParams(query?: CardQuery): URLSearchParams {
+  const qs = new URLSearchParams();
+  if (!query) return qs;
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null || value === "") continue;
+    qs.set(key, String(value));
+  }
+  return qs;
+}
+
+export async function listCards(boardId?: number, query?: CardQuery): Promise<Card[]> {
+  const qs = cardQueryParams(query);
+  if (boardId != null) qs.set("board_id", String(boardId));
+  const suffix = qs.toString() ? `?${qs}` : "";
+  const res = await fetch(`${API}/cards${suffix}`);
   if (!res.ok) throw new ApiError(res.status, await parseError(res));
   return res.json();
 }
@@ -413,6 +442,50 @@ export async function createLabel(boardId: number, payload: LabelCreate): Promis
 
 export async function deleteLabel(id: number): Promise<void> {
   const res = await fetch(`${API}/labels/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+}
+
+// --- Saved views (M5 V14, KAN-247) -----------------------------------------
+// A named, persisted card query on a board. `query` is the CardQuery grammar;
+// applying it (via listCards) reproduces the view's result set. Board-scoped;
+// server-authoritative like every mutation (refetch after).
+
+export interface SavedView {
+  id: number;
+  board_id: number;
+  name: string;
+  query: CardQuery;
+  created_at: string;
+}
+
+export interface SavedViewCreate {
+  name: string;
+  query?: CardQuery;
+}
+
+export async function listViews(boardId: number): Promise<SavedView[]> {
+  const res = await fetch(`${API}/boards/${boardId}/views`);
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function createView(
+  boardId: number,
+  payload: SavedViewCreate,
+): Promise<SavedView> {
+  const res = await fetch(`${API}/boards/${boardId}/views`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: payload.name, query: payload.query ?? {} }),
+  });
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function deleteView(boardId: number, viewId: number): Promise<void> {
+  const res = await fetch(`${API}/boards/${boardId}/views/${viewId}`, {
+    method: "DELETE",
+  });
   if (!res.ok) throw new ApiError(res.status, await parseError(res));
 }
 

@@ -109,6 +109,15 @@ class FakeClient:
     def board_metrics(self, board_id, **kw):
         return self._call("board_metrics", board_id=board_id, **kw)
 
+    def list_views(self, board_id):
+        return self._call("list_views", board_id=board_id)
+
+    def create_view(self, board_id, name, query):
+        return self._call("create_view", board_id=board_id, name=name, query=query)
+
+    def delete_view(self, board_id, view_id):
+        return self._call("delete_view", board_id=board_id, view_id=view_id)
+
 
 @pytest.fixture(autouse=True)
 def isolate_config(monkeypatch, tmp_path):
@@ -154,6 +163,8 @@ def test_list_maps_all_filters(monkeypatch, env):
                 "due_before": None,
                 "overdue": None,
                 "needs_human": None,
+                "assignee": None,
+                "sort": None,
                 "limit": 10,
             },
         )
@@ -171,6 +182,53 @@ def test_list_maps_card_field_filters(monkeypatch, env):
     assert call["label"] == 4
     assert call["due_before"] == "2026-08-01"
     assert call["overdue"] is True
+
+
+def test_list_maps_assignee_and_sort(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"cards": [CARD]}))
+    code = cli.run(["list", "--assignee", "agent-7", "--sort=-priority,position"])
+    assert code == 0
+    call = fake.calls[0][1]
+    assert call["assignee"] == "agent-7"
+    assert call["sort"] == "-priority,position"
+
+
+def test_view_list_calls_client(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"views": []}))
+    code = cli.run(["view", "list", "--board", "3"])
+    assert code == 0
+    assert fake.calls == [("list_views", {"board_id": 3})]
+
+
+def test_view_create_assembles_query_from_flags(monkeypatch, env):
+    fake = patch_client(
+        monkeypatch, FakeClient(result={"id": 1, "name": "mine", "query": {}})
+    )
+    code = cli.run(
+        ["view", "create", "mine", "--board", "3", "--priority", "high",
+         "--assignee", "me", "--sort=-priority"]
+    )
+    assert code == 0
+    assert fake.calls == [
+        (
+            "create_view",
+            {
+                "board_id": 3,
+                "name": "mine",
+                "query": {"priority": "high", "assignee": "me", "sort": "-priority"},
+            },
+        )
+    ]
+
+
+def test_view_delete_requires_yes(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"deleted": 5}))
+    # Without --yes the CLI refuses (config error → exit 1), no client call.
+    assert cli.run(["view", "delete", "5", "--board", "3"]) == 1
+    assert fake.calls == []
+    # With --yes it deletes.
+    assert cli.run(["view", "delete", "5", "--board", "3", "--yes"]) == 0
+    assert fake.calls == [("delete_view", {"board_id": 3, "view_id": 5})]
 
 
 def test_list_needs_human_filter(monkeypatch, env):

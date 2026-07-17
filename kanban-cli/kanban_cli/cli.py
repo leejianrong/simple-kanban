@@ -90,15 +90,22 @@ def _humanize(result: Any, *, noun: str = "card") -> str:
     if isinstance(result, dict) and "labels" in result:  # list_labels
         labels = result["labels"]
         return "\n".join(_label_line(la) for la in labels) if labels else "(no labels)"
+    if isinstance(result, dict) and "views" in result:  # list_views
+        views = result["views"]
+        return "\n".join(_view_line(v) for v in views) if views else "(no views)"
     if isinstance(result, dict) and "card" in result:  # dispatch / next (peek/claim)
         card = result["card"]
         return _card_line(card) if card else "(no card ready)"
-    if isinstance(result, dict) and "deleted" in result:  # delete_{card,epic,label}
+    if isinstance(result, dict) and "deleted" in result:  # delete_{card,epic,label,view}
         return f"deleted {noun} {result['deleted']}"
     if isinstance(result, dict) and "status" in result:  # warmup
         return _warmup_line(result)
     if isinstance(result, dict) and "throughput" in result and "cycle_time" in result:
         return _metrics_block(result)  # board metrics (V17)
+    # A single saved view carries ``query`` (distinctive) — matched before the
+    # generic name-without-title branch below (a view also has ``name``).
+    if isinstance(result, dict) and "query" in result and "name" in result:
+        return _view_line(result)
     # A single label carries ``color`` (distinctive) — matched before the generic
     # name-without-title branch below.
     if isinstance(result, dict) and "color" in result and "name" in result:
@@ -145,6 +152,17 @@ def _label_line(label: dict[str, Any]) -> str:
             str(label.get("id", "?")),
             str(label.get("name", "")),
             str(label.get("color", "")),
+        )
+    )
+
+
+def _view_line(view: dict[str, Any]) -> str:
+    """One concise line for a saved view: id, name, its query as compact JSON."""
+    return "\t".join(
+        (
+            str(view.get("id", "?")),
+            str(view.get("name", "")),
+            json.dumps(view.get("query", {}), default=str, sort_keys=True),
         )
     )
 
@@ -238,6 +256,8 @@ def _cmd_list(client: KanbanClient, config: Config, args: argparse.Namespace) ->
         due_before=args.due_before,
         overdue=args.overdue or None,
         needs_human=args.needs_human or None,
+        assignee=args.assignee,
+        sort=args.sort,
         limit=args.limit,
     )
 
@@ -400,6 +420,63 @@ def _cmd_label_delete(client: KanbanClient, config: Config, args: argparse.Names
     return client.delete_label(args.label_id)
 
 
+# --- view handlers ----------------------------------------------------------
+# Saved views are board-scoped: list/create/delete honour --board / KANBAN_BOARD_ID.
+# ``view create`` reuses the same filter/sort flags as ``list`` to assemble the
+# stored query (the filter+sort grammar), so a view is "the current list, saved".
+
+
+def _build_view_query(args: argparse.Namespace) -> dict[str, Any]:
+    """Assemble a saved view's stored query (the filter+sort grammar) from the
+    list-style flags — only the ones the caller set. Field names match the GET
+    /cards params exactly, so the stored query replays verbatim."""
+    query: dict[str, Any] = {}
+    if args.column:
+        query["column"] = args.column
+    if args.epic is not None:
+        query["epic_id"] = args.epic
+    if args.priority:
+        query["priority"] = args.priority
+    if args.label is not None:
+        query["label"] = args.label
+    if args.due_before:
+        query["due_before"] = args.due_before
+    if args.overdue:
+        query["overdue"] = True
+    if args.needs_human:
+        query["needs_human"] = True
+    if args.assignee:
+        query["assignee"] = args.assignee
+    if args.sort:
+        query["sort"] = args.sort
+    return query
+
+
+def _require_view_board(args: argparse.Namespace, config: Config) -> int:
+    board = _resolve_board(args.board, config)
+    if board is None:
+        raise ConfigError("a board is required; pass --board or set KANBAN_BOARD_ID")
+    return board
+
+
+def _cmd_view_list(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    return client.list_views(_require_view_board(args, config))
+
+
+def _cmd_view_create(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    return client.create_view(
+        _require_view_board(args, config), args.name, _build_view_query(args)
+    )
+
+
+def _cmd_view_delete(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    if not args.yes:
+        raise ConfigError(
+            f"refusing to delete view {args.view_id} without confirmation; pass --yes"
+        )
+    return client.delete_view(_require_view_board(args, config), args.view_id)
+
+
 # --- config handlers (local: no client, no network) -------------------------
 # These operate on local config only, so ``run()`` dispatches them via
 # ``local_func`` before building a KanbanClient (and before any token is required).
@@ -554,6 +631,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_list.add_argument(
         "--needs-human", dest="needs_human", action="store_true",
         help="only cards flagged for a human (needs-human)",
+    )
+    p_list.add_argument("--assignee", help="filter by assignee (exact match)")
+    p_list.add_argument(
+        "--sort", metavar="SPEC",
+        help=(
+            "sort keys, comma-separated, '-' prefix = descending. For a leading "
+            "'-' use the equals form so it isn't read as a flag, e.g. "
+            "--sort=-priority,position. Fields: position/priority/due_date/"
+            "created_at/updated_at/story_points/assignee/title/column/id"
+        ),
     )
     p_list.add_argument("--limit", type=int, help="max cards to return")
     p_list.set_defaults(func=_cmd_list)
@@ -715,6 +802,49 @@ def build_parser() -> argparse.ArgumentParser:
     p_label_delete.add_argument("label_id", type=int)
     p_label_delete.add_argument("--yes", action="store_true", help="confirm the deletion")
     p_label_delete.set_defaults(func=_cmd_label_delete, noun="label")
+
+    # --- view subcommands (nested group; parity with /api/v1 saved views) ----
+    # Saved, named card queries on a board. ``create`` takes the same filter/sort
+    # flags as ``list`` and stores them as the view's query.
+    p_view = sub.add_parser("view", help="manage saved views (list / create / delete)")
+    view_sub = p_view.add_subparsers(
+        dest="view_command", metavar="<subcommand>", required=True
+    )
+
+    p_view_list = view_sub.add_parser("list", parents=[common], help="list a board's saved views")
+    p_view_list.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
+    p_view_list.set_defaults(func=_cmd_view_list, noun="view")
+
+    p_view_create = view_sub.add_parser(
+        "create", parents=[common], help="save the given filters/sort as a named view"
+    )
+    p_view_create.add_argument("name")
+    p_view_create.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
+    # The same filter/sort grammar as `list` — assembled into the stored query.
+    p_view_create.add_argument("--column", choices=COLUMNS, help="filter by column")
+    p_view_create.add_argument("--epic", type=int, metavar="EPIC_ID", help="filter by epic id")
+    p_view_create.add_argument("--priority", choices=PRIORITIES, help="filter by priority")
+    p_view_create.add_argument("--label", type=int, metavar="LABEL_ID", help="filter by label id")
+    p_view_create.add_argument(
+        "--due-before", dest="due_before", metavar="ISO",
+        help="only cards due strictly before this ISO-8601 timestamp",
+    )
+    p_view_create.add_argument(
+        "--overdue", action="store_true", help="only past-due cards not yet done"
+    )
+    p_view_create.add_argument(
+        "--needs-human", dest="needs_human", action="store_true",
+        help="only cards flagged for a human (needs-human)",
+    )
+    p_view_create.add_argument("--assignee", help="filter by assignee (exact match)")
+    p_view_create.add_argument("--sort", metavar="SPEC", help="sort keys ('-' = descending)")
+    p_view_create.set_defaults(func=_cmd_view_create, noun="view")
+
+    p_view_delete = view_sub.add_parser("delete", parents=[common], help="delete a saved view")
+    p_view_delete.add_argument("view_id", type=int)
+    p_view_delete.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
+    p_view_delete.add_argument("--yes", action="store_true", help="confirm the deletion")
+    p_view_delete.set_defaults(func=_cmd_view_delete, noun="view")
 
     # --- login / config (local: no token, no network) ------------------------
     # ``login`` saves a PAT to ~/.config/kan/config.toml without it touching argv:

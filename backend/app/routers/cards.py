@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session, aliased
 from ..activity import record_activity
 from ..auth_models import User
 from ..authz import Access, authorize_board, get_principal, visible_board_ids
+from ..card_query import sort_order_by
 from ..db import get_db
 from ..models import Card, CardComment, CardDependency, CardLabel, CardLink, Epic, Label
 from ..ordering import next_position, renumber_column
@@ -275,6 +276,8 @@ def list_cards(
     due_before: datetime | None = None,
     overdue: bool | None = None,
     needs_human: bool | None = None,
+    assignee: str | None = None,
+    sort: str | None = None,
     limit: int | None = Query(default=None, ge=1, le=200),
     cursor: str | None = None,
 ) -> list[Card]:
@@ -304,18 +307,35 @@ def list_cards(
     Handoff filter (M5 V13, KAN-246): ``needs_human`` (``true`` → cards an agent
     flagged for a human via ``POST /cards/{id}/needs-human``; ``false`` → the rest).
 
-    Pagination is keyset over ``(updated_at, id)``: pass ``limit`` to cap the
-    page; when a full page is returned the next page's opaque cursor rides the
-    ``X-Next-Cursor`` response header (absent on the last page). Echo it back as
-    ``cursor`` for the next request. The body stays a bare ``CardRead[]`` so the
-    SPA is unaffected; it re-sorts by ``position`` within each column client-side.
+    Query grammar (M5 V14, KAN-247): ``assignee`` (exact match) joins the filter
+    set above, and ``sort`` re-orders the result — a comma-separated list of keys
+    with an optional ``-`` prefix for descending (e.g. ``sort=priority``,
+    ``sort=-due_date``, ``sort=-priority,position``). ``priority`` sorts by rank
+    (none→urgent), NULLs sink either way, and ``id`` is the stable tiebreaker. Valid
+    sort fields: ``position``, ``priority``, ``due_date``, ``created_at``,
+    ``updated_at``, ``story_points``, ``assignee``, ``title``, ``column``, ``id``
+    (an unknown one is a ``422``). These same keys are the structured JSON grammar a
+    **saved view** stores (``/boards/{id}/views``), so a view's query replays here.
+
+    Pagination is keyset over ``(updated_at, id)`` — the **default** ordering: pass
+    ``limit`` to cap the page; when a full page is returned the next page's opaque
+    cursor rides the ``X-Next-Cursor`` response header (absent on the last page).
+    Echo it back as ``cursor`` for the next request. A custom ``sort`` overrides that
+    order, so it is **incompatible with ``cursor``** (``422`` if combined) and emits
+    no cursor — ``limit`` then just caps a top-N by that sort. The body stays a bare
+    ``CardRead[]`` so the SPA is unaffected; it re-sorts by ``position`` per column
+    client-side.
     """
-    # Soft-deleted cards (KAN-19, R5.2) are excluded from every list read.
-    query = (
-        select(Card)
-        .where(Card.deleted_at.is_(None))
-        .order_by(Card.updated_at, Card.id)
-    )
+    # A custom sort replaces the keyset ordering, so it can't co-exist with a
+    # keyset cursor (the cursor predicate assumes the (updated_at, id) order).
+    if sort is not None and cursor is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="sort cannot be combined with cursor pagination",
+        )
+    # Soft-deleted cards (KAN-19, R5.2) are excluded from every list read. Ordering
+    # is applied below (default keyset order, or the custom ``sort``).
+    query = select(Card).where(Card.deleted_at.is_(None))
 
     if board_id is not None:
         # Naming a board authorizes against it directly (403 if no read access).
@@ -368,6 +388,22 @@ def list_cards(
         # The human↔agent handoff filter (M5 V13): needs_human=true surfaces the
         # cards an agent flagged for a human; false is their complement.
         query = query.where(Card.needs_human.is_(needs_human))
+    if assignee is not None:
+        # Exact-match assignee filter (M5 V14): the "cards assigned to X" slice.
+        query = query.where(Card.assignee == assignee)
+
+    # Ordering: a custom ``sort`` (M5 V14) overrides the default keyset order.
+    if sort is not None:
+        try:
+            query = query.order_by(*sort_order_by(sort))
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
+    else:
+        query = query.order_by(Card.updated_at, Card.id)
+
     if cursor is not None:
         try:
             cursor_updated_at, cursor_id = decode_cursor(cursor)
@@ -385,8 +421,9 @@ def list_cards(
     cards = list(db.scalars(query).all())
 
     # A full page implies there may be more — hand back the next cursor. A short
-    # (or empty) page is the last one, so no header.
-    if limit is not None and len(cards) == limit:
+    # (or empty) page is the last one, so no header. Keyset paging is defined only
+    # for the default order, so a custom ``sort`` never emits a cursor (see above).
+    if sort is None and limit is not None and len(cards) == limit:
         last = cards[-1]
         response.headers[NEXT_CURSOR_HEADER] = encode_cursor(last.updated_at, last.id)
 

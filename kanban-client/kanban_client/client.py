@@ -220,6 +220,8 @@ class KanbanClient:
         due_before: str | None = None,
         overdue: bool | None = None,
         needs_human: bool | None = None,
+        assignee: str | None = None,
+        sort: str | None = None,
         limit: int | None = None,
         cursor: str | None = None,
     ) -> dict[str, Any]:
@@ -234,6 +236,8 @@ class KanbanClient:
                 "due_before": due_before,
                 "overdue": overdue,
                 "needs_human": needs_human,
+                "assignee": assignee,
+                "sort": sort,
                 "limit": limit,
                 "cursor": cursor,
             }
@@ -531,3 +535,35 @@ class KanbanClient:
         both for all time. Returns the metrics object as-is."""
         params = _clean({"since": since, "window": window})
         return self._request("GET", f"/boards/{board_id}/metrics", params=params).json()
+
+    # --- saved views (M5 V14 API / KAN-247 adapter) -------------------------
+
+    def list_views(self, board_id: int) -> dict[str, Any]:
+        """List a board's saved views (id, name, query), oldest-first. Returns
+        ``{"views": [<view>, ...]}``. Each view's ``query`` is the filter+sort
+        grammar; pass it (spread) as ``list_cards`` kwargs to reproduce its set."""
+        return {
+            "views": self._request("GET", f"/boards/{board_id}/views").json()
+        }
+
+    def create_view(
+        self, board_id: int, name: str, query: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Create a saved view on ``board_id`` — a ``name`` and a ``query`` (the
+        structured filter+sort grammar, e.g. ``{"priority": "high", "sort":
+        "-priority"}``; omit/``{}`` for an unfiltered view). Returns the created
+        view (with its stored ``query``)."""
+        payload = {"name": name, "query": query or {}}
+        return self._request(
+            "POST", f"/boards/{board_id}/views", json=payload
+        ).json()
+
+    def get_view(self, board_id: int, view_id: int) -> dict[str, Any]:
+        """Fetch one saved view on ``board_id`` by id. 404 if it doesn't exist or
+        isn't on that board."""
+        return self._request("GET", f"/boards/{board_id}/views/{view_id}").json()
+
+    def delete_view(self, board_id: int, view_id: int) -> dict[str, Any]:
+        """Delete a saved view on ``board_id``. 204 No Content — no body to parse."""
+        self._request("DELETE", f"/boards/{board_id}/views/{view_id}")
+        return {"deleted": view_id}
