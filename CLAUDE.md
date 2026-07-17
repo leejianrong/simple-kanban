@@ -163,8 +163,15 @@ make worktree-db-down                         # tear it down when the worktree i
 ```
 `make db`/`make up`/`make dev` (shared :5432 compose Postgres) remain the loop for the primary
 checkout. Integration tests are unaffected — they spin up throwaway testcontainers of their own.
-Agents should prefer the harness's built-in worktree isolation (`isolation: "worktree"`) for parallel
-file-mutating work.
+
+For parallel file-mutating work, **prefer [treehouse](https://github.com/kunchenguid/treehouse)** — it
+manages a bounded, recycled pool of worktrees (config in [`treehouse.toml`](treehouse.toml),
+`max_trees = 4`) so they don't pile up as one-off checkouts and clog disk (the mess KAN-240's cleanup
+cleared). `treehouse get` acquires a tree (`--lease` for a path without a subshell), `treehouse return
+<path>` releases it, `treehouse prune --yes` reclaims idle ones. Warm a fresh tree with `make install`;
+give it a DB with `make worktree-db`. The harness's built-in `isolation: "worktree"` is also fine —
+but whatever creates worktrees, **remove them when their branch merges** (`git worktree remove` +
+`git worktree prune`) so they never accumulate.
 
 **Pre-push hook.** `scripts/git-hooks/pre-push` (tracked) runs the fast CI checks locally — ruff +
 `tests/unit` + `svelte-check` — so a push never lands red. Integration tests stay CI-only (they need
