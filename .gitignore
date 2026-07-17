@@ -35,3 +35,7 @@ frontend/.playwright/
 
 # Local MCP config — holds a personal access token (never commit)
 .mcp.json
+
+# Claude Code local state — personal settings + transient agent worktree
+# checkouts (isolation: "worktree"). Machine-local, not shareable; never commit.
+.claude/
