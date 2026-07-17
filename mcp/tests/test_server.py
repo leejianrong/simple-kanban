@@ -44,6 +44,7 @@ EXPECTED_TOOLS = {
     "next",
     "needs_human",
     "resolve",
+    "metrics",
 }
 
 

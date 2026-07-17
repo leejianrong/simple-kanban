@@ -101,11 +101,16 @@ the MCP tool + `kan` verb, then any UI.
 ## V17 · Fleet reporting
 
 - **Build:** `GET /api/v1/boards/{id}/metrics` — throughput (done/period), cycle time
-  (created/first-`in_progress`→`done` from the activity feed), aging WIP, per-assignee — all derived,
-  no writes. MCP + `kan metrics`. UI: small charts on the Dashboard (follow the dataviz conventions).
-- **Tests:** integration — seed activity, assert each metric; empty board → zeroed. Unit — the
-  cycle-time/aging computation.
-- **Acceptance:** metrics via API + `kan`, charts render; suite green. No migration.
+  (first-`in_progress`→`done` from the activity feed), aging WIP, per-assignee — all derived,
+  no writes. MCP `metrics` tool + `kan metrics [--board] [--since] [--window]` (pretty + `--json`).
+  UI: **deferred to V16** (the Dashboard, not yet built) — building a standalone metrics nav view now
+  would collide with V14's frontend and be superseded by V16's mission-control charts; API + CLI +
+  MCP ship the value. Charts, when added, follow the dataviz conventions.
+- **Tests:** integration — seed activity (drive real moves, backdate ts), assert each metric; empty
+  board → zeroed; window scoping; authz (READ-gated / 401 / 403 / 404). Unit — `parse_move_target` +
+  the cycle-time/aging/throughput computation (`app.metrics`, pure).
+- **Acceptance (shipped):** metrics via API + `kan metrics` + MCP `metrics`; suite green. No
+  migration (app-code, so it deploys). UI charts deferred to V16.
 
 ## V18 · Scoped tokens *(Later)*
 

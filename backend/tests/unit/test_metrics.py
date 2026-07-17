@@ -1,0 +1,163 @@
+"""Unit tests for the derived-metrics computation (app.metrics) — M5 V17, KAN-250.
+
+Pure functions: summary parsing + the throughput / cycle-time / aging / per-assignee
+math, exercised directly with no database. ``app.metrics`` imports only the stdlib,
+so a top-level import here touches no engine (the unit job has no DB).
+"""
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+
+from app.metrics import compute_metrics, parse_move_target
+
+NOW = datetime(2026, 7, 17, 12, 0, 0, tzinfo=timezone.utc)
+
+
+def _ago(**kw) -> datetime:
+    return NOW - timedelta(**kw)
+
+
+# --- parse_move_target ------------------------------------------------------
+
+
+def test_parse_cross_column_move_returns_destination():
+    assert parse_move_target("moved KAN-3 from todo to in_progress") == "in_progress"
+    assert parse_move_target("moved KAN-3 from in_progress to done") == "done"
+    assert parse_move_target("moved KAN-9 from done to todo") == "todo"
+
+
+def test_parse_dispatch_summary_is_in_progress():
+    # dispatch always claims a todo card into in_progress; assignee text varies.
+    assert parse_move_target("dispatched KAN-3 to agent-a@example.com") == "in_progress"
+    assert parse_move_target("dispatched KAN-3 to done") == "in_progress"
+
+
+def test_parse_same_column_reorder_is_not_a_transition():
+    assert parse_move_target("moved KAN-3 to done") is None
+    assert parse_move_target("moved KAN-3 to in_progress") is None
+
+
+def test_parse_unrecognised_summary_is_none():
+    assert parse_move_target("created KAN-3: Fix login") is None
+    assert parse_move_target("moved KAN-3 from todo to sideways") is None
+
+
+# --- compute_metrics --------------------------------------------------------
+
+
+def _card(cid, column, *, ticket=None, assignee=None, created_at=None, deleted=False):
+    return {
+        "id": cid,
+        "ticket_number": ticket or f"KAN-{cid}",
+        "column": column,
+        "assignee": assignee,
+        "created_at": created_at or _ago(hours=1),
+        "deleted": deleted,
+    }
+
+
+def test_empty_board_is_all_zeros_and_nulls():
+    m = compute_metrics([], [], now=NOW, since=None)
+    assert m["throughput"] == 0
+    assert m["cycle_time"] == {
+        "count": 0,
+        "avg_seconds": None,
+        "median_seconds": None,
+        "p90_seconds": None,
+    }
+    assert m["aging_wip"]["count"] == 0
+    assert m["aging_wip"]["avg_seconds"] is None
+    assert m["aging_wip"]["max_seconds"] is None
+    assert m["aging_wip"]["items"] == []
+    assert m["by_assignee"] == []
+
+
+def test_throughput_counts_distinct_cards_done_in_period():
+    transitions = [
+        (1, "in_progress", _ago(hours=3)),
+        (1, "done", _ago(hours=2)),
+        (2, "done", _ago(hours=1)),
+        (3, "done", _ago(days=10)),  # outside a 7-day window
+    ]
+    cards = [_card(1, "done"), _card(2, "done"), _card(3, "done")]
+    all_time = compute_metrics(transitions, cards, now=NOW, since=None)
+    assert all_time["throughput"] == 3
+    windowed = compute_metrics(transitions, cards, now=NOW, since=_ago(days=7))
+    assert windowed["throughput"] == 2
+
+
+def test_cycle_time_is_first_in_progress_to_done():
+    # Card 1: 2h cycle; card 2: 4h cycle. avg 3h, median 3h, p90 = 4h (nearest-rank).
+    transitions = [
+        (1, "in_progress", _ago(hours=4)),
+        (1, "done", _ago(hours=2)),
+        (2, "in_progress", _ago(hours=6)),
+        (2, "done", _ago(hours=2)),
+    ]
+    cards = [_card(1, "done"), _card(2, "done")]
+    m = compute_metrics(transitions, cards, now=NOW, since=None)
+    assert m["cycle_time"]["count"] == 2
+    assert m["cycle_time"]["avg_seconds"] == 3 * 3600
+    assert m["cycle_time"]["median_seconds"] == 3 * 3600
+    assert m["cycle_time"]["p90_seconds"] == 4 * 3600
+
+
+def test_cycle_time_excludes_done_cards_that_never_hit_in_progress():
+    # Card straight from todo to done (no in_progress) counts for throughput but
+    # not cycle time.
+    transitions = [(1, "done", _ago(hours=1))]
+    cards = [_card(1, "done")]
+    m = compute_metrics(transitions, cards, now=NOW, since=None)
+    assert m["throughput"] == 1
+    assert m["cycle_time"]["count"] == 0
+    assert m["cycle_time"]["avg_seconds"] is None
+
+
+def test_aging_wip_measures_from_last_in_progress_entry():
+    transitions = [
+        (1, "in_progress", _ago(hours=5)),
+        (1, "done", _ago(hours=4)),
+        (1, "in_progress", _ago(hours=2)),  # bounced back; last entry wins
+    ]
+    cards = [_card(1, "in_progress", assignee="agent-a")]
+    m = compute_metrics(transitions, cards, now=NOW, since=None)
+    assert m["aging_wip"]["count"] == 1
+    item = m["aging_wip"]["items"][0]
+    assert item["card_id"] == 1
+    assert item["age_seconds"] == 2 * 3600
+    assert m["aging_wip"]["max_seconds"] == 2 * 3600
+
+
+def test_aging_wip_falls_back_to_created_at_without_a_move():
+    # A card currently in_progress with no recorded move (e.g. created there).
+    cards = [_card(1, "in_progress", created_at=_ago(hours=3))]
+    m = compute_metrics([], cards, now=NOW, since=None)
+    assert m["aging_wip"]["items"][0]["age_seconds"] == 3 * 3600
+
+
+def test_aging_wip_ignores_soft_deleted_cards():
+    cards = [_card(1, "in_progress", deleted=True), _card(2, "in_progress")]
+    m = compute_metrics([], cards, now=NOW, since=None)
+    assert m["aging_wip"]["count"] == 1
+    assert m["aging_wip"]["items"][0]["card_id"] == 2
+
+
+def test_by_assignee_breakdown():
+    transitions = [
+        (1, "done", _ago(hours=1)),
+        (2, "done", _ago(hours=1)),
+        (3, "in_progress", _ago(hours=1)),
+    ]
+    cards = [
+        _card(1, "done", assignee="agent-a"),
+        _card(2, "done", assignee="agent-a"),
+        _card(3, "in_progress", assignee="agent-b"),
+        _card(4, "in_progress", assignee=None),
+    ]
+    m = compute_metrics(transitions, cards, now=NOW, since=None)
+    by = {row["assignee"]: row for row in m["by_assignee"]}
+    assert by["agent-a"] == {"assignee": "agent-a", "throughput": 2, "wip": 0}
+    assert by["agent-b"] == {"assignee": "agent-b", "throughput": 0, "wip": 1}
+    assert by[None] == {"assignee": None, "throughput": 0, "wip": 1}
+    # Unassigned sorts last.
+    assert m["by_assignee"][-1]["assignee"] is None

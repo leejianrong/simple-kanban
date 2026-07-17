@@ -1,0 +1,192 @@
+"""Integration tests for fleet reporting / metrics — M5 V17, KAN-250.
+
+Drives real card moves over the HTTP client (so genuine ``activity`` rows exist),
+then backdates those activity timestamps to known values so the derived numbers —
+throughput, cycle time, aging WIP, per-assignee — are deterministic. Also covers
+the empty-board (all zeros) and authz (READ-gated) paths.
+
+Per the suite convention, every ``import app.*`` lives inside a test/fixture body
+(never module top) so the throwaway-DB fixture repoints DATABASE_URL first.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+
+import pytest
+
+CARDS = "/api/v1/cards"
+BOARDS = "/api/v1/boards"
+
+
+@pytest.fixture
+def client(logged_in_client):
+    """/api/v1 is owner-gated (V8): run as the board-owning session user, who owns
+    the reset fixture's default board via claim-on-login."""
+    return logged_in_client
+
+
+def _board_id(client) -> int:
+    return client.get(BOARDS).json()[0]["id"]
+
+
+def _create(client, title, **fields):
+    r = client.post(CARDS, json={"title": title, **fields})
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+def _move(client, card_id, column):
+    r = client.post(f"{CARDS}/{card_id}/move", json={"column": column})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _set_activity_ts(card_id: int, target_column: str, ts: datetime) -> None:
+    """Backdate the ``moved``-to-``target_column`` activity row for a card so cycle
+    time / aging are deterministic (the move endpoint stamps ts server-side)."""
+    from sqlalchemy import text
+
+    from app.db import engine
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE activity SET ts = :ts WHERE entity_id = :cid "
+                "AND action = 'moved' AND summary LIKE :suffix"
+            ),
+            {"ts": ts, "cid": card_id, "suffix": f"%to {target_column}"},
+        )
+
+
+def _metrics(client, board_id, **params):
+    r = client.get(f"{BOARDS}/{board_id}/metrics", params=params)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+# --- empty / quiet board -----------------------------------------------------
+
+
+def test_empty_board_returns_zeroed_metrics(client):
+    board_id = _board_id(client)
+    m = _metrics(client, board_id)
+    assert m["board_id"] == board_id
+    assert m["throughput"] == 0
+    assert m["cycle_time"] == {
+        "count": 0,
+        "avg_seconds": None,
+        "median_seconds": None,
+        "p90_seconds": None,
+    }
+    assert m["aging_wip"] == {
+        "count": 0,
+        "avg_seconds": None,
+        "max_seconds": None,
+        "items": [],
+    }
+    assert m["by_assignee"] == []
+    assert m["since"] is None
+    assert m["until"] is not None
+
+
+# --- the full derivation over seeded activity --------------------------------
+
+
+def test_metrics_derived_from_seeded_activity(client):
+    board_id = _board_id(client)
+    now = datetime.now(timezone.utc)
+
+    # Card A: in_progress → done, 1h cycle. Card B: in_progress → done, 3h cycle.
+    # Both assigned to agent-a. Card C: in_progress only (still WIP), agent-b, ~30m.
+    a = _create(client, "A", assignee="agent-a")
+    b = _create(client, "B", assignee="agent-a")
+    c = _create(client, "C", assignee="agent-b")
+
+    for card in (a, b, c):
+        _move(client, card["id"], "in_progress")
+    _move(client, a["id"], "done")
+    _move(client, b["id"], "done")
+
+    _set_activity_ts(a["id"], "in_progress", now - timedelta(hours=2))
+    _set_activity_ts(a["id"], "done", now - timedelta(hours=1))
+    _set_activity_ts(b["id"], "in_progress", now - timedelta(hours=4))
+    _set_activity_ts(b["id"], "done", now - timedelta(hours=1))
+    _set_activity_ts(c["id"], "in_progress", now - timedelta(minutes=30))
+
+    m = _metrics(client, board_id)
+
+    # Throughput: A + B reached done.
+    assert m["throughput"] == 2
+
+    # Cycle time: [1h, 3h] → avg 2h, median 2h, p90 = 3h (nearest-rank).
+    assert m["cycle_time"]["count"] == 2
+    assert m["cycle_time"]["avg_seconds"] == 2 * 3600
+    assert m["cycle_time"]["median_seconds"] == 2 * 3600
+    assert m["cycle_time"]["p90_seconds"] == 3 * 3600
+
+    # Aging WIP: only card C is still in_progress, ~30 minutes (server clock, so
+    # allow a small tolerance for test execution time).
+    assert m["aging_wip"]["count"] == 1
+    item = m["aging_wip"]["items"][0]
+    assert item["ticket_number"] == c["ticket_number"]
+    assert item["assignee"] == "agent-b"
+    assert 1770 <= item["age_seconds"] <= 1860  # ~1800s
+
+    # Per-assignee: agent-a completed 2, agent-b holds 1 in progress.
+    by = {row["assignee"]: row for row in m["by_assignee"]}
+    assert by["agent-a"] == {"assignee": "agent-a", "throughput": 2, "wip": 0}
+    assert by["agent-b"] == {"assignee": "agent-b", "throughput": 0, "wip": 1}
+
+
+def test_since_window_scopes_throughput(client):
+    board_id = _board_id(client)
+    now = datetime.now(timezone.utc)
+
+    recent = _create(client, "recent")
+    old = _create(client, "old")
+    for card in (recent, old):
+        _move(client, card["id"], "in_progress")
+        _move(client, card["id"], "done")
+    _set_activity_ts(recent["id"], "done", now - timedelta(days=1))
+    _set_activity_ts(old["id"], "done", now - timedelta(days=30))
+
+    all_time = _metrics(client, board_id)
+    assert all_time["throughput"] == 2
+
+    windowed = _metrics(client, board_id, window="7d")
+    assert windowed["throughput"] == 1
+    assert windowed["since"] is not None
+
+
+def test_bad_window_is_422(client):
+    board_id = _board_id(client)
+    r = client.get(f"{BOARDS}/{board_id}/metrics", params={"window": "soon"})
+    assert r.status_code == 422, r.text
+
+
+# --- authz (READ-gated) ------------------------------------------------------
+
+
+def test_metrics_requires_authentication(client):
+    """No cookie / no PAT → 401 (a bare TestClient carries no session)."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    board_id = _board_id(client)
+    with TestClient(app) as anon:
+        r = anon.get(f"{BOARDS}/{board_id}/metrics")
+    assert r.status_code == 401, r.text
+
+
+def test_metrics_denied_to_non_owner(client, login_as):
+    """A different user who neither owns nor is a member of the board → 403."""
+    board_id = _board_id(client)
+    other = login_as("stranger@example.com", "gh-stranger")
+    r = other.get(f"{BOARDS}/{board_id}/metrics")
+    assert r.status_code == 403, r.text
+
+
+def test_metrics_unknown_board_is_404(client):
+    r = client.get(f"{BOARDS}/999999/metrics")
+    assert r.status_code == 404, r.text

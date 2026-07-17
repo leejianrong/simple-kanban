@@ -514,3 +514,20 @@ class KanbanClient:
         note cleared). Returns the updated card. Records a ``resolved`` activity
         event. The resolution channel for the agent is the card's comments."""
         return self._request("POST", f"/cards/{card_id}/resolve").json()
+
+    # --- fleet reporting / metrics (M5 V17 API / KAN-250 adapter) -----------
+
+    def board_metrics(
+        self,
+        board_id: int,
+        *,
+        since: str | None = None,
+        window: str | None = None,
+    ) -> dict[str, Any]:
+        """Fetch derived flow metrics for ``board_id`` (M5 V17): throughput, cycle
+        time, aging WIP, and a per-assignee breakdown — all computed from the
+        activity feed + card timestamps (no stored metric). ``since`` (an ISO-8601
+        timestamp) or ``window`` (``7d``/``24h``/``30m``) bound the period; omit
+        both for all time. Returns the metrics object as-is."""
+        params = _clean({"since": since, "window": window})
+        return self._request("GET", f"/boards/{board_id}/metrics", params=params).json()

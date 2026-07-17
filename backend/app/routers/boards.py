@@ -18,6 +18,9 @@ KAN-15). See :mod:`app.authz`.
 """
 from __future__ import annotations
 
+import re
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session
@@ -26,12 +29,14 @@ from ..activity import record_activity
 from ..auth_models import User
 from ..authz import Access, authorize_board, get_principal, visible_board_ids
 from ..db import get_db
-from ..models import Activity, Board, BoardMember
+from ..metrics import compute_metrics, parse_move_target
+from ..models import Activity, Board, BoardMember, Card
 from ..ordering import next_position, renumber_column, select_next_ready_card
 from ..pagination import NEXT_CURSOR_HEADER, decode_cursor, encode_cursor
 from ..schemas import (
     ActivityRead,
     BoardCreate,
+    BoardMetricsRead,
     BoardRead,
     BoardUpdate,
     CardRead,
@@ -352,3 +357,117 @@ def dispatch_card(
     from .cards import _attach_one
 
     return _attach_one(db, card)
+
+
+# --- fleet reporting / metrics (M5 V17, KAN-250) ---------------------------
+#
+# Derived flow metrics for a board — throughput, cycle time, aging WIP, and a
+# per-assignee breakdown — computed entirely from the activity feed (KAN-17/18)
+# plus current card state. **No new write path and no migration**: reporting
+# rides data already recorded. The pure derivation (parse move summaries →
+# compute the numbers) lives in :mod:`app.metrics` so it unit-tests without a DB.
+
+_WINDOW_RE = re.compile(r"^(?P<n>\d+)(?P<unit>[dhm])$")
+_WINDOW_UNITS = {"d": "days", "h": "hours", "m": "minutes"}
+
+
+def _resolve_since(since: datetime | None, window: str | None, now: datetime) -> datetime | None:
+    """Resolve the reporting period's lower bound.
+
+    ``since`` (an explicit ISO-8601 timestamp) wins; else ``window`` (a relative
+    span like ``7d`` / ``24h`` / ``30m``) is subtracted from ``now``; else ``None``
+    (all time). A malformed ``window`` is a 422."""
+    if since is not None:
+        return since if since.tzinfo else since.replace(tzinfo=timezone.utc)
+    if window is not None:
+        match = _WINDOW_RE.match(window)
+        if match is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="window must look like '7d', '24h' or '30m'",
+            )
+        delta = timedelta(**{_WINDOW_UNITS[match.group("unit")]: int(match.group("n"))})
+        return now - delta
+    return None
+
+
+@router.get("/{board_id}/metrics", response_model=BoardMetricsRead)
+def board_metrics(
+    board_id: int,
+    db: Session = Depends(get_db),
+    principal: User = Depends(get_principal),
+    since: datetime | None = Query(
+        default=None, description="ISO-8601 lower bound for the reporting period"
+    ),
+    window: str | None = Query(
+        default=None,
+        description="relative period, e.g. '7d' / '24h' / '30m' (ignored if 'since' is set)",
+    ),
+) -> BoardMetricsRead:
+    """Derived fleet-reporting metrics for this board (M5 V17, KAN-250).
+
+    Everything is computed on the fly from the activity feed + card timestamps —
+    there is no stored metric and no migration. ``Access.READ`` (viewer or above);
+    unknown board 404, no access 403, unauthenticated 401.
+
+    The period is ``[since, now]``: pass ``since`` (an ISO-8601 timestamp) or the
+    convenience ``window`` (``7d``/``24h``/``30m``); omit both for all time. Reports:
+
+    - **throughput** — cards that reached ``done`` in the period;
+    - **cycle_time** — first ``in_progress`` → ``done`` (avg/median/p90 seconds);
+    - **aging_wip** — how long each currently-``in_progress`` card has sat there;
+    - **by_assignee** — completed + open WIP per assignee.
+
+    A quiet/empty board returns zeros and nulls (never an error).
+    """
+    authorize_board(db, principal, board_id, Access.READ)
+    now = datetime.now(timezone.utc)
+    period_since = _resolve_since(since, window, now)
+
+    # Column transitions, recovered from the "moved" activity rows' summaries (the
+    # model stores no structured target column — see app.metrics.parse_move_target).
+    move_rows = db.execute(
+        select(Activity.entity_id, Activity.summary, Activity.ts).where(
+            Activity.board_id == board_id,
+            Activity.entity_type == "card",
+            Activity.action == "moved",
+        )
+    ).all()
+    transitions = [
+        (entity_id, target, ts)
+        for entity_id, summary, ts in move_rows
+        if (target := parse_move_target(summary)) is not None
+    ]
+
+    # Current card state (all rows, incl. soft-deleted, for assignee lookup; the
+    # metrics themselves exclude deleted cards from live WIP).
+    card_rows = db.execute(
+        select(
+            Card.id,
+            Card.ticket_number,
+            Card.column,
+            Card.assignee,
+            Card.created_at,
+            Card.deleted_at,
+        ).where(Card.board_id == board_id)
+    ).all()
+    cards = [
+        {
+            "id": row.id,
+            "ticket_number": row.ticket_number,
+            "column": row.column,
+            "assignee": row.assignee,
+            "created_at": row.created_at,
+            "deleted": row.deleted_at is not None,
+        }
+        for row in card_rows
+    ]
+
+    metrics = compute_metrics(transitions, cards, now=now, since=period_since)
+    return BoardMetricsRead(
+        board_id=board_id,
+        generated_at=now,
+        since=period_since,
+        until=now,
+        **metrics,
+    )

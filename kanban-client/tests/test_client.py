@@ -649,3 +649,22 @@ def test_next_ready_204_returns_no_card():
     handler, seen = capture(httpx.Response(204))
     out = make_client(handler).next_ready(3)
     assert out == {"card": None}
+
+
+# --- fleet reporting / metrics (M5 V17, KAN-250) ---------------------------
+
+
+def test_board_metrics_gets_and_returns_body():
+    body = {"board_id": 3, "throughput": 2, "cycle_time": {"count": 0}}
+    handler, seen = capture(httpx.Response(200, json=body))
+    out = make_client(handler).board_metrics(3, window="7d")
+    assert seen["method"] == "GET"
+    assert seen["path"] == "/api/v1/boards/3/metrics"
+    assert seen["params"] == {"window": "7d"}
+    assert out == body
+
+
+def test_board_metrics_omits_unset_params():
+    handler, seen = capture(httpx.Response(200, json={"board_id": 3}))
+    make_client(handler).board_metrics(3)
+    assert seen["params"] == {}

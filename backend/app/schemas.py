@@ -485,3 +485,69 @@ class DispatchRequest(BaseModel):
     assignee: str | None = None
     label: int | None = None
     priority: PriorityEnum | None = None
+
+
+# --- board metrics (M5 V17, KAN-250) ---------------------------------------
+# All derived from the activity feed + card timestamps (no new writes). See
+# ``app.metrics.compute_metrics`` for how each number is computed, and
+# ``GET /api/v1/boards/{id}/metrics`` (routers/boards.py) for the endpoint.
+
+
+class CycleTimeMetrics(BaseModel):
+    """Cycle-time distribution (seconds) for cards completed in the period —
+    time from a card's first ``in_progress`` to its ``done``. All-null when no
+    completed card in the period had a recorded ``in_progress`` (``count`` 0)."""
+
+    count: int
+    avg_seconds: float | None = None
+    median_seconds: float | None = None
+    p90_seconds: float | None = None
+
+
+class AgingWipItem(BaseModel):
+    """One card currently ``in_progress`` and how long it has sat there."""
+
+    card_id: int
+    ticket_number: str
+    assignee: str | None = None
+    age_seconds: float
+
+
+class AgingWipMetrics(BaseModel):
+    """Age of the current work-in-progress: how long each in-flight card has been
+    ``in_progress`` (from its last move there). Zeros/nulls + empty ``items`` when
+    nothing is in progress."""
+
+    count: int
+    avg_seconds: float | None = None
+    max_seconds: float | None = None
+    items: list[AgingWipItem] = []
+
+
+class AssigneeMetrics(BaseModel):
+    """Per-assignee breakdown — the "which agent did what" view. ``throughput`` is
+    cards this assignee completed in the period; ``wip`` is cards it currently holds
+    ``in_progress``. ``assignee`` is null for unassigned cards."""
+
+    assignee: str | None = None
+    throughput: int
+    wip: int
+
+
+class BoardMetricsRead(BaseModel):
+    """Derived fleet-reporting metrics for a board over a period (M5 V17, KAN-250).
+
+    Entirely computed from the activity feed + card timestamps — no stored metric,
+    no migration. ``since``/``until`` bound the reporting period (``since`` null →
+    all time); ``generated_at`` is the server clock at computation (also the aging
+    reference). ``throughput`` is the count of cards that reached ``done`` in the
+    period."""
+
+    board_id: int
+    generated_at: datetime
+    since: datetime | None = None
+    until: datetime
+    throughput: int
+    cycle_time: CycleTimeMetrics
+    aging_wip: AgingWipMetrics
+    by_assignee: list[AssigneeMetrics] = []

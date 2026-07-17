@@ -106,6 +106,9 @@ class FakeClient:
     def resolve_card(self, card_id):
         return self._call("resolve_card", card_id=card_id)
 
+    def board_metrics(self, board_id, **kw):
+        return self._call("board_metrics", board_id=board_id, **kw)
+
 
 @pytest.fixture(autouse=True)
 def isolate_config(monkeypatch, tmp_path):
@@ -188,6 +191,59 @@ def test_needs_human_without_note(monkeypatch, env):
     fake = patch_client(monkeypatch, FakeClient())
     assert cli.run(["needs-human", "2"]) == 0
     assert fake.calls == [("flag_needs_human", {"card_id": 2, "attention_note": None})]
+
+
+METRICS = {
+    "board_id": 2,
+    "generated_at": "2026-07-17T12:00:00Z",
+    "since": None,
+    "until": "2026-07-17T12:00:00Z",
+    "throughput": 2,
+    "cycle_time": {
+        "count": 2,
+        "avg_seconds": 7200.0,
+        "median_seconds": 7200.0,
+        "p90_seconds": 10800.0,
+    },
+    "aging_wip": {
+        "count": 1,
+        "avg_seconds": 1800.0,
+        "max_seconds": 1800.0,
+        "items": [
+            {
+                "card_id": 3,
+                "ticket_number": "KAN-3",
+                "assignee": "agent-b",
+                "age_seconds": 1800.0,
+            }
+        ],
+    },
+    "by_assignee": [{"assignee": "agent-a", "throughput": 2, "wip": 0}],
+}
+
+
+def test_metrics_maps_board_and_window(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result=METRICS))
+    assert cli.run(["metrics", "--board", "2", "--window", "7d"]) == 0
+    assert fake.calls == [
+        ("board_metrics", {"board_id": 2, "since": None, "window": "7d"})
+    ]
+
+
+def test_metrics_requires_a_board(monkeypatch, env, capsys):
+    patch_client(monkeypatch, FakeClient(result=METRICS))
+    assert cli.run(["metrics"]) == 1  # no --board, no KANBAN_BOARD_ID → refused
+    assert "board is required" in capsys.readouterr().err
+
+
+def test_metrics_human_output(monkeypatch, env, capsys):
+    patch_client(monkeypatch, FakeClient(result=METRICS))
+    assert cli.run(["metrics", "--board", "2"]) == 0
+    out = capsys.readouterr().out
+    assert "throughput:  2 done" in out
+    assert "cycle time:" in out
+    assert "KAN-3" in out and "agent-b" in out
+    assert "agent-a\tdone 2\twip 0" in out
 
 
 def test_resolve(monkeypatch, env):

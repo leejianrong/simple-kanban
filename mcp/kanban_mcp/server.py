@@ -499,6 +499,29 @@ def resolve(card_id: int) -> dict[str, Any]:
     return _client_instance().resolve_card(card_id)
 
 
+# --- fleet reporting / metrics (M5 V17 API / KAN-250 tools) ----------------
+
+
+@mcp.tool()
+def metrics(
+    board_id: int | None = None,
+    since: str | None = None,
+    window: str | None = None,
+) -> dict[str, Any]:
+    """Report derived flow metrics for a board — throughput (cards done in the
+    period), cycle time (first in_progress → done: avg/median/p90 seconds), aging
+    WIP (how long each in-flight card has sat in progress), and a per-assignee
+    breakdown (completed + open WIP per agent). All computed from the activity feed
+    + card timestamps; nothing is written. ``board_id`` targets one board (defaults
+    to KANBAN_BOARD_ID). Bound the period with ``since`` (an ISO-8601 timestamp) or
+    ``window`` (``7d`` / ``24h`` / ``30m``); omit both for all time. Authorized via
+    the board (you must be able to read it).
+    """
+    return _client_instance().board_metrics(
+        _require_board(board_id), since=since, window=window
+    )
+
+
 def main() -> None:
     """Entry point — run the server over stdio."""
     mcp.run()
