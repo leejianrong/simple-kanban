@@ -4,7 +4,8 @@
 column's ordering is per board, so both helpers are scoped by ``board_id``.
 ``next_position`` appends a new card to the end of its board+column;
 ``renumber_column`` re-sequences a board+column to contiguous positions on
-move/reorder.
+move/reorder. Both ignore soft-deleted cards (``deleted_at IS NULL``, KAN-19)
+so a deleted card leaves no phantom in the ordering.
 """
 from __future__ import annotations
 
@@ -19,7 +20,11 @@ def next_position(db: Session, board_id: int, column: str) -> int:
     count = db.scalar(
         select(func.count())
         .select_from(Card)
-        .where(Card.board_id == board_id, Card.column == column)
+        .where(
+            Card.board_id == board_id,
+            Card.column == column,
+            Card.deleted_at.is_(None),
+        )
     )
     return int(count or 0)
 
@@ -28,7 +33,11 @@ def renumber_column(db: Session, board_id: int, column: str) -> None:
     """Re-sequence a board+column's cards to contiguous positions 0..n."""
     cards = db.scalars(
         select(Card)
-        .where(Card.board_id == board_id, Card.column == column)
+        .where(
+            Card.board_id == board_id,
+            Card.column == column,
+            Card.deleted_at.is_(None),
+        )
         .order_by(Card.position, Card.id)
     ).all()
     for index, card in enumerate(cards):

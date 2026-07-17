@@ -137,14 +137,17 @@ def test_patch_rejects_missing_epic(client):
     assert client.patch(f"/api/v1/cards/{card['id']}", json={"epic_id": 999999}).status_code == 422
 
 
-# --- delete detaches child stories (ON DELETE SET NULL) --------------------
+# --- soft-deleting an epic keeps its child stories linked (KAN-19) ----------
 
 
-def test_deleting_epic_detaches_its_stories(client):
+def test_deleting_epic_keeps_its_stories_linked(client):
     epic = _create_epic(client).json()
     card = _create_card(client, epic_id=epic["id"]).json()
 
     assert client.delete(f"/api/v1/epics/{epic['id']}").status_code == 204
-    # The story survives on the board, with its epic link cleared.
+    # Soft delete (KAN-19): the story survives with its epic_id INTACT — the epic is
+    # merely tombstoned (invisible to reads), not removed, so the FK's SET NULL never
+    # fires. Keeping the link is what lets KAN-20 restore the epic with its stories.
     body = client.get(f"/api/v1/cards/{card['id']}").json()
-    assert body["epic_id"] is None
+    assert body["epic_id"] == epic["id"]
+    assert client.get(f"/api/v1/epics/{epic['id']}").status_code == 404

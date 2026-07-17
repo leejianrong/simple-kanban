@@ -208,10 +208,12 @@ def test_unauthenticated_cannot_add_dependency_401(client, login_as):
         assert r.status_code == 401
 
 
-def test_cascade_delete_removes_edges(client):
+def test_deleting_blocker_clears_blocked_by(client):
     blocker = _card(client, "blocker")
     blocked = _card(client, "blocked")
     _add_dep(client, blocked["id"], blocker["id"])
-    # Deleting the blocker card cascades the edge away (ON DELETE CASCADE).
+    # Soft-deleting the blocker (KAN-19) tombstones its row and leaves the edge in
+    # the table, but a soft-deleted card is filtered out of the dependency reads, so
+    # the (still-live) blocked card is no longer reported as blocked — no phantom.
     assert client.delete(f"{CARDS}/{blocker['id']}").status_code == 204
     assert client.get(f"{CARDS}/{blocked['id']}").json()["blocked_by"] == []
