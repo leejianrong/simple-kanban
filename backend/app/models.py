@@ -46,7 +46,10 @@ VALID_ROLES = ("viewer", "editor", "owner")
 # by CHECK constraints (the ``card.column`` pattern) so a new entity type or action
 # needs no ``ALTER TYPE`` migration.
 VALID_ACTIVITY_ENTITY_TYPES = ("card", "epic", "board")
-VALID_ACTIVITY_ACTIONS = ("created", "updated", "deleted", "moved")
+# ``restored`` (KAN-20) is a distinct lifecycle event from ``deleted`` — a trashed
+# card/epic brought back to life — so the audit feed can badge it on its own (rather
+# than muddying it as an "updated"). Added to the CHECK via migration 0013.
+VALID_ACTIVITY_ACTIONS = ("created", "updated", "deleted", "moved", "restored")
 
 
 class Board(Base):
@@ -334,7 +337,7 @@ class Activity(Base):
             name="ck_activity_entity_type",
         ),
         CheckConstraint(
-            "action IN ('created', 'updated', 'deleted', 'moved')",
+            "action IN ('created', 'updated', 'deleted', 'moved', 'restored')",
             name="ck_activity_action",
         ),
     )

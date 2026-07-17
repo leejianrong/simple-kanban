@@ -9,6 +9,7 @@
   import BoardSwitcher from "./lib/components/BoardSwitcher.svelte";
   import Tokens from "./lib/components/Tokens.svelte";
   import Members from "./lib/components/Members.svelte";
+  import Trash from "./lib/components/Trash.svelte";
   import { refetch, refetchBoards, refetchEpics } from "./lib/board.svelte";
   import { refetchTokens } from "./lib/tokens.svelte";
   import { setSessionUser } from "./lib/session.svelte";
@@ -17,7 +18,9 @@
 
   // The board shows stories; epics + agent tokens are managed in their own views.
   // A simple top-bar toggle switches between them — no client-side router.
-  let view = $state<"board" | "epics" | "activity" | "tokens" | "members">("board");
+  let view = $state<"board" | "epics" | "activity" | "tokens" | "members" | "trash">(
+    "board",
+  );
 
   // Tokens are user-scoped (not board-scoped), so load them lazily the first time
   // the Tokens view is opened.
@@ -70,6 +73,7 @@
       <button class:active={view === "activity"} onclick={() => show("activity")}>Activity</button>
       <button class:active={view === "tokens"} onclick={() => show("tokens")}>Tokens</button>
       <button class:active={view === "members"} onclick={() => show("members")}>Members</button>
+      <button class:active={view === "trash"} onclick={() => show("trash")}>Trash</button>
     </nav>
     <BoardSwitcher />
     <div class="topbar-user">
@@ -104,8 +108,10 @@
       <Activity />
     {:else if view === "tokens"}
       <Tokens />
-    {:else}
+    {:else if view === "members"}
       <Members />
+    {:else}
+      <Trash />
     {/if}
   </main>
 {/if}

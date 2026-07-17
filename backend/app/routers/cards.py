@@ -8,6 +8,9 @@ Mounted by ``main.py`` under ``/api/v1`` (e.g. ``/api/v1/cards``):
 - PATCH  /cards/{id}    — edit fields (title/description/story_points/assignee)
 - DELETE /cards/{id}    — soft-delete (tombstone; excluded from default reads, KAN-19)
 - POST   /cards/{id}/move — move/reorder a card (column change + reorder within column)
+- GET    /cards/trash   — list this board's soft-deleted cards (KAN-20)
+- POST   /cards/{id}/restore — un-tombstone a soft-deleted card, re-appending it (KAN-20)
+- DELETE /cards/{id}/purge — permanently hard-delete a soft-deleted card (KAN-20)
 
 **Authorization (V8):** every route requires a principal (`401` otherwise) and
 that the principal own the card's board (`403`); the list is scoped to the caller's
@@ -34,6 +37,7 @@ from ..schemas import (
     CardCreate,
     CardMove,
     CardRead,
+    CardTrashRead,
     CardUpdate,
     ColumnEnum,
     CommentCreate,
@@ -51,6 +55,18 @@ def _get_or_404(db: Session, card_id: int) -> Card:
     # ``deleted_at``-set row 404s here, so GET/PATCH/move/DELETE on it all 404.
     card = db.scalars(
         select(Card).where(Card.id == card_id, Card.deleted_at.is_(None))
+    ).first()
+    if card is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Card not found")
+    return card
+
+
+def _get_trashed_or_404(db: Session, card_id: int) -> Card:
+    """Load a **soft-deleted** card (the mirror of :func:`_get_or_404`) — the trash
+    lifecycle (restore/purge, KAN-20) operates only on tombstoned rows, so a live
+    (or non-existent) card 404s here."""
+    card = db.scalars(
+        select(Card).where(Card.id == card_id, Card.deleted_at.is_not(None))
     ).first()
     if card is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Card not found")
@@ -268,6 +284,34 @@ def list_cards(
     return cards
 
 
+@router.get("/trash", response_model=list[CardTrashRead])
+def list_trashed_cards(
+    db: Session = Depends(get_db),
+    principal: User = Depends(get_principal),
+    board_id: int | None = None,
+) -> list[Card]:
+    """List **soft-deleted** cards (KAN-20 Trash view) — the mirror of
+    :func:`list_cards`, returning only tombstoned rows, newest-deleted first.
+
+    Owner/member-gated identically (``authorize_board`` READ when a ``board_id`` is
+    named, else scoped to :func:`visible_board_ids`). Declared **before** the
+    ``/{card_id}`` routes so ``/cards/trash`` matches this and not the id path.
+    ``deleted_at`` is exposed on this path only (:class:`CardTrashRead`); the normal
+    reads stay unchanged.
+    """
+    query = (
+        select(Card)
+        .where(Card.deleted_at.is_not(None))
+        .order_by(Card.deleted_at.desc(), Card.id.desc())
+    )
+    if board_id is not None:
+        authorize_board(db, principal, board_id, Access.READ)
+        query = query.where(Card.board_id == board_id)
+    else:
+        query = query.where(Card.board_id.in_(visible_board_ids(principal)))
+    return list(db.scalars(query).all())
+
+
 @router.post("", response_model=CardRead, status_code=status.HTTP_201_CREATED)
 def create_card(
     payload: CardCreate,
@@ -435,6 +479,58 @@ def move_card(
     db.commit()
     db.refresh(card)
     return _attach_one(db, card)
+
+
+@router.post("/{card_id}/restore", response_model=CardRead)
+def restore_card(
+    card_id: int,
+    db: Session = Depends(get_db),
+    principal: User = Depends(get_principal),
+) -> Card:
+    """Bring a soft-deleted card back to life (KAN-20): clear its ``deleted_at`` so it
+    reappears in every default read. **404** unless it is currently soft-deleted.
+
+    Its stale position (from before deletion) may now collide with a live card, so we
+    **re-append** it to the end of its (board, column) via ``next_position``. That
+    count runs while the row is still tombstoned in the DB (the session has autoflush
+    off), so it counts the live siblings only and the restored card lands cleanly at
+    the end. Records a ``restored`` activity event. Owner/member-gated (WRITE).
+    """
+    card = _get_trashed_or_404(db, card_id)
+    authorize_board(db, principal, card.board_id, Access.WRITE)
+    # Compute the append index while the card is still deleted_at-set in the DB, so
+    # next_position() (which filters ``deleted_at IS NULL``) excludes this very row.
+    card.position = next_position(db, card.board_id, card.column)
+    card.deleted_at = None
+    record_activity(
+        db,
+        principal,
+        board_id=card.board_id,
+        entity_type="card",
+        entity_id=card.id,
+        action="restored",
+        summary=f"restored {card.ticket_number}: {card.title}",
+    )
+    db.commit()
+    db.refresh(card)
+    return _attach_one(db, card)
+
+
+@router.delete("/{card_id}/purge", status_code=status.HTTP_204_NO_CONTENT)
+def purge_card(
+    card_id: int,
+    db: Session = Depends(get_db),
+    principal: User = Depends(get_principal),
+) -> Response:
+    """Permanently remove a card from the trash (KAN-20) — a real ``DELETE``, so its
+    FK-cascaded rows (dependencies, links, comments) go with it. Operates **only** on
+    an already-soft-deleted card (**404** otherwise), keeping the destructive path
+    distinct from the soft ``DELETE /cards/{id}``. Owner/member-gated (WRITE)."""
+    card = _get_trashed_or_404(db, card_id)
+    authorize_board(db, principal, card.board_id, Access.WRITE)
+    db.delete(card)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # --- card-to-card dependencies (KAN-28) ------------------------------------
