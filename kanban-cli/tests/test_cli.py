@@ -136,6 +136,27 @@ class FakeClient:
     def apply_template(self, board_id, template_id):
         return self._call("apply_template", board_id=board_id, template_id=template_id)
 
+    def add_dependency(self, card_id, blocker_id):
+        return self._call("add_dependency", card_id=card_id, blocker_id=blocker_id)
+
+    def remove_dependency(self, card_id, blocker_id):
+        return self._call("remove_dependency", card_id=card_id, blocker_id=blocker_id)
+
+    def list_dependencies(self, card_id):
+        return self._call("list_dependencies", card_id=card_id)
+
+    def add_link(self, card_id, label, url):
+        return self._call("add_link", card_id=card_id, label=label, url=url)
+
+    def remove_link(self, card_id, link_id):
+        return self._call("remove_link", card_id=card_id, link_id=link_id)
+
+    def add_comment(self, card_id, body):
+        return self._call("add_comment", card_id=card_id, body=body)
+
+    def list_comments(self, card_id):
+        return self._call("list_comments", card_id=card_id)
+
 
 @pytest.fixture(autouse=True)
 def isolate_config(monkeypatch, tmp_path):
@@ -869,6 +890,153 @@ def test_real_client_warmup_hits_unversioned_health(monkeypatch):
     assert seen["method"] == "GET"
     assert seen["path"] == "/api/health"
     assert seen["auth"] is None
+
+
+# --- dependency / link / comment subcommands (KAN-270) ----------------------
+
+
+def test_dep_add_maps_card_and_blocker(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient())
+    assert cli.run(["dep", "add", "7", "--blocked-by", "3"]) == 0
+    assert fake.calls == [("add_dependency", {"card_id": 7, "blocker_id": 3})]
+
+
+def test_dep_rm_maps_card_and_blocker(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient())
+    assert cli.run(["dep", "rm", "7", "--blocked-by", "3"]) == 0
+    assert fake.calls == [("remove_dependency", {"card_id": 7, "blocker_id": 3})]
+
+
+def test_dep_add_requires_blocked_by(env):
+    # --blocked-by is required → argparse usage error (exit 2).
+    with pytest.raises(SystemExit) as exc:
+        cli.run(["dep", "add", "7"])
+    assert exc.value.code == cli.EXIT_USAGE
+
+
+def test_dep_list_calls_client(monkeypatch, env):
+    fake = patch_client(
+        monkeypatch, FakeClient(result={"card_id": 7, "blocked_by": [3], "blocks": [9]})
+    )
+    assert cli.run(["dep", "list", "7"]) == 0
+    assert fake.calls == [("list_dependencies", {"card_id": 7})]
+
+
+def test_dep_list_human_output(monkeypatch, env, capsys):
+    patch_client(
+        monkeypatch, FakeClient(result={"card_id": 7, "blocked_by": [3, 4], "blocks": []})
+    )
+    assert cli.run(["dep", "list", "7"]) == 0
+    out = capsys.readouterr().out
+    assert "card 7" in out
+    assert "blocked_by:\t3, 4" in out
+    assert "blocks:\t(none)" in out
+
+
+def test_dep_list_json_output(monkeypatch, env, capsys):
+    result = {"card_id": 7, "blocked_by": [3], "blocks": []}
+    patch_client(monkeypatch, FakeClient(result=result))
+    assert cli.run(["dep", "list", "7", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == result
+
+
+def test_link_add_maps_label_and_url(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient())
+    code = cli.run(
+        ["link", "add", "7", "--url", "https://github.com/o/r/pull/1", "--label", "PR"]
+    )
+    assert code == 0
+    assert fake.calls == [
+        ("add_link", {"card_id": 7, "label": "PR", "url": "https://github.com/o/r/pull/1"})
+    ]
+
+
+def test_link_add_requires_label_and_url(env):
+    # Both --url and --label are required (the API's LinkCreate demands both).
+    with pytest.raises(SystemExit) as exc:
+        cli.run(["link", "add", "7", "--url", "https://x"])
+    assert exc.value.code == cli.EXIT_USAGE
+
+
+def test_dep_add_human_output_shows_edges(monkeypatch, env, capsys):
+    # add_dependency returns the refreshed card; the verb projects just its edges.
+    patch_client(
+        monkeypatch,
+        FakeClient(result={"ticket_number": "KAN-7", "blocked_by": [3], "blocks": [], "id": 7}),
+    )
+    assert cli.run(["dep", "add", "7", "--blocked-by", "3"]) == 0
+    out = capsys.readouterr().out
+    assert "card 7" in out
+    assert "blocked_by:\t3" in out
+
+
+def test_link_rm_maps_link_id(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient())
+    assert cli.run(["link", "rm", "7", "--link-id", "2"]) == 0
+    assert fake.calls == [("remove_link", {"card_id": 7, "link_id": 2})]
+
+
+def test_link_add_human_output_shows_links(monkeypatch, env, capsys):
+    # add_link returns the refreshed card; the verb projects just its links.
+    link = {"id": 2, "label": "PR", "url": "https://github.com/o/r/pull/1"}
+    patch_client(
+        monkeypatch,
+        FakeClient(result={"ticket_number": "KAN-7", "links": [link], "labels": [], "id": 7}),
+    )
+    assert cli.run(["link", "add", "7", "--url", link["url"], "--label", "PR"]) == 0
+    out = capsys.readouterr().out
+    assert "card 7" in out
+    assert "2\tPR\thttps://github.com/o/r/pull/1" in out
+
+
+def test_comment_add_maps_body(monkeypatch, env):
+    fake = patch_client(
+        monkeypatch,
+        FakeClient(result={"id": 1, "body": "looks good", "author_id": None}),
+    )
+    assert cli.run(["comment", "add", "7", "--body", "looks good"]) == 0
+    assert fake.calls == [("add_comment", {"card_id": 7, "body": "looks good"})]
+
+
+def test_comment_add_human_output(monkeypatch, env, capsys):
+    patch_client(
+        monkeypatch,
+        FakeClient(
+            result={
+                "id": 1,
+                "body": "looks good",
+                "author_id": None,
+                "created_at": "2026-07-20T00:00:00Z",
+            }
+        ),
+    )
+    assert cli.run(["comment", "add", "7", "--body", "looks good"]) == 0
+    assert "looks good" in capsys.readouterr().out
+
+
+def test_comment_list_calls_client(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"comments": []}))
+    assert cli.run(["comment", "list", "7"]) == 0
+    assert fake.calls == [("list_comments", {"card_id": 7})]
+
+
+def test_comment_list_human_output(monkeypatch, env, capsys):
+    comment = {
+        "id": 5,
+        "body": "please rebase",
+        "author_id": None,
+        "created_at": "2026-07-20T00:00:00Z",
+    }
+    patch_client(monkeypatch, FakeClient(result={"comments": [comment]}))
+    assert cli.run(["comment", "list", "7"]) == 0
+    out = capsys.readouterr().out.strip()
+    assert out == "5\t2026-07-20T00:00:00Z\tplease rebase"
+
+
+def test_comment_list_empty_human_output(monkeypatch, env, capsys):
+    patch_client(monkeypatch, FakeClient(result={"comments": []}))
+    assert cli.run(["comment", "list", "7"]) == 0
+    assert capsys.readouterr().out.strip() == "(no comments)"
 
 
 # --- config resolution chain (KAN-199) --------------------------------------
