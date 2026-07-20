@@ -793,9 +793,22 @@ def purge_card(
     """Permanently remove a card from the trash (KAN-20) — a real ``DELETE``, so its
     FK-cascaded rows (dependencies, links, comments) go with it. Operates **only** on
     an already-soft-deleted card (**404** otherwise), keeping the destructive path
-    distinct from the soft ``DELETE /cards/{id}``. Owner/member-gated (WRITE)."""
+    distinct from the soft ``DELETE /cards/{id}``. Records a ``purged`` activity
+    event (KAN-239) — a first-class audit of permanent destruction, distinct from
+    the ``deleted`` row the soft-delete already logged. The ``entity_id`` is a plain
+    int (not an FK), so the audit row survives the card it names.
+    Owner/member-gated (WRITE)."""
     card = _get_trashed_or_404(db, card_id)
     authorize_board(db, principal, card.board_id, Access.WRITE)
+    record_activity(
+        db,
+        principal,
+        board_id=card.board_id,
+        entity_type="card",
+        entity_id=card.id,
+        action="purged",
+        summary=f"purged {card.ticket_number}: {card.title}",
+    )
     db.delete(card)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

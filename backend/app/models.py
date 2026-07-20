@@ -61,6 +61,9 @@ VALID_ACTIVITY_ENTITY_TYPES = ("card", "epic", "board")
 # ``attention``/``resolved`` (M5 V13, KAN-246) are the human↔agent handoff events:
 # an agent flags a card ``needs-human`` (attention) and a human clears it (resolved).
 # Added to the CHECK via migration 0015.
+# ``purged`` (KAN-239) is permanent destruction of a soft-deleted card/epic — a
+# first-class audit event distinct from the ``deleted`` row the soft-delete already
+# logged. Added to the CHECK via migration 0018.
 VALID_ACTIVITY_ACTIONS = (
     "created",
     "updated",
@@ -69,6 +72,7 @@ VALID_ACTIVITY_ACTIONS = (
     "restored",
     "attention",
     "resolved",
+    "purged",
 )
 
 
@@ -451,7 +455,7 @@ class Activity(Base):
         ),
         CheckConstraint(
             "action IN ('created', 'updated', 'deleted', 'moved', 'restored', "
-            "'attention', 'resolved')",
+            "'attention', 'resolved', 'purged')",
             name="ck_activity_action",
         ),
     )
