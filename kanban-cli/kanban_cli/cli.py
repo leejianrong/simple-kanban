@@ -88,7 +88,12 @@ def _humanize(result: Any, *, noun: str = "card") -> str:
     if isinstance(result, dict) and "epics" in result:  # list_epics
         epics = result["epics"]
         return "\n".join(_epic_line(e) for e in epics) if epics else "(no epics)"
-    if isinstance(result, dict) and "labels" in result:  # list_labels
+    # list_labels returns ``{"labels": [...]}``. Guard with ``"ticket_number" not
+    # in result`` because a single ``CardRead`` also *carries* a ``labels`` array
+    # (alongside its ``ticket_number``); without this, ``get``/``create``/``update``/
+    # ``move`` (which all return one card) would match here and print ``(no labels)``
+    # instead of the card line (KAN-277). A label-LIST response never has a ticket.
+    if isinstance(result, dict) and "labels" in result and "ticket_number" not in result:
         labels = result["labels"]
         return "\n".join(_label_line(la) for la in labels) if labels else "(no labels)"
     if isinstance(result, dict) and "views" in result:  # list_views

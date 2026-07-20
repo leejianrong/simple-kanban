@@ -21,7 +21,18 @@ from kanban_cli import cli, config
 # the test that exercises the upward walk itself can reach the genuine impl.
 _REAL_FIND_MCP_JSON = config.find_mcp_json
 
-CARD = {"ticket_number": "KAN-1", "column": "todo", "title": "Ship it", "id": 1}
+# A realistic single card carries a ``labels`` array (empty here) and a
+# ``story_points`` key — like every ``CardRead`` from the API. The old fixture
+# omitted both, which hid KAN-277 (a single card matched the broad list_labels
+# branch and printed "(no labels)") and masked KAN-269's ``pts=`` field.
+CARD = {
+    "ticket_number": "KAN-1",
+    "column": "todo",
+    "title": "Ship it",
+    "id": 1,
+    "story_points": None,
+    "labels": [],
+}
 EPIC = {"ticket_number": "EPIC-1", "name": "Onboarding", "description": "d", "id": 1}
 BOARD = {"id": 2, "name": "Roadmap", "owner_id": None}
 
@@ -648,7 +659,11 @@ def test_create_with_points_shows_points_in_human_output(monkeypatch, env, capsy
     """KAN-269 regression: `create --points N` human output must show the points (from
     the API's `story_points` field), not null/None. The reporter's null was a jq
     missing-key artifact (`points` is not an API field); the CLI now surfaces it."""
-    created = {"ticket_number": "KAN-9", "column": "todo", "title": "Estimated", "story_points": 5}
+    # Carries labels:[] like a real CardRead — reproduces the KAN-277 trap.
+    created = {
+        "ticket_number": "KAN-9", "column": "todo", "title": "Estimated",
+        "story_points": 5, "labels": [],
+    }
     patch_client(monkeypatch, FakeClient(result=created))
     assert cli.run(["create", "Estimated", "--points", "5"]) == 0
     out = capsys.readouterr().out.strip()
@@ -659,10 +674,52 @@ def test_create_with_points_shows_points_in_human_output(monkeypatch, env, capsy
 
 def test_get_shows_story_points_field(monkeypatch, env, capsys):
     """A single-card `get` renders story_points as pts=N (KAN-269)."""
-    card = {"ticket_number": "KAN-3", "column": "in_progress", "title": "WIP", "story_points": 8}
+    # Carries labels:[] like a real CardRead — reproduces the KAN-277 trap.
+    card = {
+        "ticket_number": "KAN-3", "column": "in_progress", "title": "WIP",
+        "story_points": 8, "labels": [],
+    }
     patch_client(monkeypatch, FakeClient(result=card))
     assert cli.run(["get", "3"]) == 0
     assert capsys.readouterr().out.strip() == "KAN-3\tin_progress\tWIP\tpts=8"
+
+
+def test_single_card_with_labels_renders_card_line_not_no_labels(monkeypatch, env, capsys):
+    """KAN-277 regression: a single card carries a ``labels`` array, so ``get`` (and
+    create/update/move) used to match the broad list_labels branch and print
+    ``(no labels)`` instead of the card line (which also masked KAN-269's ``pts=``).
+    The fixture MUST carry ``labels`` — that's the exact shape that hid the bug."""
+    card = {
+        "ticket_number": "KAN-260", "column": "done", "title": "Fix humanize",
+        "story_points": 3, "labels": [{"id": 1, "name": "bug", "color": "#f00"}],
+    }
+    patch_client(monkeypatch, FakeClient(result=card))
+    assert cli.run(["get", "260"]) == 0
+    out = capsys.readouterr().out.strip()
+    assert out == "KAN-260\tdone\tFix humanize\tpts=3"
+    assert out != "(no labels)"
+    assert "(no labels)" not in out
+
+
+def test_label_list_renders_labels(monkeypatch, env, capsys):
+    """`kan label list` on a real ``{"labels": [...]}`` response renders one line
+    per label (id, name, color) — the legitimate consumer of the labels branch."""
+    labels = {"labels": [
+        {"id": 1, "name": "bug", "color": "#f00"},
+        {"id": 2, "name": "chore", "color": "#0f0"},
+    ]}
+    patch_client(monkeypatch, FakeClient(result=labels))
+    assert cli.run(["label", "list", "--board", "2"]) == 0
+    out = capsys.readouterr().out.strip()
+    assert out == "1\tbug\t#f00\n2\tchore\t#0f0"
+
+
+def test_label_list_empty_shows_no_labels(monkeypatch, env, capsys):
+    """An empty label-LIST response still yields ``(no labels)`` (KAN-277 must not
+    over-correct and break the genuine empty-list case)."""
+    patch_client(monkeypatch, FakeClient(result={"labels": []}))
+    assert cli.run(["label", "list", "--board", "2"]) == 0
+    assert capsys.readouterr().out.strip() == "(no labels)"
 
 
 # --- exit codes / error mapping ---------------------------------------------
