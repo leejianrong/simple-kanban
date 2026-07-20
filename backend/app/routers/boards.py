@@ -29,7 +29,7 @@ from ..activity import record_activity
 from ..auth_models import User
 from ..authz import Access, authorize_board, get_principal, visible_board_ids
 from ..db import get_db
-from ..metrics import compute_metrics, parse_move_target
+from ..metrics import compute_metrics, move_target
 from ..models import Activity, Board, BoardMember, Card
 from ..ordering import next_position, renumber_column, select_next_ready_card
 from ..pagination import NEXT_CURSOR_HEADER, decode_cursor, encode_cursor
@@ -367,6 +367,10 @@ def dispatch_card(
         entity_id=card.id,
         action="moved",
         summary=f"dispatched {card.ticket_number} to {assignee}",
+        # Structured transition for metrics (KAN-260): a dispatch always claims a
+        # todo card into in_progress.
+        from_column=source_column,
+        to_column=ColumnEnum.in_progress.value,
     )
     # One transaction: the SELECT ... FOR UPDATE SKIP LOCKED row lock is held right
     # through here and released on commit, so the claim is atomic + fleet-safe.
@@ -442,10 +446,17 @@ def board_metrics(
     now = datetime.now(timezone.utc)
     period_since = _resolve_since(since, window, now)
 
-    # Column transitions, recovered from the "moved" activity rows' summaries (the
-    # model stores no structured target column — see app.metrics.parse_move_target).
+    # Column transitions from the "moved" activity rows. Read the structured
+    # from_column/to_column recorded at write time (KAN-260); move_target falls back
+    # to parsing the summary for legacy rows predating that migration.
     move_rows = db.execute(
-        select(Activity.entity_id, Activity.summary, Activity.ts).where(
+        select(
+            Activity.entity_id,
+            Activity.from_column,
+            Activity.to_column,
+            Activity.summary,
+            Activity.ts,
+        ).where(
             Activity.board_id == board_id,
             Activity.entity_type == "card",
             Activity.action == "moved",
@@ -453,8 +464,8 @@ def board_metrics(
     ).all()
     transitions = [
         (entity_id, target, ts)
-        for entity_id, summary, ts in move_rows
-        if (target := parse_move_target(summary)) is not None
+        for entity_id, from_column, to_column, summary, ts in move_rows
+        if (target := move_target(from_column, to_column, summary)) is not None
     ]
 
     # Current card state (all rows, incl. soft-deleted, for assignee lookup; the

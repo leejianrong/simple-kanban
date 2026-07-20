@@ -138,6 +138,64 @@ def test_metrics_derived_from_seeded_activity(client):
     assert by["agent-b"] == {"assignee": "agent-b", "throughput": 0, "wip": 1}
 
 
+def test_move_records_structured_transition_columns(client):
+    """A real move todo→in_progress→done writes structured from_column/to_column on
+    the ``moved`` activity rows (KAN-260), and metrics derived from them are correct."""
+    from sqlalchemy import text
+
+    from app.db import engine
+
+    board_id = _board_id(client)
+    now = datetime.now(timezone.utc)
+
+    card = _create(client, "structured")
+    _move(client, card["id"], "in_progress")
+    _move(client, card["id"], "done")
+
+    with engine.begin() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT from_column, to_column FROM activity "
+                "WHERE entity_id = :cid AND action = 'moved' ORDER BY ts"
+            ),
+            {"cid": card["id"]},
+        ).all()
+    assert [(r.from_column, r.to_column) for r in rows] == [
+        ("todo", "in_progress"),
+        ("in_progress", "done"),
+    ]
+
+    # Metrics still derive correctly from the structured fields.
+    _set_activity_ts(card["id"], "in_progress", now - timedelta(hours=2))
+    _set_activity_ts(card["id"], "done", now - timedelta(hours=1))
+    m = _metrics(client, board_id)
+    assert m["throughput"] == 1
+    assert m["cycle_time"]["count"] == 1
+    assert m["cycle_time"]["avg_seconds"] == 1 * 3600
+
+
+def test_dispatch_records_structured_transition_columns(client):
+    """Dispatch claims a todo card into in_progress and records from=todo, to=in_progress."""
+    from sqlalchemy import text
+
+    from app.db import engine
+
+    board_id = _board_id(client)
+    card = _create(client, "to-dispatch")
+    r = client.post(f"{BOARDS}/{board_id}/dispatch", json={"assignee": "agent-a"})
+    assert r.status_code == 200, r.text
+
+    with engine.begin() as conn:
+        row = conn.execute(
+            text(
+                "SELECT from_column, to_column FROM activity "
+                "WHERE entity_id = :cid AND action = 'moved'"
+            ),
+            {"cid": card["id"]},
+        ).one()
+    assert (row.from_column, row.to_column) == ("todo", "in_progress")
+
+
 def test_since_window_scopes_throughput(client):
     board_id = _board_id(client)
     now = datetime.now(timezone.utc)

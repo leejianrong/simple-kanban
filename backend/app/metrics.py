@@ -8,18 +8,22 @@ is **no new write path and no migration**: reporting rides the activity feed.
 Two responsibilities live here, both pure (no DB, no I/O) so they unit-test
 directly:
 
-- :func:`parse_move_target` — recover the *destination column* of a card move from
-  an activity row's ``summary`` text. The ``Activity`` model deliberately stores no
-  structured target column (``summary`` is a human sentence), so we parse the two
-  known producers: ``routers/cards.py``'s ``move_card`` (``"moved KAN-3 from todo
-  to in_progress"``) and ``routers/boards.py``'s ``dispatch`` (``"dispatched KAN-3
-  to <assignee>"`` — always a move into ``in_progress``). A same-column reorder
-  (``"moved KAN-3 to done"``) is **not** a transition and yields ``None``.
-- :func:`compute_metrics` — turn the parsed column transitions + current card state
+- :func:`move_target` — recover the *destination column* of a cross-column card move
+  from an activity row. Since M5 V17 (KAN-260) the ``Activity`` model records the
+  transition in **structured** ``from_column`` / ``to_column`` fields at write time,
+  so this reads them directly. Rows written **before** that migration have NULL
+  structured fields; for those it **falls back** to :func:`parse_move_target`, which
+  parses the human ``summary`` text — so no historical metric regresses.
+- :func:`parse_move_target` — the legacy summary parser, kept as the NULL-only
+  fallback. It recognises the two known producers: ``routers/cards.py``'s
+  ``move_card`` (``"moved KAN-3 from todo to in_progress"``) and
+  ``routers/boards.py``'s ``dispatch`` (``"dispatched KAN-3 to <assignee>"`` — always
+  a move into ``in_progress``). A same-column reorder (``"moved KAN-3 to done"``) is
+  **not** a transition and yields ``None``.
+- :func:`compute_metrics` — turn the recovered column transitions + current card state
   into throughput / cycle-time / aging-WIP / per-assignee numbers over a period.
 
-Keeping these off the router keeps the derivation testable without a database and
-the coupling to the summary wording documented in exactly one place.
+Keeping these off the router keeps the derivation testable without a database.
 """
 from __future__ import annotations
 
@@ -61,6 +65,30 @@ def parse_move_target(summary: str) -> str | None:
     return None
 
 
+def move_target(
+    from_column: str | None, to_column: str | None, summary: str
+) -> str | None:
+    """Return the destination column of a **cross-column** card move recorded in a
+    ``moved`` activity row, or ``None`` when it is a same-column reorder / not a
+    recognised transition.
+
+    Prefers the **structured** ``from_column`` / ``to_column`` fields recorded at
+    write time (M5 V17, KAN-260): a genuine transition is one where ``to_column`` is
+    set and differs from ``from_column`` (equal ⇒ same-column reorder ⇒ ``None``).
+
+    **Back-compat:** activity rows written before the KAN-260 migration have NULL
+    structured fields (``to_column is None``); for those — and only those — we fall
+    back to parsing the human ``summary`` via :func:`parse_move_target`, so metrics
+    over historical data are unchanged.
+    """
+    if to_column is not None:
+        if from_column is not None and from_column == to_column:
+            return None
+        return to_column if to_column in _VALID_COLUMNS else None
+    # Legacy row (pre-KAN-260): structured fields unset — parse the summary text.
+    return parse_move_target(summary)
+
+
 def _percentile(sorted_values: list[float], pct: float) -> float:
     """Nearest-rank percentile of an already-sorted, non-empty list."""
     rank = math.ceil(pct / 100 * len(sorted_values))
@@ -95,7 +123,7 @@ def compute_metrics(
     """Compute the derived board metrics — pure, no DB.
 
     ``transitions`` is the parsed list of cross-column card moves as
-    ``(card_id, target_column, ts)`` (see :func:`parse_move_target`). ``cards`` is
+    ``(card_id, target_column, ts)`` (see :func:`move_target`). ``cards`` is
     the board's current card state — dicts with ``id``, ``ticket_number``,
     ``column``, ``assignee``, ``created_at`` and ``deleted`` (a bool). ``now`` is the
     reference time (period end + aging clock); ``since`` bounds the period

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from app.metrics import compute_metrics, parse_move_target
+from app.metrics import compute_metrics, move_target, parse_move_target
 
 NOW = datetime(2026, 7, 17, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -40,6 +40,34 @@ def test_parse_same_column_reorder_is_not_a_transition():
 def test_parse_unrecognised_summary_is_none():
     assert parse_move_target("created KAN-3: Fix login") is None
     assert parse_move_target("moved KAN-3 from todo to sideways") is None
+
+
+# --- move_target (structured fields, with a NULL-summary fallback) ----------
+
+
+def test_move_target_reads_structured_cross_column():
+    # A genuine transition: to_column set and differs from from_column. The summary
+    # is ignored when the structured fields are present.
+    assert move_target("todo", "in_progress", "ignored") == "in_progress"
+    assert move_target("in_progress", "done", "ignored") == "done"
+
+
+def test_move_target_structured_same_column_is_not_a_transition():
+    # from == to is a same-column reorder, not a transition.
+    assert move_target("done", "done", "moved KAN-3 to done") is None
+
+
+def test_move_target_structured_ignores_invalid_column():
+    assert move_target("todo", "sideways", "ignored") is None
+
+
+def test_move_target_falls_back_to_summary_when_structured_is_null():
+    # Legacy rows (pre-KAN-260) have NULL from/to; fall back to summary parsing so no
+    # historical metric regresses.
+    assert move_target(None, None, "moved KAN-3 from todo to in_progress") == "in_progress"
+    assert move_target(None, None, "dispatched KAN-3 to agent-a@example.com") == "in_progress"
+    assert move_target(None, None, "moved KAN-3 to done") is None
+    assert move_target(None, None, "created KAN-3: Fix login") is None
 
 
 # --- compute_metrics --------------------------------------------------------
