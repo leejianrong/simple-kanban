@@ -480,6 +480,14 @@ class Activity(Base):
     entity_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     action: Mapped[str] = mapped_column(String(16), nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
+    # Structured column transition for a "moved" activity (M5 V17, KAN-260). Recorded
+    # at write time by the move/dispatch handlers so metrics.py reads the transition
+    # from these fields instead of regexing ``summary``. Nullable + no CHECK: only
+    # moves set them, and rows written before this migration are NULL (metrics.py
+    # falls back to parsing the human ``summary`` for those). Values come from
+    # ``VALID_COLUMNS`` at write time; a CHECK rejecting NULL would break back-compat.
+    from_column: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    to_column: Mapped[str | None] = mapped_column(String(16), nullable=True)
     ts: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

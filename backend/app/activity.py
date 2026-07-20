@@ -31,6 +31,8 @@ def record_activity(
     entity_id: int,
     action: str,
     summary: str,
+    from_column: str | None = None,
+    to_column: str | None = None,
 ) -> Activity:
     """Append one activity row for a board-domain mutation (added, not committed).
 
@@ -40,6 +42,11 @@ def record_activity(
     ``updated``, ``deleted``, ``moved``, ``restored``, ``attention``, ``resolved``,
     ``purged``} — both CHECK-constrained on the table.
     ``summary`` is a short human sentence (e.g. ``"created KAN-3: Fix login"``).
+
+    ``from_column`` / ``to_column`` (M5 V17, KAN-260) record the **structured** column
+    transition of a ``moved`` event, so the metrics layer reads them instead of
+    parsing ``summary``. The move/dispatch handlers pass them; every other caller
+    leaves them ``None`` (they only apply to moves).
     """
     activity = Activity(
         board_id=board_id,
@@ -49,6 +56,8 @@ def record_activity(
         entity_id=entity_id,
         action=action,
         summary=summary,
+        from_column=from_column,
+        to_column=to_column,
     )
     db.add(activity)
     return activity

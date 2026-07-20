@@ -669,6 +669,10 @@ def move_card(
             if source_column == target_column
             else f"moved {card.ticket_number} from {source_column} to {target_column}"
         ),
+        # Structured transition for metrics (KAN-260); a same-column reorder records
+        # from == to and is not counted as a transition.
+        from_column=source_column,
+        to_column=target_column,
     )
     db.commit()
     db.refresh(card)
