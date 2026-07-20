@@ -15,8 +15,9 @@ with the repo's thin ethos.
 
 ## Commands
 
-Card verbs are top-level; boards and epics are nested groups so their verbs don't
-collide with the card verbs (parity with the `/api/v1` surface).
+Card verbs are top-level; boards, epics, labels, saved views and templates are
+nested groups so their verbs don't collide with the card verbs (parity with the
+`/api/v1` surface).
 
 | Command | Endpoint |
 |---------|----------|
@@ -27,12 +28,27 @@ collide with the card verbs (parity with the `/api/v1` surface).
 | `kan update <card_id> [--title T] [--description D] [--points N] [--assignee A] [--epic ID] [--json]` | `PATCH /cards/{id}` |
 | `kan move <card_id> <column> [--position N] [--json]` | `POST /cards/{id}/move` |
 | `kan delete <card_id> --yes [--json]` | `DELETE /cards/{id}` |
+| `kan next [--board N] [--claim] [--assignee A] [--label ID] [--priority P] [--json]` | `GET /boards/{id}/next` (peek); with `--claim` → `POST /boards/{id}/dispatch` (atomic claim) |
+| `kan needs-human <card_id> [--note N] [--json]` | `POST /cards/{id}/needs-human` |
+| `kan resolve <card_id> [--json]` | `POST /cards/{id}/resolve` |
+| `kan batch-update <JSON \| -> [--json]` | `PATCH /cards/batch` (atomic multi-card edit) |
+| `kan metrics [--board N] [--since ISO] [--window SPAN] [--json]` | `GET /boards/{id}/metrics` |
 | `kan board list [--json]` | `GET /boards` |
 | `kan board create <name> [--json]` | `POST /boards` |
 | `kan epic list [--board N] [--json]` | `GET /epics` |
 | `kan epic create <name> [--board N] [--description D] [--json]` | `POST /epics` |
 | `kan epic update <epic_id> [--name N] [--description D] [--json]` | `PATCH /epics/{id}` |
 | `kan epic delete <epic_id> --yes [--json]` | `DELETE /epics/{id}` |
+| `kan label list [--board N] [--json]` | `GET /boards/{id}/labels` |
+| `kan label create <name> <color> [--board N] [--json]` | `POST /boards/{id}/labels` |
+| `kan label delete <label_id> --yes [--json]` | `DELETE /labels/{id}` |
+| `kan view list [--board N] [--json]` | `GET /boards/{id}/views` |
+| `kan view create <name> [--board N] [--column C] [--epic ID] [--priority P] [--label ID] [--due-before ISO] [--overdue] [--needs-human] [--assignee A] [--sort SPEC] [--json]` | `POST /boards/{id}/views` |
+| `kan view delete <view_id> [--board N] --yes [--json]` | `DELETE /boards/{id}/views/{view_id}` |
+| `kan template list [--board N] [--json]` | `GET /boards/{id}/templates` |
+| `kan template create <name> --cards <JSON \| -> [--board N] [--json]` | `POST /boards/{id}/templates` |
+| `kan template delete <template_id> [--board N] --yes [--json]` | `DELETE /boards/{id}/templates/{template_id}` |
+| `kan template apply <template_id> [--board N] [--json]` | `POST /boards/{id}/templates/{template_id}/apply` |
 | `kan dep add <card_id> --blocked-by BLOCKER_ID [--json]` | `POST /cards/{id}/dependencies` |
 | `kan dep rm <card_id> --blocked-by BLOCKER_ID [--json]` | `DELETE /cards/{id}/dependencies/{blocker_id}` |
 | `kan dep list <card_id> [--json]` | `GET /cards/{id}` (its `blocked_by` / `blocks`) |
