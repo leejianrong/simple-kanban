@@ -610,16 +610,38 @@ def test_json_flag_before_subcommand(monkeypatch, env, capsys):
 
 
 def test_human_output_is_concise_line(monkeypatch, env, capsys):
+    # CARD has no story_points → rendered pts=- (never the literal "None").
     patch_client(monkeypatch, FakeClient(result={"cards": [CARD]}))
     cli.run(["list"])
     out = capsys.readouterr().out.strip()
-    assert out == "KAN-1\ttodo\tShip it"
+    assert out == "KAN-1\ttodo\tShip it\tpts=-"
 
 
 def test_human_output_empty_list(monkeypatch, env, capsys):
     patch_client(monkeypatch, FakeClient(result={"cards": []}))
     cli.run(["list"])
     assert capsys.readouterr().out.strip() == "(no cards)"
+
+
+def test_create_with_points_shows_points_in_human_output(monkeypatch, env, capsys):
+    """KAN-269 regression: `create --points N` human output must show the points (from
+    the API's `story_points` field), not null/None. The reporter's null was a jq
+    missing-key artifact (`points` is not an API field); the CLI now surfaces it."""
+    created = {"ticket_number": "KAN-9", "column": "todo", "title": "Estimated", "story_points": 5}
+    patch_client(monkeypatch, FakeClient(result=created))
+    assert cli.run(["create", "Estimated", "--points", "5"]) == 0
+    out = capsys.readouterr().out.strip()
+    assert "pts=5" in out
+    assert "None" not in out
+    assert "null" not in out
+
+
+def test_get_shows_story_points_field(monkeypatch, env, capsys):
+    """A single-card `get` renders story_points as pts=N (KAN-269)."""
+    card = {"ticket_number": "KAN-3", "column": "in_progress", "title": "WIP", "story_points": 8}
+    patch_client(monkeypatch, FakeClient(result=card))
+    assert cli.run(["get", "3"]) == 0
+    assert capsys.readouterr().out.strip() == "KAN-3\tin_progress\tWIP\tpts=8"
 
 
 # --- exit codes / error mapping ---------------------------------------------

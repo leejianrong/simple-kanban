@@ -11,7 +11,8 @@ the card verbs — parity with the board/epic surface of ``/api/v1`` (KAN-23).
 
 The CLI is a thin adapter over the shared ``KanbanClient``: parse args → env
 config → one client call → print. ``--json`` prints the client's raw dict (for
-``kan list --json | jq …``); otherwise a concise ``ticket  column  title`` line.
+``kan list --json | jq …``); otherwise a concise ``ticket  column  title  pts=N``
+line (``pts=-`` when unestimated, reading the API's ``story_points``).
 
 Exit codes (for scripting):
     0  success
@@ -127,13 +128,25 @@ def _humanize(result: Any, *, noun: str = "card") -> str:
     return json.dumps(result, default=str)
 
 
+def _fmt_points(points: int | None) -> str:
+    """Render a card's ``story_points`` for human output: ``pts=3`` when set, ``pts=-``
+    when null/absent (never the literal string ``None``). The field name mirrors the
+    API's ``story_points`` (which ``--json`` shows) so the read value is unambiguous."""
+    return f"pts={points if points is not None else '-'}"
+
+
 def _card_line(card: dict[str, Any]) -> str:
-    """One concise line for a card: ticket, column, title (tab-separated)."""
+    """One concise line for a card: ticket, column, title, story points (tab-separated).
+
+    Story points read the API's ``story_points`` field (what ``--points`` writes and
+    ``--json`` shows), rendered ``pts=<n>``/``pts=-`` so they're never invisible in
+    human output (KAN-269). The ticket/column/title prefix is unchanged."""
     return "\t".join(
         (
             str(card.get("ticket_number", card.get("id", "?"))),
             str(card.get("column", "")),
             str(card.get("title", "")),
+            _fmt_points(card.get("story_points")),
         )
     )
 
@@ -743,7 +756,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_create.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
     p_create.add_argument("--description")
     p_create.add_argument("--column", choices=COLUMNS, help="starting column (default: todo)")
-    p_create.add_argument("--points", type=int, metavar="N", help="story points (1/2/3/5/8/13)")
+    p_create.add_argument(
+        "--points", type=int, metavar="N",
+        help="story points (1/2/3/5/8/13); sets the card's story_points (shown as pts=N)",
+    )
     p_create.add_argument("--assignee")
     p_create.add_argument("--epic", type=int, metavar="EPIC_ID", help="link to an epic")
     p_create.add_argument("--priority", choices=PRIORITIES, help="priority (default: none)")
@@ -758,7 +774,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_update.add_argument("card_id", type=int)
     p_update.add_argument("--title")
     p_update.add_argument("--description")
-    p_update.add_argument("--points", type=int, metavar="N", help="story points (1/2/3/5/8/13)")
+    p_update.add_argument(
+        "--points", type=int, metavar="N",
+        help="story points (1/2/3/5/8/13); sets the card's story_points (shown as pts=N)",
+    )
     p_update.add_argument("--assignee")
     p_update.add_argument(
         "--epic", type=int, metavar="EPIC_ID", help="link to an epic (by id)"

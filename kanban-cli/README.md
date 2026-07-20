@@ -55,8 +55,9 @@ until kan warmup; do sleep 2; done   # block until the API is awake
 
 Every command takes `--json` to print the API's raw response (for piping, e.g.
 `kan list --json | jq`); without it you get a concise tab-separated summary
-(`ticket  column  title` for cards, `ticket  name` for epics, `id  name` for
-boards) suitable for `grep`/`cut`.
+(`ticket  column  title  pts=N` for cards — `pts=-` when unestimated, reading the
+API's `story_points`; `ticket  name` for epics, `id  name` for boards) suitable for
+`grep`/`cut`.
 
 Run `kan --help`, `kan <command> --help`, `kan board --help`, or
 `kan epic --help` for the full option list.
