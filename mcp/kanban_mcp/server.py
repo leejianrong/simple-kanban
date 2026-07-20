@@ -536,6 +536,32 @@ def metrics(
     )
 
 
+@mcp.tool()
+def activity(
+    board_id: int | None = None,
+    limit: int | None = None,
+    cursor: str | None = None,
+    actor: str | None = None,
+    action: str | None = None,
+) -> dict[str, Any]:
+    """Read a board's activity feed (KAN-18), newest-first — one row per successful
+    create / update / delete / move of a card, epic or board. ``board_id`` targets
+    one board (defaults to KANBAN_BOARD_ID). Optional filters (M5 V16, KAN-249,
+    AND-ed): ``actor`` (exact match on an actor's email / agent handle) and
+    ``action`` (the action verb — created/updated/deleted/moved/restored/…).
+    Paginate with ``limit``; if more rows remain the response includes
+    ``next_cursor`` to pass back as ``cursor``. Authorized via the board (you must
+    be able to read it). Returns ``{"activity": [...], "next_cursor"?: str}``.
+    """
+    return _client_instance().list_activity(
+        _require_board(board_id),
+        limit=limit,
+        cursor=cursor,
+        actor=actor,
+        action=action,
+    )
+
+
 # --- saved views (M5 V14 API / KAN-247 tools) ------------------------------
 
 

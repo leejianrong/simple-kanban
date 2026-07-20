@@ -668,3 +668,26 @@ def test_board_metrics_omits_unset_params():
     handler, seen = capture(httpx.Response(200, json={"board_id": 3}))
     make_client(handler).board_metrics(3)
     assert seen["params"] == {}
+
+
+# --- activity feed (M5 V16, KAN-261) ---------------------------------------
+
+
+def test_list_activity_gets_board_feed_and_wraps_result():
+    handler, seen = capture(httpx.Response(200, json=[{"id": 1, "action": "created"}]))
+    out = make_client(handler).list_activity(3)
+    assert seen["method"] == "GET"
+    assert seen["path"] == "/api/v1/boards/3/activity"
+    assert seen["params"] == {}
+    assert out == {"activity": [{"id": 1, "action": "created"}]}
+
+
+def test_list_activity_passes_actor_action_and_reads_cursor_header():
+    handler, seen = capture(
+        httpx.Response(200, json=[{"id": 1}], headers={"X-Next-Cursor": "abc"})
+    )
+    out = make_client(handler).list_activity(
+        3, actor="agent-7", action="moved", limit=2
+    )
+    assert seen["params"] == {"actor": "agent-7", "action": "moved", "limit": "2"}
+    assert out == {"activity": [{"id": 1}], "next_cursor": "abc"}

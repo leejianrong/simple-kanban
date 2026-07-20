@@ -93,6 +93,14 @@ def _humanize(result: Any, *, noun: str = "card") -> str:
     if isinstance(result, dict) and "views" in result:  # list_views
         views = result["views"]
         return "\n".join(_view_line(v) for v in views) if views else "(no views)"
+    if isinstance(result, dict) and "activity" in result:  # list_activity
+        rows = result["activity"]
+        if not rows:
+            return "(no activity)"
+        lines = [_activity_line(r) for r in rows]
+        if result.get("next_cursor"):
+            lines.append(f"(more — next cursor: {result['next_cursor']})")
+        return "\n".join(lines)
     if isinstance(result, dict) and "card" in result:  # dispatch / next (peek/claim)
         card = result["card"]
         return _card_line(card) if card else "(no card ready)"
@@ -163,6 +171,18 @@ def _view_line(view: dict[str, Any]) -> str:
             str(view.get("id", "?")),
             str(view.get("name", "")),
             json.dumps(view.get("query", {}), default=str, sort_keys=True),
+        )
+    )
+
+
+def _activity_line(row: dict[str, Any]) -> str:
+    """One concise line for an activity row: timestamp, actor, action, summary."""
+    return "\t".join(
+        (
+            str(row.get("ts", "")),
+            str(row.get("actor_label") or "-"),
+            str(row.get("action", "")),
+            str(row.get("summary", "")),
         )
     )
 
@@ -338,6 +358,22 @@ def _cmd_metrics(client: KanbanClient, config: Config, args: argparse.Namespace)
     if board is None:
         raise ConfigError("a board is required; pass --board or set KANBAN_BOARD_ID")
     return client.board_metrics(board, since=args.since, window=args.window)
+
+
+def _cmd_activity(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    """Read a board's activity feed (KAN-18), newest-first (M5 V16, KAN-261). The
+    activity endpoint is path-scoped with no API-side fallback, so a board is
+    required (``--board`` or KANBAN_BOARD_ID)."""
+    board = _resolve_board(args.board, config)
+    if board is None:
+        raise ConfigError("a board is required; pass --board or set KANBAN_BOARD_ID")
+    return client.list_activity(
+        board,
+        limit=args.limit,
+        cursor=args.cursor,
+        actor=args.actor,
+        action=args.action,
+    )
 
 
 # --- ops handlers -----------------------------------------------------------
@@ -750,6 +786,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="relative period, e.g. 7d / 24h / 30m (ignored with --since)",
     )
     p_metrics.set_defaults(func=_cmd_metrics)
+
+    # --- activity feed (M5 V16, KAN-261) -------------------------------------
+    p_activity = sub.add_parser(
+        "activity",
+        parents=[common],
+        help="a board's activity feed, newest-first (filter by --actor / --action)",
+    )
+    p_activity.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
+    p_activity.add_argument(
+        "--actor", metavar="LABEL",
+        help="only rows by this actor (exact match on email / agent handle)",
+    )
+    p_activity.add_argument(
+        "--action", metavar="VERB",
+        help="only rows with this action (created/updated/deleted/moved/restored/…)",
+    )
+    p_activity.add_argument("--limit", type=int, help="max rows to return")
+    p_activity.add_argument(
+        "--cursor", help="pagination cursor from a previous page's next-cursor line"
+    )
+    p_activity.set_defaults(func=_cmd_activity)
 
     # --- board subcommands (nested group; parity with /api/v1/boards) --------
     p_board = sub.add_parser("board", help="manage boards (list / create)")

@@ -539,6 +539,40 @@ class KanbanClient:
         params = _clean({"since": since, "window": window})
         return self._request("GET", f"/boards/{board_id}/metrics", params=params).json()
 
+    def list_activity(
+        self,
+        board_id: int,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        actor: str | None = None,
+        action: str | None = None,
+    ) -> dict[str, Any]:
+        """Fetch ``board_id``'s activity feed (KAN-18), newest-first — one row per
+        successful create / update / delete / move of a card, epic or board.
+        Optional filters (M5 V16, KAN-249, AND-ed): ``actor`` (exact match on an
+        actor's email / agent handle) and ``action`` (the action verb, e.g.
+        created/updated/deleted/moved/restored). Paginate with ``limit``; when a
+        full page is returned the next page's cursor rides the ``X-Next-Cursor``
+        header, surfaced as ``next_cursor`` and echoed back as ``cursor``. Returns
+        ``{"activity": [...], "next_cursor"?: str}``."""
+        params = _clean(
+            {
+                "limit": limit,
+                "cursor": cursor,
+                "actor": actor,
+                "action": action,
+            }
+        )
+        response = self._request(
+            "GET", f"/boards/{board_id}/activity", params=params
+        )
+        result: dict[str, Any] = {"activity": response.json()}
+        next_cursor = response.headers.get("X-Next-Cursor")
+        if next_cursor:
+            result["next_cursor"] = next_cursor
+        return result
+
     # --- saved views (M5 V14 API / KAN-247 adapter) -------------------------
 
     def list_views(self, board_id: int) -> dict[str, Any]:
