@@ -32,6 +32,7 @@ from typing import Any
 
 from kanban_client import KanbanApiError, KanbanClient
 
+from . import __version__
 from .config import (
     DEFAULT_API_URL,
     Config,
@@ -798,6 +799,16 @@ def build_parser() -> argparse.ArgumentParser:
             "Exit codes: 0 ok, 1 error, 2 usage, 3 unauthorized, 4 forbidden, 5 not found."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    # `kan --version` / `-v`: pure argparse action=version — prints to stdout and
+    # exits 0 before the required subcommand is enforced. No importlib.metadata
+    # lookup, so it works in the frozen PyInstaller onefile binary too.
+    parser.add_argument(
+        "-v",
+        "--version",
+        action="version",
+        version=f"kan {__version__}",
+        help="print the CLI version and exit",
     )
     # A shared parent so --json works before OR after the subcommand
     # (e.g. `kan --json list` and `kan list --json` both parse).

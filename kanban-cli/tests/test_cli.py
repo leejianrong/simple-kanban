@@ -194,6 +194,19 @@ def patch_client(monkeypatch, fake: FakeClient) -> FakeClient:
     return fake
 
 
+# --- --version / -v (top-level, no subcommand) ------------------------------
+
+
+@pytest.mark.parametrize("flag", ["--version", "-v"])
+def test_version_flag_prints_version_and_exits_zero(flag, capsys):
+    # argparse's action="version" prints to stdout and raises SystemExit(0),
+    # short-circuiting before the required subcommand is enforced.
+    with pytest.raises(SystemExit) as exc:
+        cli.run([flag])
+    assert exc.value.code == 0
+    assert "0.3.0" in capsys.readouterr().out
+
+
 # --- each command calls the right client method with the right args ---------
 
 
