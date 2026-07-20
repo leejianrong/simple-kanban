@@ -109,6 +109,9 @@ class FakeClient:
     def board_metrics(self, board_id, **kw):
         return self._call("board_metrics", board_id=board_id, **kw)
 
+    def list_activity(self, board_id, **kw):
+        return self._call("list_activity", board_id=board_id, **kw)
+
     def list_views(self, board_id):
         return self._call("list_views", board_id=board_id)
 
@@ -310,6 +313,51 @@ def test_metrics_human_output(monkeypatch, env, capsys):
     assert "cycle time:" in out
     assert "KAN-3" in out and "agent-b" in out
     assert "agent-a\tdone 2\twip 0" in out
+
+
+ACTIVITY = [
+    {
+        "id": 9,
+        "board_id": 2,
+        "actor_label": "agent-a",
+        "action": "moved",
+        "summary": "moved KAN-3 to done",
+        "ts": "2026-07-17T12:00:00Z",
+    }
+]
+
+
+def test_activity_maps_board_and_filters(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"activity": ACTIVITY}))
+    code = cli.run(
+        ["activity", "--board", "2", "--actor", "agent-a", "--action", "moved", "--limit", "10"]
+    )
+    assert code == 0
+    assert fake.calls == [
+        (
+            "list_activity",
+            {
+                "board_id": 2,
+                "limit": 10,
+                "cursor": None,
+                "actor": "agent-a",
+                "action": "moved",
+            },
+        )
+    ]
+
+
+def test_activity_requires_a_board(monkeypatch, env, capsys):
+    patch_client(monkeypatch, FakeClient(result={"activity": []}))
+    assert cli.run(["activity"]) == 1  # no --board, no KANBAN_BOARD_ID → refused
+    assert "board is required" in capsys.readouterr().err
+
+
+def test_activity_human_output(monkeypatch, env, capsys):
+    patch_client(monkeypatch, FakeClient(result={"activity": ACTIVITY}))
+    assert cli.run(["activity", "--board", "2"]) == 0
+    out = capsys.readouterr().out
+    assert "agent-a" in out and "moved" in out and "moved KAN-3 to done" in out
 
 
 def test_resolve(monkeypatch, env):

@@ -45,6 +45,7 @@ EXPECTED_TOOLS = {
     "needs_human",
     "resolve",
     "metrics",
+    "activity",
     "list_views",
     "create_view",
     "delete_view",
@@ -293,3 +294,49 @@ def test_view_tools_require_a_board(monkeypatch):
         server.list_views()
     with pytest.raises(ValueError):
         server.create_view("x")
+
+
+# --- activity feed tool (M5 V16, KAN-261) ----------------------------------
+
+
+def _capture_get(monkeypatch, response):
+    """Point the server's client at a MockTransport returning ``response`` and
+    capture the outgoing method/path/query-params."""
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        seen["params"] = dict(request.url.params)
+        return response
+
+    client = KanbanClient("http://test", transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(server, "_client", client)
+    monkeypatch.setattr(server, "_default_board_id", None)
+    return seen
+
+
+def test_activity_reads_board_feed(monkeypatch):
+    seen = _capture_get(monkeypatch, httpx.Response(200, json=[{"id": 1, "action": "created"}]))
+    out = server.activity(board_id=3)
+    assert seen["method"] == "GET"
+    assert seen["path"] == "/api/v1/boards/3/activity"
+    assert out == {"activity": [{"id": 1, "action": "created"}]}
+
+
+def test_activity_passes_actor_and_action_filters(monkeypatch):
+    seen = _capture_get(monkeypatch, httpx.Response(200, json=[]))
+    server.activity(board_id=3, actor="agent-7", action="moved", limit=5)
+    assert seen["params"] == {
+        "actor": "agent-7",
+        "action": "moved",
+        "limit": "5",
+    }
+
+
+def test_activity_requires_a_board(monkeypatch):
+    _capture_get(monkeypatch, httpx.Response(200, json=[]))
+    import pytest
+
+    with pytest.raises(ValueError):
+        server.activity()

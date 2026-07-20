@@ -22,6 +22,7 @@ collide with the card verbs (parity with the `/api/v1` surface).
 |---------|----------|
 | `kan list [--board N] [--column C] [--epic ID] [--limit N] [--json]` | `GET /cards` (V3 query API) |
 | `kan get <card_id> [--json]` | `GET /cards/{id}` |
+| `kan activity [--board N] [--actor L] [--action V] [--limit N] [--cursor C] [--json]` | `GET /boards/{id}/activity` |
 | `kan create <title> [--board N] [--description D] [--column C] [--points N] [--assignee A] [--epic ID] [--json]` | `POST /cards` |
 | `kan update <card_id> [--title T] [--description D] [--points N] [--assignee A] [--epic ID] [--json]` | `PATCH /cards/{id}` |
 | `kan move <card_id> <column> [--position N] [--json]` | `POST /cards/{id}/move` |
