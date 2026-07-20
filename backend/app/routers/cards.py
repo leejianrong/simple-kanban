@@ -35,6 +35,7 @@ from ..models import Card, CardComment, CardDependency, CardLabel, CardLink, Epi
 from ..ordering import next_position, renumber_column
 from ..pagination import NEXT_CURSOR_HEADER, decode_cursor, encode_cursor
 from ..schemas import (
+    CardBatchUpdateItem,
     CardCreate,
     CardMove,
     CardRead,
@@ -491,14 +492,14 @@ def list_trashed_cards(
     return list(db.scalars(query).all())
 
 
-@router.post("", response_model=CardRead, status_code=status.HTTP_201_CREATED)
-def create_card(
-    payload: CardCreate,
-    db: Session = Depends(get_db),
-    principal: User = Depends(get_principal),
+def _create_card_row(
+    db: Session, principal: User, board_id: int, payload: CardCreate
 ) -> Card:
-    board_id = resolve_board_id(db, payload.board_id)
-    authorize_board(db, principal, board_id, Access.WRITE)
+    """Build + persist one card on ``board_id`` from a ``CardCreate``-shaped payload,
+    validating its epic + labels and recording a ``created`` activity row. Flushes
+    (so ``id``/``ticket_number`` are assigned and the next card's ``position`` counts
+    it) but does **not** commit — the caller owns the transaction, so a single create
+    and a batch/template apply can share this and stay atomic (M5 V19, KAN-252)."""
     _validate_epic(db, payload.epic_id, board_id)
     label_ids = _validate_labels(db, payload.label_ids, board_id)
     card = Card(
@@ -514,12 +515,11 @@ def create_card(
         due_date=payload.due_date,
     )
     db.add(card)
-    db.commit()
-    # Refresh so server-assigned fields (id, ticket_number, timestamps) are populated.
+    db.flush()
+    # Load server-assigned fields (id, ticket_number, timestamps) within the txn.
     db.refresh(card)
     if label_ids:
         _set_labels(db, card, label_ids)
-        db.commit()
     record_activity(
         db,
         principal,
@@ -529,6 +529,18 @@ def create_card(
         action="created",
         summary=f"created {card.ticket_number}: {card.title}",
     )
+    return card
+
+
+@router.post("", response_model=CardRead, status_code=status.HTTP_201_CREATED)
+def create_card(
+    payload: CardCreate,
+    db: Session = Depends(get_db),
+    principal: User = Depends(get_principal),
+) -> Card:
+    board_id = resolve_board_id(db, payload.board_id)
+    authorize_board(db, principal, board_id, Access.WRITE)
+    card = _create_card_row(db, principal, board_id, payload)
     db.commit()
     return _attach_one(db, card)
 
@@ -544,17 +556,12 @@ def get_card(
     return _attach_one(db, card)
 
 
-@router.patch("/{card_id}", response_model=CardRead)
-def update_card(
-    card_id: int,
-    payload: CardUpdate,
-    db: Session = Depends(get_db),
-    principal: User = Depends(get_principal),
-) -> Card:
-    card = _get_or_404(db, card_id)
-    authorize_board(db, principal, card.board_id, Access.WRITE)
-    # Only fields the client actually sent; distinguishes "omitted" from "set null".
-    data = payload.model_dump(exclude_unset=True)
+def _apply_card_update(db: Session, principal: User, card: Card, data: dict) -> None:
+    """Apply the sent field edits in ``data`` (a ``CardUpdate.model_dump(
+    exclude_unset=True)``, ``id`` already removed) to ``card``, validating title /
+    epic / labels exactly like a single PATCH and recording an ``updated`` activity
+    row. Does **not** commit — the caller owns the transaction, so a single PATCH and
+    a batch update share this and a batch stays atomic (M5 V19, KAN-252)."""
     if "title" in data and (data["title"] is None or not str(data["title"]).strip()):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -582,6 +589,73 @@ def update_card(
         action="updated",
         summary=f"updated {card.ticket_number}",
     )
+
+
+@router.patch("/batch", response_model=list[CardRead])
+def batch_update_cards(
+    payload: list[CardBatchUpdateItem],
+    db: Session = Depends(get_db),
+    principal: User = Depends(get_principal),
+) -> list[Card]:
+    """Atomically PATCH several cards in one call (M5 V19, KAN-252).
+
+    Body: a non-empty list of ``{id, ...fields}`` objects — each takes the same field
+    edits as a single ``PATCH /cards/{id}`` (title/description/story_points/assignee/
+    epic_id/priority/due_date/label_ids). **Column/position are deliberately absent** —
+    moving a card stays on ``POST /cards/{id}/move`` (the move-vs-edit split, ADR 0006).
+
+    **All-or-nothing (atomic):** the whole batch commits or nothing does. Any missing
+    or soft-deleted id → **404**; a duplicate id in the body → **422**; a card on a
+    board you can't write → **403** (each distinct board is WRITE-authorized once); a
+    per-card validation failure (bad title/epic/label/story_points) → **422/404**. On
+    any of these the transaction is rolled back and no card changes. Records one
+    ``updated`` activity row per card. Returns the updated cards in request order.
+
+    Declared **before** ``/{card_id}`` so ``/cards/batch`` matches this, not the id
+    path (mirrors ``/cards/trash``)."""
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="batch must contain at least one card update",
+        )
+    ids = [item.id for item in payload]
+    if len(set(ids)) != len(ids):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="batch must not repeat a card id",
+        )
+    # Authorize each distinct board once (WRITE); a board you can't write → 403.
+    cards: list[Card] = []
+    authorized: set[int] = set()
+    for item in payload:
+        card = _get_or_404(db, item.id)  # 404 fails the whole batch (nothing committed)
+        if card.board_id not in authorized:
+            authorize_board(db, principal, card.board_id, Access.WRITE)
+            authorized.add(card.board_id)
+        cards.append(card)
+    for item, card in zip(payload, cards):
+        data = item.model_dump(exclude_unset=True)
+        data.pop("id", None)
+        _apply_card_update(db, principal, card, data)
+    db.commit()  # single transaction → atomic; updated_at bumped via onupdate
+    for card in cards:
+        db.refresh(card)
+    _attach_dependencies(db, cards)
+    return cards
+
+
+@router.patch("/{card_id}", response_model=CardRead)
+def update_card(
+    card_id: int,
+    payload: CardUpdate,
+    db: Session = Depends(get_db),
+    principal: User = Depends(get_principal),
+) -> Card:
+    card = _get_or_404(db, card_id)
+    authorize_board(db, principal, card.board_id, Access.WRITE)
+    # Only fields the client actually sent; distinguishes "omitted" from "set null".
+    data = payload.model_dump(exclude_unset=True)
+    _apply_card_update(db, principal, card, data)
     db.commit()  # updated_at is bumped server-side via onupdate
     db.refresh(card)
     return _attach_one(db, card)

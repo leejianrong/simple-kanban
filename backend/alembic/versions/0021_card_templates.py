@@ -1,0 +1,56 @@
+"""card_template: named, reusable plans of cards per board (M5 V19)
+
+Revision ID: 0021_card_templates
+Revises: 0020_pat_scope
+Create Date: 2026-07-20
+
+KAN-252 (M5 V19, batch + templates). Additive & back-compat (R5.3): a new
+``card_template`` table only — no change to any existing table, so every board/card
+keeps working untouched.
+
+- ``card_template`` — ``(id, board_id FK → board ON DELETE CASCADE, name, cards JSON,
+  created_at)``. ``cards`` stores a JSON **list** of card payloads
+  (``schemas.TemplateCardItem``); applying the template instantiates them as real
+  cards on the board. Deleting a board cascades its templates away (mirrors
+  ``saved_view``).
+- An index on ``board_id`` for the board-scoped list.
+
+Reversible: ``downgrade`` drops the index + table.
+"""
+from typing import Sequence, Union
+
+import sqlalchemy as sa
+
+from alembic import op
+
+revision: str = "0021_card_templates"
+down_revision: Union[str, None] = "0020_pat_scope"
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    op.create_table(
+        "card_template",
+        sa.Column("id", sa.BigInteger(), sa.Identity(always=False), primary_key=True),
+        sa.Column(
+            "board_id",
+            sa.BigInteger(),
+            sa.ForeignKey("board.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column("name", sa.String(length=255), nullable=False),
+        sa.Column("cards", sa.JSON(), nullable=False, server_default=sa.text("'[]'")),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
+    )
+    op.create_index("ix_card_template_board_id", "card_template", ["board_id"])
+
+
+def downgrade() -> None:
+    op.drop_index("ix_card_template_board_id", table_name="card_template")
+    op.drop_table("card_template")

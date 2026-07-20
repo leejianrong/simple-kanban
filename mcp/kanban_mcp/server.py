@@ -594,6 +594,58 @@ def delete_view(view_id: int, board_id: int | None = None) -> dict[str, Any]:
     return _client_instance().delete_view(_require_board(board_id), view_id)
 
 
+# --- batch update + card templates (M5 V19, KAN-252) -----------------------
+
+
+@mcp.tool()
+def update_cards(updates: list[dict[str, Any]]) -> dict[str, Any]:
+    """Batch-update several cards **atomically** in one call — hand it a list of
+    ``{"id": <id>, ...fields}`` objects, each taking the same field edits as
+    ``update_card`` (title/description/story_points/assignee/epic_id/priority/
+    due_date/label_ids; **not** column/position — use ``move_card`` for those). Hits
+    ``PATCH /cards/batch``, so it is **all-or-nothing**: if any id is missing the whole
+    batch fails and no card changes (unlike ``create_cards``, which is a fail-fast
+    loop). Ideal for retriaging several cards at once. Returns
+    ``{"updated": [<card>, ...]}`` in request order."""
+    return _client_instance().update_cards(updates)
+
+
+@mcp.tool()
+def list_templates(board_id: int | None = None) -> dict[str, Any]:
+    """List a board's card templates (id, name, cards). ``board_id`` targets one board
+    (defaults to KANBAN_BOARD_ID). A template's ``cards`` is the list of card payloads
+    ``apply_template`` will instantiate. Returns ``{"templates": [...]}``."""
+    return _client_instance().list_templates(_require_board(board_id))
+
+
+@mcp.tool()
+def create_template(
+    name: str, cards: list[dict[str, Any]], board_id: int | None = None
+) -> dict[str, Any]:
+    """Create a card template — a named, reusable plan of cards on a board. ``cards``
+    is a non-empty list of card payloads (each with the same fields as ``create_card``
+    minus ``board_id``: ``title`` required; optional description/column/story_points/
+    assignee/epic_id/priority/due_date/label_ids). ``board_id`` targets one board
+    (defaults to KANBAN_BOARD_ID). Returns the created template."""
+    return _client_instance().create_template(_require_board(board_id), name, cards)
+
+
+@mcp.tool()
+def delete_template(template_id: int, board_id: int | None = None) -> dict[str, Any]:
+    """Delete a card template by id on a board. ``board_id`` targets one board
+    (defaults to KANBAN_BOARD_ID). 404 if no such template is on that board."""
+    return _client_instance().delete_template(_require_board(board_id), template_id)
+
+
+@mcp.tool()
+def apply_template(template_id: int, board_id: int | None = None) -> dict[str, Any]:
+    """Seed a plan from a template in one call: instantiate the template's cards as
+    real cards on the board (atomic — all created or none). ``board_id`` targets one
+    board (defaults to KANBAN_BOARD_ID). Returns ``{"created": [<card>, ...]}`` in
+    template order."""
+    return _client_instance().apply_template(_require_board(board_id), template_id)
+
+
 def main() -> None:
     """Entry point — run the server over stdio."""
     mcp.run()

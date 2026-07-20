@@ -604,3 +604,58 @@ class KanbanClient:
         """Delete a saved view on ``board_id``. 204 No Content — no body to parse."""
         self._request("DELETE", f"/boards/{board_id}/views/{view_id}")
         return {"deleted": view_id}
+
+    # --- batch update + card templates (M5 V19 API / KAN-252 adapter) -------
+
+    def update_cards(self, updates: list[dict[str, Any]]) -> dict[str, Any]:
+        """Batch-update several cards **atomically** in one server call — hand it a
+        list of ``{"id": <id>, ...fields}`` dicts, each taking the same field edits
+        as ``update_card`` (title/description/story_points/assignee/epic_id/priority/
+        due_date/label_ids; **not** column/position — those stay on ``move_card``).
+        Unlike ``create_cards`` (a client-side loop), this hits ``PATCH /cards/batch``,
+        so it is **all-or-nothing**: any missing id 404s and no card changes. Returns
+        ``{"updated": [<card>, ...]}`` in request order."""
+        updated = self._request("PATCH", "/cards/batch", json=updates).json()
+        return {"updated": updated}
+
+    def list_templates(self, board_id: int) -> dict[str, Any]:
+        """List a board's card templates (id, name, cards), oldest-first. Returns
+        ``{"templates": [<template>, ...]}``."""
+        return {
+            "templates": self._request(
+                "GET", f"/boards/{board_id}/templates"
+            ).json()
+        }
+
+    def create_template(
+        self, board_id: int, name: str, cards: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Create a card template on ``board_id`` — a ``name`` and a non-empty
+        ``cards`` list (each a card payload: ``title`` required; optional
+        description/column/story_points/assignee/epic_id/priority/due_date/label_ids).
+        Returns the created template."""
+        payload = {"name": name, "cards": cards}
+        return self._request(
+            "POST", f"/boards/{board_id}/templates", json=payload
+        ).json()
+
+    def get_template(self, board_id: int, template_id: int) -> dict[str, Any]:
+        """Fetch one card template on ``board_id`` by id. 404 if it doesn't exist or
+        isn't on that board."""
+        return self._request(
+            "GET", f"/boards/{board_id}/templates/{template_id}"
+        ).json()
+
+    def delete_template(self, board_id: int, template_id: int) -> dict[str, Any]:
+        """Delete a card template on ``board_id``. 204 No Content — no body."""
+        self._request("DELETE", f"/boards/{board_id}/templates/{template_id}")
+        return {"deleted": template_id}
+
+    def apply_template(self, board_id: int, template_id: int) -> dict[str, Any]:
+        """Seed a plan in one call: instantiate a template's cards on ``board_id``
+        (atomic, one transaction server-side). Returns ``{"created": [<card>, ...]}``
+        in template order."""
+        created = self._request(
+            "POST", f"/boards/{board_id}/templates/{template_id}/apply"
+        ).json()
+        return {"created": created}

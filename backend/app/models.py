@@ -521,3 +521,34 @@ class SavedView(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class CardTemplate(Base):
+    """A named, reusable plan of cards on a board (M5 V19, KAN-252).
+
+    ``cards`` is a JSON **list** of card payloads (each ``schemas.TemplateCardItem``:
+    ``title`` + optional ``description``/``column``/``story_points``/``assignee``/
+    ``epic_id``/``priority``/``due_date``/``label_ids``). Applying the template
+    (``POST /boards/{id}/templates/{tid}/apply``) instantiates those payloads as real
+    cards on the board in one transaction — the template holds a *recipe*, not the
+    cards themselves (they are independent once created).
+
+    ``board_id`` FK → ``board`` (``ON DELETE CASCADE``): a template belongs to a board
+    and is hard-deleted with it (consistent with ``SavedView`` and the app's
+    hard-delete model). The non-empty ``name`` + the item shapes are enforced by the
+    Pydantic schema (``schemas.CardTemplateCreate``), not the table.
+    """
+
+    __tablename__ = "card_template"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    board_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("board.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # The list of card payloads as JSON. Portable ``JSON`` type (maps to Postgres
+    # ``json``); always written by the router from a validated ``CardTemplateCreate``.
+    cards: Mapped[list] = mapped_column(JSON, nullable=False, server_default=text("'[]'"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
