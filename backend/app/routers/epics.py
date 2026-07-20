@@ -238,9 +238,21 @@ def purge_epic(
     """Permanently remove an epic from the trash (KAN-20) — a real ``DELETE``. The
     ``card.epic_id`` FK is ``ON DELETE SET NULL``, so any stories still linked to it
     are detached (not deleted). Operates **only** on an already-soft-deleted epic
-    (**404** otherwise). Owner/member-gated (WRITE)."""
+    (**404** otherwise). Records a ``purged`` activity event (KAN-239) — a first-class
+    audit of permanent destruction, distinct from the ``deleted`` row the soft-delete
+    already logged. The ``entity_id`` is a plain int (not an FK), so the audit row
+    survives the epic it names. Owner/member-gated (WRITE)."""
     epic = _get_trashed_or_404(db, epic_id)
     authorize_board(db, principal, epic.board_id, Access.WRITE)
+    record_activity(
+        db,
+        principal,
+        board_id=epic.board_id,
+        entity_type="epic",
+        entity_id=epic.id,
+        action="purged",
+        summary=f"purged {epic.ticket_number}: {epic.name}",
+    )
     db.delete(epic)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

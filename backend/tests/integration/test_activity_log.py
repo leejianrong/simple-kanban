@@ -120,6 +120,44 @@ def test_epic_create_update_delete_record_activities(client):
     assert rows[0].actor_label == ACTOR_EMAIL
 
 
+# --- purge (permanent destruction) records a 'purged' audit event (KAN-239) ---
+
+
+def test_purge_card_records_surviving_purged_activity(client):
+    """Permanently purging a soft-deleted card records a distinct ``purged`` audit
+    event that survives the card it names (``entity_id`` is a plain int, not an FK),
+    alongside the ``deleted`` row the soft-delete already logged."""
+    card = client.post(CARDS, json={"title": "doomed-for-good"}).json()
+    assert client.delete(f"{CARDS}/{card['id']}").status_code == 204  # soft-delete
+    assert client.delete(f"{CARDS}/{card['id']}/purge").status_code == 204  # purge
+
+    actions = [a.action for a in _activities(entity_type="card", entity_id=card["id"])]
+    assert actions == ["created", "deleted", "purged"]
+
+    purged = _activities(entity_type="card", entity_id=card["id"], action="purged")
+    assert len(purged) == 1
+    assert card["ticket_number"] in purged[0].summary
+    assert "doomed-for-good" in purged[0].summary
+    assert purged[0].board_id == card["board_id"]
+    assert purged[0].actor_label == ACTOR_EMAIL
+
+
+def test_purge_epic_records_surviving_purged_activity(client):
+    """Purging a soft-deleted epic records a surviving ``purged`` audit event."""
+    epic = client.post(EPICS, json={"name": "doomed epic"}).json()
+    assert client.delete(f"{EPICS}/{epic['id']}").status_code == 204  # soft-delete
+    assert client.delete(f"{EPICS}/{epic['id']}/purge").status_code == 204  # purge
+
+    actions = [a.action for a in _activities(entity_type="epic", entity_id=epic["id"])]
+    assert actions == ["created", "deleted", "purged"]
+
+    purged = _activities(entity_type="epic", entity_id=epic["id"], action="purged")
+    assert len(purged) == 1
+    assert epic["ticket_number"] in purged[0].summary
+    assert "doomed epic" in purged[0].summary
+    assert purged[0].actor_label == ACTOR_EMAIL
+
+
 # --- boards ------------------------------------------------------------------
 
 
