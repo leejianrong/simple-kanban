@@ -860,3 +860,50 @@ Dogfooding observations about driving this board as an agent PM. Seeded from the
   keep briefing agents to verify the premise before implementing, and to fix the stale doc in the same
   slice. Two frontend/docs follow-ups filed (Activity panel action-badge map; kanban-cli README verb
   table).
+- **Post-M5 cleanup batch — KAN-267/269/270 (‖) + KAN-268 & a discovered bug KAN-277 (‖): all merged
+  + `done`; turned 2 GitHub issues into cards first.** A housekeeping round: pruned stale branches (59
+  merged remote + 7 local; kept only `main` + the 3 open-PR branches — merged-vs-unmerged cleanly
+  separated in-use from stale), then converted the two open issues (#76 story-points, #77 CLI deps)
+  into cards KAN-269/KAN-270 (linked to EPIC-6, each with a GitHub-issue work-link), and cleared all
+  four backlog cards.
+  - **`gh issue view` / `gh pr edit` are broken by GitHub's classic-Projects GraphQL deprecation.**
+    Both error with `Projects (classic) is being deprecated … (repository.issue.projectCards)`. Use
+    the REST API instead: `gh api repos/OWNER/REPO/issues/N` to read an issue,
+    `gh api -X PATCH …/pulls/N -F body=@file` to edit a PR body. (The dogfooding log already flagged
+    the `gh pr edit` variant for KAN-14; it bites `gh issue view` too.)
+  - **The disjoint axis was frontend / backend-less-CLI: 3 of 4 cards lived in `kanban-cli/`.** Only
+    KAN-267 (frontend) was collision-free. KAN-269 (points) & KAN-270 (dep verbs) both edit `cli.py`;
+    KAN-268 (README) & KAN-270 both edit `README.md`. Ran 267‖269‖270 in Wave 1, landed 269 first, and
+    269/270 **git-auto-merged with no manual rebase** because each kept its edits localized (269 in the
+    render helpers ~L130, 270 appended subparsers/handlers ~L800+ and appended README rows). Briefing
+    "append, don't reflow; another slice is editing region X" is what makes concurrent same-file work
+    auto-merge. KAN-268 (README) ran in Wave 2 after 270 so its backfill didn't fight 270's new rows.
+  - **A card's stated root-cause can be wrong — verify before implementing (again).** KAN-269's issue
+    (#76) claimed the API returns an always-null `points` field. It doesn't — the API has ONLY
+    `story_points`; the reporter's `jq '{points}'` returned null for a MISSING KEY (jq fills absent
+    keys with null). The real gap was CLI-side: `_card_line` never displayed points and `--points`
+    didn't obviously map to `story_points`. Fix was CLI-only (`pts=N`), NOT an API change (adding a
+    `points` alias would've been the wrong direction). Brief agents with the corrected diagnosis when
+    you already know the issue misdiagnosed it — it stops them re-deriving or over-reaching.
+  - **Dogfooding found what unit tests structurally couldn't (KAN-277).** KAN-270's LIVE prod check
+    surfaced that `kan get`/`create`/`update`/`move` print `(no labels)` on real cards: `_humanize()`
+    checked `"labels" in result` (list_labels) BEFORE the single-card branch, and every real
+    `CardRead` carries `labels: []`. It also silently **masked KAN-269's just-shipped `pts=`** for
+    those commands (`kan list` was fine — different branch). The unit tests passed because the test
+    fixtures OMITTED `labels` — the exact shape difference that hid the bug. Lesson: **CLI/adapter
+    tests must use fixtures that match the REAL API response shape** (all keys the server actually
+    returns), and a live smoke against prod catches dispatch bugs a hand-built fixture never will. Fix
+    (KAN-277): guard the branch with `"labels" in result and "ticket_number" not in result`, and the
+    regression test now bakes `labels: []` into the single-card fixtures so the omission can't recur.
+  - **Fold a same-file follow-up into the open PR instead of a new card when it's the identical bug on
+    a sister component.** KAN-267's agent flagged that `Dashboard.svelte` had the same missing-`purged`
+    icon gap as `Activity.svelte`. Rather than file a card, I resumed the SAME agent to add the
+    one-line parity fix on the SAME PR (#148) — full fix, one review, no extra tracking. (Contrast:
+    KAN-277 got its OWN card because it's a distinct dispatch bug in different code, discovered after
+    269 had already merged.)
+  - **Land policy note: none of these four deployed except KAN-267 (frontend).** The `kan` CLI + docs
+    changes ship to users only via a `v*` release tag (distribution is tag-gated), so "merged + CI
+    green + live-checked from source" = `done`; a release tag is a separate, deliberate step. Prod-
+    verified KAN-267 by grepping the deployed bundle for `purged`/`data-action`; verified the CLI
+    fixes by running `kan` from the merged source against prod (`kan get 260` → card line with `pts=3`,
+    not `(no labels)`).
