@@ -735,3 +735,128 @@ Dogfooding observations about driving this board as an agent PM. Seeded from the
     from/to on the activity row would harden it. And MCP/CLI parity for the activity `actor`/`action`
     filters was left undone (endpoint is the contract). Tail slices **V18 (scoped tokens, Later)** and
     **V19 (batch/templates, Nice-to-have)** + **KAN-239 (audit purge)** remain in the backlog.
+- **M5 tail — Wave 1: KAN-239 (audit purge, migration) ‖ KAN-261 (activity parity, no migration):
+  both merged + `done`.** The tail is 5 cards, **4 of which carry a migration** (only KAN-261
+  doesn't), so parallelism is migration-bound: the plan is Wave 1 parallel then KAN-260/251/252 solo,
+  each starting only *after* the prior migration card merges (so it branches off a main that already
+  has the prior migration → linear chain, never sibling heads). Wave 1 was the one clean disjoint
+  pair: KAN-261 is adapter-only (`kanban-client`/`mcp`/`cli`, no backend, no deploy) and KAN-239 is
+  backend-only (routers + migration), so zero shared files and only one migration in flight.
+  - **The disjoint axis here is adapter-package vs backend, not just backend-vs-frontend.** KAN-261
+    touched only the three thin client packages; KAN-239 only `backend/`. They never met — no rebase,
+    both merged straight. When one card is pure API-client parity and the other is pure server-side,
+    that's as clean a parallel pair as backend-vs-frontend.
+  - **"Surface the existing filter" was actually "add the whole read."** KAN-261's card implied the
+    activity `actor`/`action` filters just needed exposing on MCP/CLI. In fact the activity feed was
+    **never surfaced in any adapter** — only the server-derived `metrics` read touched it. So parity
+    (ADR 0005) meant a net-new `list_activity` client method + `activity` MCP tool + `kan activity`
+    command (with `limit`/`cursor`/`actor`/`action`), not a two-param append. The agent flagged the
+    premise gap rather than silently doing the minimum. Lesson: a "surface the filter" card can hide a
+    "there's no read to surface" — brief the agent to grep for the existing plumbing first and report
+    if it's absent.
+  - **A new MCP *tool* isn't callable in the building session, but its API *is*.** KAN-261 adds an
+    `activity` MCP tool — not loadable until the user restarts + re-`uv sync`s `mcp/`. No prod-verify
+    needed though: adapters aren't deployed (they're client tools; CI covers them), and the underlying
+    `GET /boards/{id}/activity?actor=&action=` endpoint already worked (I exercised it by `curl`).
+  - **Migration card, landed alone, prod-verified by round-trip.** KAN-239's `0018` widens
+    `ck_activity_action` to admit `purged` (mirrors 0013/0015 drop+recreate, chained off
+    `0017_card_search_vector`, single head). `record_activity(action="purged")` fires **before**
+    `db.delete` in both purge handlers — safe because `Activity.entity_id` is a plain int (not an FK),
+    so the audit row outlives the entity it names (same guarantee the soft-delete `deleted` row uses).
+    Prod-verify: create→soft-delete(204)→purge(204)→`GET /boards/5/activity?action=purged` showed the
+    row with `content-type: application/json` (not the SPA-fallback 200 HTML) and correct summary.
+  - **Pre-existing frontend gap surfaced (candidate follow-up card):** `Activity.svelte`'s icon/badge
+    map is behind the backend action vocabulary — it already omits `attention`/`resolved`, and
+    `api.ts`'s `ActivityAction` type doesn't include them; `purged` now joins that gap. KAN-239 kept
+    itself a clean backend+migration slice and did *not* patch one action into a map missing three
+    (would be an incomplete fix). A small "Activity panel: complete the action icon/badge map
+    (attention/resolved/purged)" frontend card is worth filing.
+  - **`kanban-cli/README.md` command table is stale** — documents only core CRUD, missing the M5
+    verbs `next`/`needs-human`/`resolve`/`metrics`/`view` (KAN-261 added just its own `activity` row,
+    in scope). Worth a docs card to backfill.
+- **M5 tail — Wave 2: KAN-260 (structured activity transitions, migration) solo: merged + `done`.**
+  Retired the V17 tech debt where `metrics.py` recovered a card's column transition by **regexing the
+  human activity summary** (`"moved … from X to Y"`). Migration `0019` adds nullable `from_column` /
+  `to_column` varchars to `activity`; `record_activity` stamps them at write time; a new
+  `move_target(from_column, to_column, summary)` reads the structured fields and keeps the old
+  `parse_move_target(summary)` as a **NULL-only fallback** (used solely when `to_column IS NULL`, i.e.
+  pre-migration rows), so no historical metric regresses.
+  - **The card's file pointer was wrong; the agent verified against the code.** The ticket said the
+    dispatch handler lives in `routers/cards.py`; it's actually `dispatch_card` in `routers/boards.py`.
+    The agent grepped for the real `action="moved"`/`"dispatched"` producers (exactly two: `move_card`
+    in cards.py, `dispatch_card` in boards.py) and edited the true locations. Reinforces the standing
+    "trust the code over the docs" brief — a stale file hint in a card is a trap, not a spec.
+  - **Hardening old data safely = keep the old parser as a NULL-gated fallback, don't delete it.** The
+    clean instinct is to rip out the regex, but historical `activity` rows have NULL structured fields.
+    Gating the fallback on `to_column IS NULL` means new moves use the robust path while legacy metrics
+    are byte-identical to before. A unit test pins the legacy-summary fallback so a future cleanup
+    can't silently drop it. Summary wording was left EXACTLY unchanged (tests/humans depend on it).
+  - **Prod-verify a derived-metrics migration by driving the real transition, not just reading a
+    field.** The structured columns aren't exposed on the activity API response (internal to metrics),
+    so I verified end-to-end: create a throwaway card → `move` todo→in_progress→done in prod →
+    `GET /boards/5/metrics` recomputed cleanly (throughput/cycle-time/aging, `application/json`),
+    proving the new write+read path works against the deployed DB. Then soft-delete+purge to clean up.
+  - **PM slip caught by the metrics I was verifying:** the `aging_wip` list showed card KAN-261 still
+    `in_progress` — I'd merged its PR and marked the task done but never ran `kan move 261 done` on the
+    board. The dashboard/metrics surface *is* the safety net for board-vs-reality drift (exactly R2.1's
+    point). Move the board card to `done` in the same step as the merge, not "later".
+- **M5 tail — Wave 3: KAN-251 (V18 scoped tokens, migration) solo: merged + `done`.** The last
+  must-have-adjacent slice. `personal_access_token.scope` (`read`/`write`, varchar+CHECK,
+  `server_default 'write'` so every existing PAT stays a writer); a `read` (observer) PAT is denied
+  all writes with 403.
+  - **The clean enforcement point was HTTP-method in the one principal resolver, not per-route
+    `Access.WRITE` hooks.** `get_principal` is the single dependency every `/api/v1` route flows
+    through (board routes via `authorize_board`, per-user routes like `/tokens` directly). The agent
+    stashed the PAT's scope on the resolved principal as a transient `_pat_scope` and, in
+    `get_principal`, denied a `read` PAT any non-safe method (`POST/PATCH/PUT/DELETE`) with 403. In
+    this API every write is an unsafe method and every read is `GET`, so the method test *is* the
+    `Access.WRITE`+ test — and it covers board writes AND per-user writes (token creation) uniformly,
+    with zero scattered checks. Cookie humans + `write`/legacy PATs have no `_pat_scope` → unaffected.
+    The one caveat to keep in mind: if a future `/api/v1` `POST` is ever semantically a *read* (none
+    today — the query API is `GET`-based), it would be wrongly blocked for observers; revisit then.
+  - **Card said "kan/MCP surface scope at creation" — but neither CLI nor MCP can create a token.**
+    They only *consume* a PAT (`KANBAN_TOKEN`). The agent grepped, confirmed token creation is API/UI
+    only, surfaced scope where creation actually happens (the `POST /tokens` schema + the Tokens UI),
+    did NOT invent a token-create verb, and corrected the aspirational wording in SLICES.md in the same
+    PR (docs-in-lockstep). Good scope judgment on a card whose parity clause didn't match reality.
+  - **Prod-verify the whole matrix, not just the happy 403.** Minted a real `read` PAT (via the write
+    PAT), then confirmed: reads (boards/cards/metrics) 200; writes (create card, `dispatch`, and
+    `POST /tokens`) all 403; the write PAT's read 200 AND a no-op board PATCH 200 (proves the gate
+    didn't regress normal writers); then deleted the observer PAT. Exercising the write-PAT path too is
+    the part that proves you didn't just break everything — the real risk of an authz change.
+- **M5 tail — Wave 4: KAN-252 (V19 batch + templates, migration) solo: merged + `done`. M5 backlog
+  fully cleared.** The nice-to-have tail. Added atomic `PATCH /cards/batch` + a `card_template` store
+  (`0021`) with an apply endpoint that seeds a plan in one call.
+  - **The card's premise about existing batch-create was wrong, and the agent's correction was the
+    right one.** The card assumed a backend batch-create endpoint existed (from KAN-40) to build on.
+    It doesn't — KAN-40's "batch create" is a **client-side fail-fast loop** in `KanbanClient.create_cards`
+    (loops `POST /cards`), explicitly non-atomic. The agent did not add a redundant public batch-create
+    endpoint; instead it got atomic multi-card creation for free by extracting `_create_card_row`
+    (flush-not-commit) and reusing it inside template-apply's single transaction. Lesson: "build on the
+    existing X" cards need the agent to first confirm X is what the card thinks it is.
+  - **Extracting a shared flush-not-commit helper is the clean way to make a single-item op atomic in
+    bulk.** `_create_card_row` / `_apply_card_update` each validate + record activity + `flush()` but
+    do NOT commit; the single `create_card`/`update_card` endpoints keep their own `commit()`+`refresh()`
+    (behaviour-preserving — verified the commit lines survive as diff context, and card-CRUD
+    integration suites stayed green), while batch/apply call the helper N times and commit ONCE. The
+    caller owning the transaction is what makes all-or-nothing free.
+  - **Route ordering: `/cards/batch` must be declared before `/cards/{card_id}`** or `batch` binds as
+    a card id — the same trick `/cards/trash` already uses. Easy to get wrong; worth checking on any
+    new fixed sub-path under an id-parameterised router.
+  - **Scope held on a nice-to-have.** Board-level templates (cloning columns/settings) were deferred
+    as scope creep — card templates only. CLI takes the per-card JSON as a string/`-`-stdin rather than
+    exploding arbitrary fields into flags. Both flagged, not silently expanded.
+  - **Prod-verify the atomicity claim, not just the happy path.** Beyond create→apply→batch-update
+    (all 200), I sent a batch with one bad id and confirmed 404 + the good card in that batch was
+    **unchanged** — the all-or-nothing guarantee is the actual contract, so it's the thing to verify.
+- **M5 tail retrospective (all 5 cleared: KAN-239, KAN-261, KAN-260, KAN-251, KAN-252).** Ran as
+  Wave-1 parallel (KAN-261 adapter ‖ KAN-239 backend, one migration) then three solo migration slices,
+  each starting only after the prior MERGED so its migration chained linearly (`0018→0019→0020→0021`,
+  zero head conflicts — the proven M5 rule held). **The recurring theme across four of five cards: the
+  card description was factually off** (KAN-261 "surface the filter" → no read existed; KAN-260 wrong
+  file for dispatch; KAN-251 "kan/MCP surface scope" → no token-create verb exists; KAN-252 "existing
+  batch-create endpoint" → it's a client loop). Every agent caught it by grepping the code first and
+  corrected the docs in-PR. The standing "trust the code over the card" brief is doing real work —
+  keep briefing agents to verify the premise before implementing, and to fix the stale doc in the same
+  slice. Two frontend/docs follow-ups filed (Activity panel action-badge map; kanban-cli README verb
+  table).
