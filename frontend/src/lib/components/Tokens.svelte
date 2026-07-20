@@ -2,6 +2,7 @@
   // Agent personal-access-token management (M3 V9, ADR 0014): create a named
   // token (secret revealed once), see your tokens' metadata, and revoke them.
   import { KeyRound, Plus, Trash2 } from "lucide-svelte";
+  import type { TokenScope } from "../api";
   import {
     addToken,
     dismissRevealed,
@@ -12,6 +13,7 @@
 
   let adding = $state(false);
   let name = $state("");
+  let scope = $state<TokenScope>("write");
   let busy = $state(false);
   let confirmingId = $state<number | null>(null);
   let copied = $state(false);
@@ -21,8 +23,9 @@
     if (!trimmed || busy) return;
     busy = true;
     try {
-      await addToken(trimmed);
+      await addToken(trimmed, scope);
       name = "";
+      scope = "write";
       adding = false;
     } finally {
       busy = false;
@@ -98,6 +101,18 @@
         aria-label="Token name"
         bind:value={name}
       />
+      <label class="scope-field">
+        <span>Scope</span>
+        <select aria-label="Token scope" bind:value={scope}>
+          <option value="write">Operator — read &amp; write</option>
+          <option value="read">Observer — read-only</option>
+        </select>
+      </label>
+      <p class="scope-hint">
+        {scope === "read"
+          ? "Observer tokens can list and read only; any write returns 403."
+          : "Operator tokens have your full board access (create, edit, move, delete)."}
+      </p>
       <div class="row actions">
         <button type="submit" class="primary" disabled={!name.trim() || busy}>Create</button>
         <button type="button" class="link" onclick={() => (adding = false)}>Cancel</button>
@@ -134,6 +149,9 @@
             <span class="token-icon" aria-hidden="true"><KeyRound size={16} /></span>
             <span class="token-name">{token.name}</span>
             <code class="token-prefix">{token.token_prefix}…</code>
+            <span class="token-scope" class:read={token.scope === "read"}>
+              {token.scope === "read" ? "observer" : "operator"}
+            </span>
           </div>
           <div class="token-meta">
             <span>created <b>{fmt(token.created_at)}</b></span>

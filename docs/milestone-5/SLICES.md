@@ -27,11 +27,12 @@ the MCP tool + `kan` verb, then any UI.
 | **V15 · Full-text search** ✅ | Postgres FTS | A6 | `kan list --q "login"` and a UI search box find matching cards, ranked |
 | **V16 · Awareness dashboard** ✅ | mission control | A7 | The Dashboard shows in-flight-by-agent (+ PR/CI), a needs-attention list, the activity feed, and a table view — all read-only, refreshing |
 | **V17 · Fleet reporting** ✅ | derived metrics | A8 | `GET /boards/{id}/metrics` (and `kan`) returns throughput / cycle time / aging / per-assignee; small charts in the UI |
-| **V18 · Scoped tokens** *(Later — not yet built)* | observer vs operator PAT | A4 | Create a read-only PAT; a write via it → `403`; a write PAT still works |
+| **V18 · Scoped tokens** ✅ *(Later)* | observer vs operator PAT | A4 | Create a read-only PAT; a write via it → `403`; a write PAT still works |
 | **V19 · Batch + templates** *(Nice-to-have — not yet built)* | bulk ops + templates | A9 | Seed a plan from a template in one call; batch-update several cards at once |
 
-> **Status (all 7 must-haves shipped + deployed + prod-verified):** V11–V17 ✅. Remaining: V18
-> (*Later*), V19 (*Nice-to-have*). Per-slice "Shipped (KAN-…)" notes below record what each landed.
+> **Status (all 7 must-haves shipped + deployed + prod-verified):** V11–V17 ✅, plus the *Later*
+> slice V18 ✅. Remaining: V19 (*Nice-to-have*). Per-slice "Shipped (KAN-…)" notes below record what
+> each landed.
 
 ---
 
@@ -148,6 +149,18 @@ the MCP tool + `kan` verb, then any UI.
   `kan`/MCP surface the scope at creation.
 - **Tests:** integration — a `read` PAT can GET but a write → `403`; a `write`/legacy PAT unaffected.
 - **Acceptance:** observer-token demo; suite green. Additive migration.
+- **Shipped (KAN-251):** `personal_access_token.scope` added as a `varchar`+CHECK (`read`/`write`)
+  with `server_default 'write'` — every pre-V18 PAT stays an operator (migration `0020_pat_scope`,
+  additive). Enforcement lives in the **one chokepoint**, `app.authz.get_principal`: `_resolve_pat`
+  stashes the PAT's scope on the resolved principal, and a `read`-scoped PAT is denied any unsafe
+  HTTP method (POST/PATCH/PUT/DELETE — every board write *and* per-user writes like `POST /tokens`)
+  with **403** (authenticated, not authorized); GET/HEAD/OPTIONS pass. Cookie-session humans and
+  `write`/legacy PATs are unaffected (no `_pat_scope`, or a `write` one). `scope` is accepted
+  (default `write`, enum-validated) on `POST /tokens` and returned on token read/list; the **Tokens
+  UI** has an operator/observer selector at creation and shows each token's scope. Token creation is
+  **API/UI-only** — the `kan` CLI and MCP server only *consume* a PAT (`KANBAN_TOKEN`), they have no
+  token-create verb, so there was nothing to surface there (the "kan/MCP surface" line above was
+  aspirational; scope is surfaced everywhere creation actually happens).
 
 ## V19 · Batch + templates *(Nice-to-have)*
 

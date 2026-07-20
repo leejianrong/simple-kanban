@@ -63,6 +63,11 @@ _ROLE_ACCESS: dict[str, Access] = {
 }
 
 
+# HTTP methods that only read state. A ``read``-scoped PAT (V18, KAN-251) is
+# allowed exactly these; anything else is a write and is denied (403).
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
 def _resolve_pat(db: Session, raw: str) -> User | None:
     """Resolve a bearer value to its owning ``User`` if it is a valid, unexpired
     personal access token (M3 V9, ADR 0014), else ``None``.
@@ -70,6 +75,10 @@ def _resolve_pat(db: Session, raw: str) -> User | None:
     Fully **sync** (ADR 0008): our own table, an indexed lookup by hash. Stamps
     ``last_used_at`` on success. Revocation is deletion, so a revoked token simply
     isn't found.
+
+    Stashes the PAT's ``scope`` (V18, KAN-251) on the returned user as a transient
+    ``_pat_scope`` attribute so :func:`get_principal` can enforce observer/operator
+    access — a human cookie principal has no such attribute (→ full access).
     """
     # Fast-path skip: only strings minted by us can match, so a stray bearer never
     # triggers a DB round-trip.
@@ -85,8 +94,13 @@ def _resolve_pat(db: Session, raw: str) -> User | None:
     if pat.expires_at is not None and pat.expires_at <= datetime.now(timezone.utc):
         return None
     pat.last_used_at = func.now()  # server-clock stamp; committed below
+    scope = pat.scope
     db.commit()
-    return db.get(User, pat.user_id)
+    user = db.get(User, pat.user_id)
+    if user is not None:
+        # Non-mapped transient attribute; never flushed, carried per-request only.
+        user._pat_scope = scope
+    return user
 
 
 def get_principal(
@@ -113,6 +127,24 @@ def get_principal(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="authentication required",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+    # Scoped tokens (V18, KAN-251): a ``read`` (observer) PAT may make only safe
+    # reads. This is the ONE chokepoint every ``/api/v1`` route flows through
+    # (board routes via ``authorize_board``, per-user routes like ``/tokens``
+    # directly), so enforcing here denies *every* write — a PATCH/POST/DELETE/move
+    # to a card, epic, board, member, label, view, or token — with 403 (never 401:
+    # the caller is authenticated, just not authorized). All writes are unsafe
+    # methods and all reads are GET, so the method test *is* the ``Access.WRITE``+
+    # test. Cookie (human) principals and ``write``/legacy PATs have no ``_pat_scope``
+    # or a ``write`` one → unaffected. (The GitHub webhook is signature-authed and
+    # never reaches here.)
+    if (
+        getattr(principal, "_pat_scope", None) == "read"
+        and request.method not in _SAFE_METHODS
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="this token is read-only (observer scope); writes are not permitted",
         )
     request.state.principal_id = principal.id
     return principal

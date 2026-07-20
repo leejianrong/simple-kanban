@@ -529,10 +529,15 @@ export async function deleteBoard(id: number): Promise<void> {
 // Self-serve personal access tokens: a token acts as its owning user (inherits
 // board access). The secret is returned exactly once, on create.
 
+// A token is an observer (read: GET only) or operator (write: full access) —
+// M5 V18, KAN-251. Existing tokens default to write.
+export type TokenScope = "read" | "write";
+
 export interface Token {
   id: number;
   name: string;
   token_prefix: string;
+  scope: TokenScope;
   created_at: string;
   last_used_at: string | null;
   expires_at: string | null;
@@ -545,6 +550,7 @@ export interface TokenCreated extends Token {
 
 export interface TokenCreate {
   name: string;
+  scope?: TokenScope;
   expires_at?: string | null;
 }
 
