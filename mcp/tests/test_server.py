@@ -49,6 +49,11 @@ EXPECTED_TOOLS = {
     "list_views",
     "create_view",
     "delete_view",
+    "update_cards",
+    "list_templates",
+    "create_template",
+    "delete_template",
+    "apply_template",
 }
 
 
@@ -340,3 +345,60 @@ def test_activity_requires_a_board(monkeypatch):
 
     with pytest.raises(ValueError):
         server.activity()
+
+
+# --- batch update + templates tools (M5 V19, KAN-252) ----------------------
+
+
+def test_update_cards_patches_batch(monkeypatch):
+    seen = _capture_client(monkeypatch, httpx.Response(200, json=[{"id": 1}, {"id": 2}]))
+    out = server.update_cards([{"id": 1, "assignee": "a"}, {"id": 2, "priority": "high"}])
+    assert seen["method"] == "PATCH"
+    assert seen["path"] == "/api/v1/cards/batch"
+    assert json.loads(seen["content"]) == [
+        {"id": 1, "assignee": "a"},
+        {"id": 2, "priority": "high"},
+    ]
+    assert out == {"updated": [{"id": 1}, {"id": 2}]}
+
+
+def test_create_template_posts_name_and_cards(monkeypatch):
+    seen = _capture_client(monkeypatch, httpx.Response(201, json={"id": 7}))
+    server.create_template("sprint", [{"title": "A"}], board_id=3)
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/api/v1/boards/3/templates"
+    assert json.loads(seen["content"]) == {"name": "sprint", "cards": [{"title": "A"}]}
+
+
+def test_list_templates_reads_board_templates(monkeypatch):
+    seen = _capture_client(monkeypatch, httpx.Response(200, json=[{"id": 7}]))
+    out = server.list_templates(board_id=3)
+    assert seen["method"] == "GET"
+    assert seen["path"] == "/api/v1/boards/3/templates"
+    assert out == {"templates": [{"id": 7}]}
+
+
+def test_apply_template_posts_to_apply(monkeypatch):
+    seen = _capture_client(monkeypatch, httpx.Response(201, json=[{"id": 10}]))
+    out = server.apply_template(7, board_id=3)
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/api/v1/boards/3/templates/7/apply"
+    assert out == {"created": [{"id": 10}]}
+
+
+def test_delete_template_deletes_path(monkeypatch):
+    seen = _capture_client(monkeypatch, httpx.Response(204))
+    out = server.delete_template(7, board_id=3)
+    assert seen["method"] == "DELETE"
+    assert seen["path"] == "/api/v1/boards/3/templates/7"
+    assert out == {"deleted": 7}
+
+
+def test_template_tools_require_a_board(monkeypatch):
+    _capture_client(monkeypatch, httpx.Response(200, json=[]))
+    import pytest
+
+    with pytest.raises(ValueError):
+        server.list_templates()
+    with pytest.raises(ValueError):
+        server.apply_template(7)

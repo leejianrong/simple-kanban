@@ -107,6 +107,14 @@ class CardUpdate(BaseModel):
         return v
 
 
+class CardBatchUpdateItem(CardUpdate):
+    """One entry in a batch update (M5 V19, KAN-252): the same optional field edits
+    as :class:`CardUpdate`, plus the required ``id`` of the card to patch. Column /
+    position stay out (the move-vs-edit split, ADR 0006) — same as ``CardUpdate``."""
+
+    id: int
+
+
 class CardMove(BaseModel):
     column: ColumnEnum
     position: int | None = Field(default=None, ge=0)
@@ -669,4 +677,62 @@ class SavedViewRead(BaseModel):
     # The stored filter+sort grammar as JSON (``{}`` = no filters). A plain dict
     # so it round-trips exactly what was stored, ready to replay as query params.
     query: dict[str, Any]
+    created_at: datetime
+
+
+class TemplateCardItem(BaseModel):
+    """One card in a card template (M5 V19, KAN-252) — the creatable card fields,
+    minus ``board_id`` (the board comes from the template's path on apply). Mirrors
+    :class:`CardCreate`'s field set + validation; ``title`` is required non-empty."""
+
+    title: Annotated[str, Field(min_length=1)]
+    description: str | None = None
+    column: ColumnEnum = ColumnEnum.todo
+    story_points: int | None = None
+    assignee: str | None = None
+    epic_id: int | None = None
+    priority: PriorityEnum = PriorityEnum.none
+    due_date: datetime | None = None
+    label_ids: list[int] | None = None
+
+    @field_validator("title")
+    @classmethod
+    def title_non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("title must not be empty")
+        return v
+
+    @field_validator("story_points")
+    @classmethod
+    def story_points_in_set(cls, v: int | None) -> int | None:
+        if v is not None and v not in STORY_POINTS:
+            raise ValueError(f"story_points must be one of {sorted(STORY_POINTS)} or null")
+        return v
+
+
+class CardTemplateCreate(BaseModel):
+    """Create a card template (M5 V19, KAN-252): a named, reusable plan of cards on a
+    board. ``name`` is required non-empty; ``cards`` is a non-empty list of
+    :class:`TemplateCardItem`. Applying the template instantiates those cards on the
+    board in one transaction."""
+
+    name: Annotated[str, Field(min_length=1)]
+    cards: Annotated[list[TemplateCardItem], Field(min_length=1)]
+
+    @field_validator("name")
+    @classmethod
+    def name_non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("name must not be empty")
+        return v
+
+
+class CardTemplateRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    board_id: int
+    name: str
+    # The stored list of card payloads as JSON — round-trips exactly what was stored.
+    cards: list[dict[str, Any]]
     created_at: datetime

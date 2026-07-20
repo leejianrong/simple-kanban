@@ -514,6 +514,50 @@ def _cmd_view_delete(client: KanbanClient, config: Config, args: argparse.Namesp
     return client.delete_view(_require_view_board(args, config), args.view_id)
 
 
+# --- batch update + card templates (M5 V19 API / KAN-252 adapter) ----------
+
+
+def _load_json_arg(value: str) -> Any:
+    """Parse a JSON argument: ``-`` reads it from stdin (so a big payload stays off
+    the command line + shell history), otherwise ``value`` is parsed as a JSON
+    string. Raises ``ConfigError`` on invalid JSON."""
+    raw = sys.stdin.read() if value == "-" else value
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ConfigError(f"invalid JSON: {exc}") from exc
+
+
+def _cmd_batch_update(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    updates = _load_json_arg(args.updates)
+    if not isinstance(updates, list):
+        raise ConfigError("batch-update expects a JSON array of {id, ...fields} objects")
+    return client.update_cards(updates)
+
+
+def _cmd_template_list(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    return client.list_templates(_require_view_board(args, config))
+
+
+def _cmd_template_create(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    cards = _load_json_arg(args.cards)
+    if not isinstance(cards, list):
+        raise ConfigError("template create expects a JSON array of card objects for --cards")
+    return client.create_template(_require_view_board(args, config), args.name, cards)
+
+
+def _cmd_template_delete(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    if not args.yes:
+        raise ConfigError(
+            f"refusing to delete template {args.template_id} without confirmation; pass --yes"
+        )
+    return client.delete_template(_require_view_board(args, config), args.template_id)
+
+
+def _cmd_template_apply(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    return client.apply_template(_require_view_board(args, config), args.template_id)
+
+
 # --- config handlers (local: no client, no network) -------------------------
 # These operate on local config only, so ``run()`` dispatches them via
 # ``local_func`` before building a KanbanClient (and before any token is required).
@@ -911,6 +955,64 @@ def build_parser() -> argparse.ArgumentParser:
     p_view_delete.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
     p_view_delete.add_argument("--yes", action="store_true", help="confirm the deletion")
     p_view_delete.set_defaults(func=_cmd_view_delete, noun="view")
+
+    # --- batch update (M5 V19 / KAN-252): atomic multi-card PATCH ------------
+    # One transaction server-side: all cards update or none (any bad id fails the
+    # whole batch). Field edits only — use `move` for column/position changes.
+    p_batch_update = sub.add_parser(
+        "batch-update",
+        parents=[common],
+        help="atomically PATCH several cards (JSON array of {id, ...fields})",
+    )
+    p_batch_update.add_argument(
+        "updates",
+        metavar="JSON",
+        help="a JSON array of {\"id\": <id>, ...fields} objects, or '-' to read stdin",
+    )
+    p_batch_update.set_defaults(func=_cmd_batch_update)
+
+    # --- template subcommands (M5 V19 / KAN-252): card templates ------------
+    # A named, reusable plan of cards on a board; `apply` seeds them in one call.
+    p_template = sub.add_parser(
+        "template", help="manage card templates (list / create / delete / apply)"
+    )
+    template_sub = p_template.add_subparsers(
+        dest="template_command", metavar="<subcommand>", required=True
+    )
+
+    p_template_list = template_sub.add_parser(
+        "list", parents=[common], help="list a board's card templates"
+    )
+    p_template_list.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
+    p_template_list.set_defaults(func=_cmd_template_list, noun="template")
+
+    p_template_create = template_sub.add_parser(
+        "create", parents=[common], help="create a card template from a JSON list of cards"
+    )
+    p_template_create.add_argument("name")
+    p_template_create.add_argument(
+        "--cards",
+        required=True,
+        metavar="JSON",
+        help="a JSON array of card objects (title required), or '-' to read stdin",
+    )
+    p_template_create.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
+    p_template_create.set_defaults(func=_cmd_template_create, noun="template")
+
+    p_template_delete = template_sub.add_parser(
+        "delete", parents=[common], help="delete a card template"
+    )
+    p_template_delete.add_argument("template_id", type=int)
+    p_template_delete.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
+    p_template_delete.add_argument("--yes", action="store_true", help="confirm the deletion")
+    p_template_delete.set_defaults(func=_cmd_template_delete, noun="template")
+
+    p_template_apply = template_sub.add_parser(
+        "apply", parents=[common], help="instantiate a template's cards on the board"
+    )
+    p_template_apply.add_argument("template_id", type=int)
+    p_template_apply.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
+    p_template_apply.set_defaults(func=_cmd_template_apply, noun="template")
 
     # --- login / config (local: no token, no network) ------------------------
     # ``login`` saves a PAT to ~/.config/kan/config.toml without it touching argv:

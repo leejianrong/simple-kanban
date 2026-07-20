@@ -121,6 +121,21 @@ class FakeClient:
     def delete_view(self, board_id, view_id):
         return self._call("delete_view", board_id=board_id, view_id=view_id)
 
+    def update_cards(self, updates):
+        return self._call("update_cards", updates=updates)
+
+    def list_templates(self, board_id):
+        return self._call("list_templates", board_id=board_id)
+
+    def create_template(self, board_id, name, cards):
+        return self._call("create_template", board_id=board_id, name=name, cards=cards)
+
+    def delete_template(self, board_id, template_id):
+        return self._call("delete_template", board_id=board_id, template_id=template_id)
+
+    def apply_template(self, board_id, template_id):
+        return self._call("apply_template", board_id=board_id, template_id=template_id)
+
 
 @pytest.fixture(autouse=True)
 def isolate_config(monkeypatch, tmp_path):
@@ -240,6 +255,59 @@ def test_view_delete_requires_yes(monkeypatch, env):
     # With --yes it deletes.
     assert cli.run(["view", "delete", "5", "--board", "3", "--yes"]) == 0
     assert fake.calls == [("delete_view", {"board_id": 3, "view_id": 5})]
+
+
+# --- batch update + templates (M5 V19 / KAN-252) ---------------------------
+
+
+def test_batch_update_parses_json_array(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"updated": []}))
+    code = cli.run(["batch-update", '[{"id": 1, "assignee": "me"}, {"id": 2, "priority": "high"}]'])
+    assert code == 0
+    assert fake.calls == [
+        (
+            "update_cards",
+            {"updates": [{"id": 1, "assignee": "me"}, {"id": 2, "priority": "high"}]},
+        )
+    ]
+
+
+def test_batch_update_rejects_non_array(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"updated": []}))
+    # A JSON object (not an array) is a usage error → exit 1, no client call.
+    assert cli.run(["batch-update", '{"id": 1}']) == 1
+    assert fake.calls == []
+
+
+def test_template_list_calls_client(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"templates": []}))
+    assert cli.run(["template", "list", "--board", "3"]) == 0
+    assert fake.calls == [("list_templates", {"board_id": 3})]
+
+
+def test_template_create_parses_cards_json(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"id": 7}))
+    code = cli.run(
+        ["template", "create", "sprint", "--board", "3", "--cards", '[{"title": "A"}]']
+    )
+    assert code == 0
+    assert fake.calls == [
+        ("create_template", {"board_id": 3, "name": "sprint", "cards": [{"title": "A"}]})
+    ]
+
+
+def test_template_apply_calls_client(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"created": []}))
+    assert cli.run(["template", "apply", "7", "--board", "3"]) == 0
+    assert fake.calls == [("apply_template", {"board_id": 3, "template_id": 7})]
+
+
+def test_template_delete_requires_yes(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"deleted": 7}))
+    assert cli.run(["template", "delete", "7", "--board", "3"]) == 1
+    assert fake.calls == []
+    assert cli.run(["template", "delete", "7", "--board", "3", "--yes"]) == 0
+    assert fake.calls == [("delete_template", {"board_id": 3, "template_id": 7})]
 
 
 def test_list_needs_human_filter(monkeypatch, env):

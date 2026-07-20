@@ -28,11 +28,11 @@ the MCP tool + `kan` verb, then any UI.
 | **V16 · Awareness dashboard** ✅ | mission control | A7 | The Dashboard shows in-flight-by-agent (+ PR/CI), a needs-attention list, the activity feed, and a table view — all read-only, refreshing |
 | **V17 · Fleet reporting** ✅ | derived metrics | A8 | `GET /boards/{id}/metrics` (and `kan`) returns throughput / cycle time / aging / per-assignee; small charts in the UI |
 | **V18 · Scoped tokens** ✅ *(Later)* | observer vs operator PAT | A4 | Create a read-only PAT; a write via it → `403`; a write PAT still works |
-| **V19 · Batch + templates** *(Nice-to-have — not yet built)* | bulk ops + templates | A9 | Seed a plan from a template in one call; batch-update several cards at once |
+| **V19 · Batch + templates** ✅ *(Nice-to-have)* | bulk ops + templates | A9 | Seed a plan from a template in one call; batch-update several cards at once |
 
 > **Status (all 7 must-haves shipped + deployed + prod-verified):** V11–V17 ✅, plus the *Later*
-> slice V18 ✅. Remaining: V19 (*Nice-to-have*). Per-slice "Shipped (KAN-…)" notes below record what
-> each landed.
+> slice V18 ✅ and the *Nice-to-have* tail V19 ✅ — **M5 complete**. Per-slice "Shipped (KAN-…)" notes
+> below record what each landed.
 
 ---
 
@@ -169,6 +169,29 @@ the MCP tool + `kan` verb, then any UI.
 - **Tests:** integration — batch creates N cards atomically; apply a template yields the expected
   cards.
 - **Acceptance:** seed-a-plan-from-template demo; suite green.
+- **Shipped (KAN-252):** two additive capabilities, built **on** the pre-existing batch-*create*
+  (KAN-40's `create_cards` client method + MCP `create_cards` tool — a client-side, fail-fast loop
+  over `POST /cards`, *not* a server endpoint; left as-is).
+  - **Batch update** — a new **atomic** `PATCH /api/v1/cards/batch` taking a non-empty JSON array of
+    `{id, ...fields}` (the same field edits as single `PATCH /cards/{id}`: title/description/
+    story_points/assignee/epic_id/priority/due_date/label_ids; **not** column/position — those stay on
+    `/move`, ADR 0006). **All-or-nothing** in one transaction: a missing/soft-deleted id → **404**,
+    a duplicate id → **422**, an empty body → **422**, a card on a board you can't write → **403**, a
+    per-card validation failure → **422**; on any of these nothing commits. Records one `updated`
+    activity row per card. The single-PATCH handler was refactored to share `_apply_card_update`.
+  - **Card templates** — a new `card_template` table (migration `0021_card_templates`, additive,
+    mirrors `saved_view`: `id, board_id FK ON DELETE CASCADE, name, cards JSON, created_at`) storing a
+    named, board-scoped list of card payloads. CRUD-lite + apply under the board (mirrors the
+    saved-views router): `GET/POST /boards/{id}/templates`, `GET/DELETE …/{tid}`, and **`POST
+    …/{tid}/apply`** which instantiates the template's cards on the board in **one transaction**
+    (reusing the cards router's extracted `_create_card_row`), returning the created cards — the
+    seed-a-plan-in-one-call demo. Cross-board template id → **404**; READ to list/get, WRITE to
+    create/delete/apply. Card templates only — board-level template (clone columns/settings) was
+    **deferred** as scope creep for a nice-to-have tail slice.
+  - **Parity (R1.3):** new `kanban-client` methods (`update_cards`, `list/create/get/delete/
+    apply_template`), MCP tools (`update_cards`, `list/create/delete/apply_template`), and `kan` verbs
+    (`batch-update <json>`, `template list/create/delete/apply`), all appended at the end of their
+    lists. No UI (agent-facing capability).
 
 ---
 

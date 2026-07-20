@@ -442,6 +442,59 @@ def test_create_cards_fail_fast_leaves_earlier_creates_applied():
     assert calls["count"] == 2  # first created, second rejected — no third attempt
 
 
+# --- batch update + templates (M5 V19 / KAN-252) ---------------------------
+
+
+def test_update_cards_issues_one_atomic_patch():
+    handler, seen = record_requests(
+        httpx.Response(200, json=[{"id": 1, "assignee": "a"}, {"id": 2, "assignee": "a"}])
+    )
+    out = make_client(handler).update_cards(
+        [{"id": 1, "assignee": "a"}, {"id": 2, "assignee": "a"}]
+    )
+    reqs = seen["requests"]
+    # A *single* server call (atomic), unlike create_cards' client-side loop.
+    assert len(reqs) == 1
+    assert reqs[0]["method"] == "PATCH"
+    assert reqs[0]["path"] == "/api/v1/cards/batch"
+    assert reqs[0]["body"] == [{"id": 1, "assignee": "a"}, {"id": 2, "assignee": "a"}]
+    assert out == {"updated": [{"id": 1, "assignee": "a"}, {"id": 2, "assignee": "a"}]}
+
+
+def test_list_templates_reads_board_templates():
+    handler, seen = record_requests(httpx.Response(200, json=[{"id": 7, "name": "sprint"}]))
+    out = make_client(handler).list_templates(3)
+    assert seen["requests"][0]["path"] == "/api/v1/boards/3/templates"
+    assert out == {"templates": [{"id": 7, "name": "sprint"}]}
+
+
+def test_create_template_posts_name_and_cards():
+    handler, seen = record_requests(httpx.Response(201, json={"id": 7}))
+    make_client(handler).create_template(3, "sprint", [{"title": "A"}, {"title": "B"}])
+    req = seen["requests"][0]
+    assert req["method"] == "POST"
+    assert req["path"] == "/api/v1/boards/3/templates"
+    assert req["body"] == {"name": "sprint", "cards": [{"title": "A"}, {"title": "B"}]}
+
+
+def test_apply_template_posts_to_apply_and_returns_created():
+    handler, seen = record_requests(httpx.Response(201, json=[{"id": 10}, {"id": 11}]))
+    out = make_client(handler).apply_template(3, 7)
+    req = seen["requests"][0]
+    assert req["method"] == "POST"
+    assert req["path"] == "/api/v1/boards/3/templates/7/apply"
+    assert out == {"created": [{"id": 10}, {"id": 11}]}
+
+
+def test_delete_template_issues_delete():
+    handler, seen = record_requests(httpx.Response(204))
+    out = make_client(handler).delete_template(3, 7)
+    req = seen["requests"][0]
+    assert req["method"] == "DELETE"
+    assert req["path"] == "/api/v1/boards/3/templates/7"
+    assert out == {"deleted": 7}
+
+
 # --- auth + error mapping --------------------------------------------------
 
 
