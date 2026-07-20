@@ -16,6 +16,7 @@
     ChevronRight,
     Clock,
     ExternalLink,
+    Flame,
     Gauge,
     History,
     Pencil,
@@ -119,6 +120,7 @@
     restored: RotateCcw,
     attention: AlertTriangle,
     resolved: Check,
+    purged: Flame,
   };
 
   function actorInitial(label: string | null): string {
@@ -959,6 +961,11 @@
   .feed-icon[data-action="resolved"] {
     background: color-mix(in srgb, var(--success) 16%, transparent);
     color: var(--success);
+  }
+  /* purged = permanent destruction: filled danger, more final than soft `deleted`. */
+  .feed-icon[data-action="purged"] {
+    background: var(--danger);
+    color: #fff;
   }
   .feed-icon[data-action="created"],
   .feed-icon[data-action="restored"] {

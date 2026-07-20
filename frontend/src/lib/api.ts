@@ -648,7 +648,17 @@ export async function removeMember(boardId: number, memberId: number): Promise<v
 // over the X-Next-Cursor response header exactly like GET /cards.
 
 export type ActivityEntityType = "card" | "epic" | "board";
-export type ActivityAction = "created" | "updated" | "deleted" | "moved" | "restored";
+// Mirrors backend VALID_ACTIVITY_ACTIONS (models.py): the CRUD verbs plus V13's
+// attention/resolved handoff events and KAN-239's purged (permanent destruction).
+export type ActivityAction =
+  | "created"
+  | "updated"
+  | "deleted"
+  | "moved"
+  | "restored"
+  | "attention"
+  | "resolved"
+  | "purged";
 
 export interface Activity {
   id: number;
