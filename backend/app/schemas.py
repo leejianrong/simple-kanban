@@ -439,11 +439,21 @@ class ActivityRead(BaseModel):
     ts: datetime
 
 
+class TokenScope(str, Enum):
+    """A PAT's capability (M5 V18, KAN-251). ``read`` = observer (GET only);
+    ``write`` = operator (the owning user's full board access, the default)."""
+
+    read = "read"
+    write = "write"
+
+
 class TokenCreate(BaseModel):
-    """Create a personal access token (M3 V9, ADR 0014). Only a name (and an
-    optional expiry); the secret is server-generated, never client-supplied."""
+    """Create a personal access token (M3 V9, ADR 0014). Only a name, an optional
+    scope (default ``write`` for back-compat), and an optional expiry; the secret is
+    server-generated, never client-supplied."""
 
     name: Annotated[str, Field(min_length=1)]
+    scope: TokenScope = TokenScope.write
     expires_at: datetime | None = None
 
     @field_validator("name")
@@ -462,6 +472,7 @@ class TokenRead(BaseModel):
     id: int
     name: str
     token_prefix: str
+    scope: TokenScope
     created_at: datetime
     last_used_at: datetime | None
     expires_at: datetime | None

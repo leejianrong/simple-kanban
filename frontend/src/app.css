@@ -1593,6 +1593,35 @@ button.primary:disabled {
   font-weight: 600;
   color: color-mix(in srgb, var(--text) 75%, var(--muted));
 }
+.token-scope {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-radius: 4px;
+  padding: 0.1rem 0.4rem;
+  background: var(--agent-soft);
+  color: var(--agent);
+}
+.token-scope.read {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.scope-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.scope-field select {
+  padding: 0.35rem 0.5rem;
+}
+.scope-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
 
 @media (max-width: 720px) {
   .modal-grid {

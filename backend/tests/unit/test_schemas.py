@@ -21,6 +21,8 @@ from app.schemas import (
     LinkCreate,
     NeedsHumanRequest,
     PriorityEnum,
+    TokenCreate,
+    TokenScope,
 )
 
 
@@ -230,3 +232,20 @@ def test_card_read_exposes_needs_human_fields():
     fields = CardRead.model_fields
     assert "needs_human" in fields
     assert "attention_note" in fields
+
+
+# --- scoped tokens (M5 V18, KAN-251) -----------------------------------------
+
+
+def test_token_create_defaults_to_write_scope():
+    # Back-compat: a token without an explicit scope is a writer (R5.3).
+    assert TokenCreate(name="ci-bot").scope is TokenScope.write
+
+
+def test_token_create_accepts_read_scope():
+    assert TokenCreate(name="observer", scope="read").scope is TokenScope.read
+
+
+def test_token_create_rejects_unknown_scope():
+    with pytest.raises(ValidationError):
+        TokenCreate(name="bad", scope="admin")

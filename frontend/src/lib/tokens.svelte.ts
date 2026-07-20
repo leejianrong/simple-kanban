@@ -9,6 +9,7 @@ import {
   listTokens,
   type Token,
   type TokenCreated,
+  type TokenScope,
 } from "./api";
 
 export const tokenStore = $state<{
@@ -32,8 +33,11 @@ export async function refetchTokens(): Promise<void> {
   }
 }
 
-export async function addToken(name: string): Promise<void> {
-  const created = await createToken({ name });
+export async function addToken(
+  name: string,
+  scope: TokenScope = "write",
+): Promise<void> {
+  const created = await createToken({ name, scope });
   tokenStore.revealed = created; // reveal the secret once
   await refetchTokens();
 }

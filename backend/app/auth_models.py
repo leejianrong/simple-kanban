@@ -22,7 +22,14 @@ from fastapi_users_db_sqlalchemy import (
 )
 from fastapi_users_db_sqlalchemy.access_token import SQLAlchemyBaseAccessTokenTableUUID
 from fastapi_users_db_sqlalchemy.generics import GUID
-from sqlalchemy import BigInteger, DateTime, ForeignKey, String, func
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    String,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -72,6 +79,15 @@ class PersonalAccessToken(Base):
 
     __tablename__ = "personal_access_token"
 
+    # A read (observer) PAT may only make safe/READ calls; a write (operator) PAT
+    # has the owning user's full board access. varchar + CHECK (not a native PG
+    # enum) so a future scope needs no ``ALTER TYPE`` (mirrors ``card.column``).
+    __table_args__ = (
+        CheckConstraint(
+            "scope IN ('read', 'write')", name="ck_personal_access_token_scope"
+        ),
+    )
+
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     # The owning user. CASCADE: deleting a user removes their tokens.
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -85,6 +101,11 @@ class PersonalAccessToken(Base):
     # A short, non-secret prefix of the raw token (e.g. ``kanban_pat_ab12``) shown
     # in the UI list so a user can tell their tokens apart. Never the full secret.
     token_prefix: Mapped[str] = mapped_column(String(32), nullable=False)
+    # ``read`` = observer (GET only), ``write`` = operator (full access). Default
+    # ``write`` for back-compat: every PAT minted before V18 is a writer (R5.3).
+    scope: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="write"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

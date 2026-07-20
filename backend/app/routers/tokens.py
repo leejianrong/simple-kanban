@@ -2,8 +2,10 @@
 
 Self-serve agent tokens (R4.1): a user creates named tokens, sees each secret
 **once**, and revokes them. A token authenticates as its owning user and inherits
-that user's board access (ADR 0013) — so there is no per-token board/scope (D5;
-scoping is R4.2 / Later). Mounted under ``/api/v1``:
+that user's board access (ADR 0013). Since M5 V18 (KAN-251) a token also carries a
+**scope** — ``write`` (operator, the default) grants that full access, ``read``
+(observer) restricts it to safe reads (enforced in :func:`app.authz.get_principal`).
+Mounted under ``/api/v1``:
 
 - GET    /tokens       — list the caller's tokens (metadata only, never the secret)
 - POST   /tokens       — create a token; response includes the secret **once**
@@ -54,6 +56,7 @@ def create_token(
         name=payload.name,
         token_hash=token_hash,
         token_prefix=prefix,
+        scope=payload.scope.value,
         expires_at=payload.expires_at,
     )
     db.add(pat)
@@ -64,6 +67,7 @@ def create_token(
         id=pat.id,
         name=pat.name,
         token_prefix=pat.token_prefix,
+        scope=pat.scope,
         created_at=pat.created_at,
         last_used_at=pat.last_used_at,
         expires_at=pat.expires_at,
