@@ -57,6 +57,7 @@ nested groups so their verbs don't collide with the card verbs (parity with the
 | `kan comment add <card_id> --body B [--json]` | `POST /cards/{id}/comments` |
 | `kan comment list <card_id> [--json]` | `GET /cards/{id}/comments` |
 | `kan warmup [--json]` | `GET /api/health` |
+| `kan --version` (or `-v`) | *(local — prints the CLI version, e.g. `kan 0.3.0`, and exits)* |
 | `kan login [--api-url U] [--board-id N] [--token-stdin]` | *(local — saves the PAT to the config file)* |
 | `kan config set [--api-url U] [--board-id N] [--token-stdin \| --token T]` | *(local — writes the config file)* |
 | `kan config show [--json]` | *(local — prints the effective config, token redacted)* |
@@ -83,7 +84,8 @@ API's `story_points`; `ticket  name` for epics, `id  name` for boards) suitable 
 `grep`/`cut`.
 
 Run `kan --help`, `kan <command> --help`, `kan board --help`, or
-`kan epic --help` for the full option list.
+`kan epic --help` for the full option list. `kan --version` (or `-v`) prints the
+CLI version (e.g. `kan 0.3.0`) and exits.
 
 ### Exit codes (for scripting)
 
