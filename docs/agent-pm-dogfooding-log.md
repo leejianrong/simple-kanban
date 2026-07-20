@@ -907,3 +907,34 @@ Dogfooding observations about driving this board as an agent PM. Seeded from the
     verified KAN-267 by grepping the deployed bundle for `purged`/`data-action`; verified the CLI
     fixes by running `kan` from the merged source against prod (`kan get 260` → card line with `pts=3`,
     not `(no labels)`).
+- **Release v0.3.0 — cut the first tag since v0.2.3, shipping the whole M5 CLI surface + `kan
+  --version`.** `v0.2.3` turned out to point at c546358 (2026-07-14, PRE-M5), so every M5 CLI verb
+  (`dispatch`/`next`, `needs-human`/`resolve`, `metrics`, `activity`, `view`, `dep`/`link`/`comment`,
+  `batch-update`, `template`, labels, card-field flags, search) had accumulated undownloadable behind
+  the tag (cli.py +775 lines since v0.2.3). Bumped **minor → v0.3.0** (not another patch) to signal
+  the dozen-plus new commands.
+  - **The release is tag-driven; the in-code version strings were dead and stale.** `release-cli.yml`
+    fires on `push: tags: v*` and builds the binary from the code AT THE TAG — it never reads the
+    version from `pyproject`/`__init__`, which is why v0.2.1→v0.2.3 were all tagged while
+    `pyproject` sat at `0.2.0` and `__init__.__version__` at `0.1.0`. There was **no `kan --version`**,
+    so the only "version" a user could see was the GitHub release/tag name.
+  - **Added `kan --version`/`-v` mid-cut, so the binary can self-report.** User asked for it right
+    after the first tag push. Since the tag was seconds old and nothing was published yet, the clean
+    move was: **cancel the in-flight `release-cli.yml` run (`gh run cancel`), delete the unreleased tag
+    (`git push origin :refs/tags/v0.3.0` + `git tag -d`), land the `--version` PR, then re-tag on the
+    new HEAD.** Wired via argparse `action="version"` on the ROOT parser (`version=f"kan {__version__}"`,
+    reading a hardcoded `__version__`) — pure argparse, no `importlib.metadata`, because the
+    PyInstaller onefile has no reliable package metadata at runtime. Synced `__init__.__version__` +
+    `pyproject` to `0.3.0` so the frozen binary self-reports correctly. (Standing debt to consider: the
+    release should assert `__version__` matches the tag, or derive one from the other, so they can't
+    drift again — today it's a manual bump.)
+  - **`git push <tag>` is the reliable trigger** (not `gh release create`, whose API-created tag may
+    not fire `on: push: tags`). The workflow's `softprops/action-gh-release@v3` then created the
+    release and attached both assets. Shipped legs are `kan-linux-x86_64` (glibc-2.28 container, runs
+    on Ubuntu 20.04+/Debian 11+/RHEL 8+, KAN-81) and `kan-macos-arm64`; the Intel-mac leg stays
+    dropped (KAN-225, Rosetta/from-source/MCP-image for those users).
+  - **Verified the downloaded binary end-to-end, not just that it built.** `gh release download
+    v0.3.0 --pattern kan-linux-x86_64` → `kan --version` → `kan 0.3.0`; then functional proof against
+    prod that the FIXES are actually in the artifact: `kan get 260` → `KAN-260  done  …  pts=3` (not
+    `(no labels)`), `kan list` shows `pts=` per row, `kan dep/activity/comment --help` all present.
+    Building green ≠ shipped-and-working — download the real asset and run it.
