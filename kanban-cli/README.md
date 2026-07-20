@@ -33,6 +33,13 @@ collide with the card verbs (parity with the `/api/v1` surface).
 | `kan epic create <name> [--board N] [--description D] [--json]` | `POST /epics` |
 | `kan epic update <epic_id> [--name N] [--description D] [--json]` | `PATCH /epics/{id}` |
 | `kan epic delete <epic_id> --yes [--json]` | `DELETE /epics/{id}` |
+| `kan dep add <card_id> --blocked-by BLOCKER_ID [--json]` | `POST /cards/{id}/dependencies` |
+| `kan dep rm <card_id> --blocked-by BLOCKER_ID [--json]` | `DELETE /cards/{id}/dependencies/{blocker_id}` |
+| `kan dep list <card_id> [--json]` | `GET /cards/{id}` (its `blocked_by` / `blocks`) |
+| `kan link add <card_id> --url U --label L [--json]` | `POST /cards/{id}/links` |
+| `kan link rm <card_id> --link-id ID [--json]` | `DELETE /cards/{id}/links/{link_id}` |
+| `kan comment add <card_id> --body B [--json]` | `POST /cards/{id}/comments` |
+| `kan comment list <card_id> [--json]` | `GET /cards/{id}/comments` |
 | `kan warmup [--json]` | `GET /api/health` |
 | `kan login [--api-url U] [--board-id N] [--token-stdin]` | *(local — saves the PAT to the config file)* |
 | `kan config set [--api-url U] [--board-id N] [--token-stdin \| --token T]` | *(local — writes the config file)* |

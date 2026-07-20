@@ -102,6 +102,21 @@ def _humanize(result: Any, *, noun: str = "card") -> str:
         if result.get("next_cursor"):
             lines.append(f"(more — next cursor: {result['next_cursor']})")
         return "\n".join(lines)
+    if isinstance(result, dict) and "comments" in result:  # list_comments
+        comments = result["comments"]
+        return "\n".join(_comment_line(c) for c in comments) if comments else "(no comments)"
+    # list_dependencies returns {"card_id", "blocked_by", "blocks"} — ``card_id``
+    # is distinctive (a card carries ``id``, not ``card_id``).
+    if isinstance(result, dict) and "card_id" in result and "blocked_by" in result:
+        return _dep_block(result)
+    # link add/rm reshape to {"card_id", "links"} (``card_id`` distinguishes it from
+    # a full card, which also carries ``links`` but keys it under ``id``).
+    if isinstance(result, dict) and "card_id" in result and "links" in result:
+        return _link_block(result)
+    # A single comment (add_comment) carries ``body`` + ``author_id`` (no ticket) —
+    # matched before the generic card/epic/board branches below.
+    if isinstance(result, dict) and "body" in result and "author_id" in result:
+        return _comment_line(result)
     if isinstance(result, dict) and "card" in result:  # dispatch / next (peek/claim)
         card = result["card"]
         return _card_line(card) if card else "(no card ready)"
@@ -264,6 +279,58 @@ def _metrics_block(result: dict[str, Any]) -> str:
             who = row.get("assignee") or "(unassigned)"
             lines.append(f"  {who}\tdone {row.get('throughput', 0)}\twip {row.get('wip', 0)}")
     return "\n".join(lines)
+
+
+# --- dependency / link / comment render helpers (KAN-270) -------------------
+
+
+def _fmt_ids(ids: list[int]) -> str:
+    """A compact, comma-separated id list — ``(none)`` when empty."""
+    return ", ".join(str(i) for i in ids) if ids else "(none)"
+
+
+def _dep_block(result: dict[str, Any]) -> str:
+    """Render a card's dependency edges (``list_dependencies``): the ids that block
+    it (``blocked_by``) and the ids it blocks (``blocks``)."""
+    return "\n".join(
+        (
+            f"card {result.get('card_id', '?')}",
+            f"blocked_by:\t{_fmt_ids(result.get('blocked_by', []))}",
+            f"blocks:\t{_fmt_ids(result.get('blocks', []))}",
+        )
+    )
+
+
+def _comment_line(comment: dict[str, Any]) -> str:
+    """One concise line for a comment: id, created_at, body (tab-separated)."""
+    return "\t".join(
+        (
+            str(comment.get("id", "?")),
+            str(comment.get("created_at", "")),
+            str(comment.get("body", "")),
+        )
+    )
+
+
+def _link_line(link: dict[str, Any]) -> str:
+    """One concise line for a work-link: id, label, url (tab-separated)."""
+    return "\t".join(
+        (
+            str(link.get("id", "?")),
+            str(link.get("label", "")),
+            str(link.get("url", "")),
+        )
+    )
+
+
+def _link_block(result: dict[str, Any]) -> str:
+    """Render a card's work-links (add/rm result): a header line then one line per
+    link (id, label, url), or ``(no links)`` when there are none."""
+    links = result.get("links", [])
+    header = f"card {result.get('card_id', '?')}"
+    if not links:
+        return f"{header}\n(no links)"
+    return "\n".join([header, *(_link_line(la) for la in links)])
 
 
 # --- board resolution -------------------------------------------------------
@@ -569,6 +636,57 @@ def _cmd_template_delete(client: KanbanClient, config: Config, args: argparse.Na
 
 def _cmd_template_apply(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
     return client.apply_template(_require_view_board(args, config), args.template_id)
+
+
+# --- dependency / link / comment handlers (KAN-270) -------------------------
+# Card-to-card dependencies, work-links, and notes. Thin adapters over the shared
+# client — the API endpoints + client methods already existed; KAN-270 only adds
+# the `kan` verbs. All are card-scoped (addressed by card id), so no --board here.
+#
+# add_dependency/add_link (and their removes) return the whole refreshed card, but
+# the verb is *about* the edge / link it changed — so we project just that facet
+# (matching what the client's list_dependencies already does), which also renders
+# cleanly and keeps `dep add|rm|list` (and `link add|rm`) consistent.
+
+
+def _dep_facet(card: dict[str, Any], card_id: int) -> dict[str, Any]:
+    return {
+        "card_id": card_id,
+        "blocked_by": card.get("blocked_by", []),
+        "blocks": card.get("blocks", []),
+    }
+
+
+def _link_facet(card: dict[str, Any], card_id: int) -> dict[str, Any]:
+    return {"card_id": card_id, "links": card.get("links", [])}
+
+
+def _cmd_dep_add(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    return _dep_facet(client.add_dependency(args.card_id, args.blocked_by), args.card_id)
+
+
+def _cmd_dep_rm(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    return _dep_facet(client.remove_dependency(args.card_id, args.blocked_by), args.card_id)
+
+
+def _cmd_dep_list(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    return client.list_dependencies(args.card_id)
+
+
+def _cmd_link_add(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    return _link_facet(client.add_link(args.card_id, args.label, args.url), args.card_id)
+
+
+def _cmd_link_rm(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    return _link_facet(client.remove_link(args.card_id, args.link_id), args.card_id)
+
+
+def _cmd_comment_add(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    return client.add_comment(args.card_id, args.body)
+
+
+def _cmd_comment_list(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    return client.list_comments(args.card_id)
 
 
 # --- config handlers (local: no client, no network) -------------------------
@@ -1078,6 +1196,88 @@ def build_parser() -> argparse.ArgumentParser:
         "path", parents=[common], help="print the config file path"
     )
     p_config_path.set_defaults(local_func=_cmd_config_path)
+
+    # --- dependency subcommands (KAN-270): card-to-card blocking edges -------
+    # Card-scoped (addressed by card id), so no --board targeting here. `blocked_by`
+    # is the id of the card that BLOCKS the given card (the edge blocker → card).
+    p_dep = sub.add_parser(
+        "dep", help="manage card dependencies (add / rm / list blocking edges)"
+    )
+    dep_sub = p_dep.add_subparsers(dest="dep_command", metavar="<subcommand>", required=True)
+
+    p_dep_add = dep_sub.add_parser(
+        "add", parents=[common], help="record that a card is blocked-by another card"
+    )
+    p_dep_add.add_argument("card_id", type=int)
+    p_dep_add.add_argument(
+        "--blocked-by", dest="blocked_by", type=int, required=True, metavar="BLOCKER_ID",
+        help="id of the card that blocks this one",
+    )
+    p_dep_add.set_defaults(func=_cmd_dep_add)
+
+    p_dep_rm = dep_sub.add_parser(
+        "rm", parents=[common], help="remove a blocked-by edge"
+    )
+    p_dep_rm.add_argument("card_id", type=int)
+    p_dep_rm.add_argument(
+        "--blocked-by", dest="blocked_by", type=int, required=True, metavar="BLOCKER_ID",
+        help="id of the blocker to detach",
+    )
+    p_dep_rm.set_defaults(func=_cmd_dep_rm)
+
+    p_dep_list = dep_sub.add_parser(
+        "list", parents=[common], help="list a card's blocked_by / blocks edges"
+    )
+    p_dep_list.add_argument("card_id", type=int)
+    p_dep_list.set_defaults(func=_cmd_dep_list)
+
+    # --- link subcommands (KAN-270): card work-links (PR / branch / CI URLs) -
+    # The API's LinkCreate requires BOTH a non-empty label and url, so --label is
+    # required here too (the issue said --title, but the field is `label`).
+    p_link = sub.add_parser("link", help="manage card work-links (add / rm)")
+    link_sub = p_link.add_subparsers(dest="link_command", metavar="<subcommand>", required=True)
+
+    p_link_add = link_sub.add_parser(
+        "add", parents=[common], help="attach a work-link (label + url) to a card"
+    )
+    p_link_add.add_argument("card_id", type=int)
+    p_link_add.add_argument(
+        "--url", required=True, help="the link URL (e.g. a PR / branch / CI run)"
+    )
+    p_link_add.add_argument(
+        "--label", required=True,
+        help="a short label for the link (e.g. PR / branch / CI) — required by the API",
+    )
+    p_link_add.set_defaults(func=_cmd_link_add)
+
+    p_link_rm = link_sub.add_parser(
+        "rm", parents=[common], help="detach a work-link by its id"
+    )
+    p_link_rm.add_argument("card_id", type=int)
+    p_link_rm.add_argument(
+        "--link-id", dest="link_id", type=int, required=True, metavar="LINK_ID",
+        help="id of the link to remove",
+    )
+    p_link_rm.set_defaults(func=_cmd_link_rm)
+
+    # --- comment subcommands (KAN-270): card notes ---------------------------
+    p_comment = sub.add_parser("comment", help="manage card notes (add / list)")
+    comment_sub = p_comment.add_subparsers(
+        dest="comment_command", metavar="<subcommand>", required=True
+    )
+
+    p_comment_add = comment_sub.add_parser(
+        "add", parents=[common], help="post a note to a card"
+    )
+    p_comment_add.add_argument("card_id", type=int)
+    p_comment_add.add_argument("--body", required=True, help="the note text (non-empty)")
+    p_comment_add.set_defaults(func=_cmd_comment_add)
+
+    p_comment_list = comment_sub.add_parser(
+        "list", parents=[common], help="list a card's notes, oldest-first"
+    )
+    p_comment_list.add_argument("card_id", type=int)
+    p_comment_list.set_defaults(func=_cmd_comment_list)
 
     return parser
 
