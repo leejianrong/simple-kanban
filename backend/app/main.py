@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from .db import get_db
 from .observability import add_request_logging, configure_logging, init_error_tracking
+from .ratelimit import install_rate_limiting
 from .routers import (
     boards,
     cards,
@@ -43,6 +44,12 @@ init_error_tracking()
 logger = logging.getLogger("kanban.health")
 
 app = FastAPI(title="Simple Kanban API", version="0.1.0")
+
+# Rate limiting (V27, KAN-291): one classifying middleware over slowapi's in-memory
+# limiter, guarding auth/write/expensive-read/webhook tiers. Off unless
+# RATE_LIMIT_ENABLED is set, so dev + tests are unaffected. Installed *before* the
+# access logger below so the logger stays outermost and a 429 still gets logged.
+install_rate_limiting(app)
 
 # One structured access line per request (method/path/status/latency/principal).
 add_request_logging(app)
