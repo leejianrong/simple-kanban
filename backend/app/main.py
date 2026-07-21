@@ -25,6 +25,7 @@ from .ratelimit import install_rate_limiting
 from .routers import (
     boards,
     cards,
+    cycles,
     epics,
     labels,
     members,
@@ -168,6 +169,7 @@ app.include_router(epics.router, prefix="/api/v1")
 app.include_router(labels.router, prefix="/api/v1")  # M5 V11 (KAN-244): card labels
 app.include_router(views.router, prefix="/api/v1")  # M5 V14 (KAN-247): saved views
 app.include_router(templates.router, prefix="/api/v1")  # M5 V19 (KAN-252): card templates
+app.include_router(cycles.router, prefix="/api/v1")  # V33 (KAN-297): cycles / iterations
 app.include_router(tokens.router, prefix="/api/v1")  # M3 V9 (ADR 0014): agent PATs
 # GitHub webhook receiver (KAN-42): standalone — auth is the HMAC signature, NOT
 # the cookie/PAT principal resolver, so it is intentionally not owner-gated.

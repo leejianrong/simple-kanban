@@ -80,6 +80,9 @@ class CardCreate(BaseModel):
     # Optional parent epic. That the id references an existing epic is checked in
     # the router (routers/cards.py), which returns 422 on violation.
     epic_id: int | None = None
+    # Optional cycle/iteration (V33, KAN-297) — mirrors ``epic_id``: the id must
+    # reference an existing cycle on the card's board (checked in the router, 422).
+    cycle_id: int | None = None
     # The target board (M3 V7). Optional for back-compat: when omitted the router
     # falls back to the default board, so pre-board clients (the MCP server, older
     # tests) keep working. The referenced board must exist (422 otherwise).
@@ -121,6 +124,9 @@ class CardUpdate(BaseModel):
     # Re-link the story to a different epic, or clear it with null. The referenced
     # epic must exist; enforced in the router.
     epic_id: int | None = None
+    # Re-assign the story to a different cycle/iteration, or clear it with null
+    # (V33, KAN-297). The referenced cycle must exist on the card's board; router.
+    cycle_id: int | None = None
     # Card fields (M5 V11). All optional (only sent fields apply, like the rest):
     # ``priority`` re-ranks; ``due_date`` accepts null to clear; ``label_ids``
     # **replaces** the card's label set (``[]`` clears them). Each label id must
@@ -264,6 +270,8 @@ class CardRead(BaseModel):
     story_points: int | None
     assignee: str | None
     epic_id: int | None
+    # The story's cycle/iteration (V33, KAN-297), or null when unassigned.
+    cycle_id: int | None
     # Card fields (M5 V11, KAN-244). ``priority`` + ``due_date`` are real columns;
     # ``labels`` is populated by the router from the card_label join (not an ORM
     # column), mirroring ``links`` — empty when the card has none.
@@ -680,6 +688,8 @@ class CardQuery(BaseModel):
 
     column: ColumnEnum | None = None
     epic_id: int | None = None
+    # Filter to stories in one cycle/iteration (V33, KAN-297); mirrors ``epic_id``.
+    cycle_id: int | None = None
     priority: PriorityEnum | None = None
     label: int | None = None
     due_before: datetime | None = None
@@ -786,4 +796,35 @@ class CardTemplateRead(BaseModel):
     name: str
     # The stored list of card payloads as JSON — round-trips exactly what was stored.
     cards: list[dict[str, Any]]
+    created_at: datetime
+
+
+# --- cycles / iterations (V33, KAN-297) ------------------------------------
+
+
+class CycleCreate(BaseModel):
+    """Create a cycle (a board-scoped, time-boxed iteration). ``name`` is required
+    non-empty; ``starts_on`` / ``ends_on`` are optional ISO-8601 iteration bounds.
+    The board comes from the path (``/boards/{id}/cycles``), not the body."""
+
+    name: Annotated[str, Field(min_length=1, max_length=MAX_NAME_LEN)]
+    starts_on: datetime | None = None
+    ends_on: datetime | None = None
+
+    @field_validator("name")
+    @classmethod
+    def name_non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("name must not be empty")
+        return v
+
+
+class CycleRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    board_id: int
+    name: str
+    starts_on: datetime | None
+    ends_on: datetime | None
     created_at: datetime

@@ -214,6 +214,7 @@ class KanbanClient:
         board_id: int | None = None,
         column: str | None = None,
         epic_id: int | None = None,
+        cycle_id: int | None = None,
         updated_since: str | None = None,
         priority: str | None = None,
         label: int | None = None,
@@ -231,6 +232,7 @@ class KanbanClient:
                 "board_id": board_id,
                 "column": column,
                 "epic_id": epic_id,
+                "cycle_id": cycle_id,
                 "updated_since": updated_since,
                 "priority": priority,
                 "label": label,
@@ -275,6 +277,7 @@ class KanbanClient:
         story_points: int | None = None,
         assignee: str | None = None,
         epic_id: int | None = None,
+        cycle_id: int | None = None,
         priority: str | None = None,
         due_date: str | None = None,
         label_ids: list[int] | None = None,
@@ -288,6 +291,7 @@ class KanbanClient:
                 "story_points": story_points,
                 "assignee": assignee,
                 "epic_id": epic_id,
+                "cycle_id": cycle_id,
                 "priority": priority,
                 "due_date": due_date,
                 "label_ids": label_ids,
@@ -364,6 +368,7 @@ class KanbanClient:
         story_points: int | None = None,
         assignee: str | None = None,
         epic_id: int | None = None,
+        cycle_id: int | None = None,
         priority: str | None = None,
         due_date: str | None = None,
         label_ids: list[int] | None = None,
@@ -375,6 +380,7 @@ class KanbanClient:
                 "story_points": story_points,
                 "assignee": assignee,
                 "epic_id": epic_id,
+                "cycle_id": cycle_id,
                 "priority": priority,
                 "due_date": due_date,
                 "label_ids": label_ids,
@@ -687,3 +693,42 @@ class KanbanClient:
             "POST", f"/boards/{board_id}/templates/{template_id}/apply"
         ).json()
         return {"created": created}
+
+    # --- cycles / iterations (V33 API / KAN-297 adapter) --------------------
+
+    def list_cycles(self, board_id: int) -> dict[str, Any]:
+        """List a board's cycles (id, name, starts_on, ends_on), oldest-first.
+        Returns ``{"cycles": [<cycle>, ...]}``. Use a cycle's id as the ``cycle_id``
+        filter on ``list_cards`` or when assigning a card via ``update_card``."""
+        return {
+            "cycles": self._request("GET", f"/boards/{board_id}/cycles").json()
+        }
+
+    def create_cycle(
+        self,
+        board_id: int,
+        name: str,
+        *,
+        starts_on: str | None = None,
+        ends_on: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a cycle (a time-boxed iteration) on ``board_id`` — a ``name`` and
+        optional ISO-8601 ``starts_on`` / ``ends_on`` bounds. Returns the created
+        cycle; assign cards to it via ``update_card(card_id, cycle_id=...)``."""
+        payload = _clean({"name": name, "starts_on": starts_on, "ends_on": ends_on})
+        return self._request(
+            "POST", f"/boards/{board_id}/cycles", json=payload
+        ).json()
+
+    def get_cycle(self, board_id: int, cycle_id: int) -> dict[str, Any]:
+        """Fetch one cycle on ``board_id`` by id. 404 if it doesn't exist or isn't
+        on that board."""
+        return self._request(
+            "GET", f"/boards/{board_id}/cycles/{cycle_id}"
+        ).json()
+
+    def delete_cycle(self, board_id: int, cycle_id: int) -> dict[str, Any]:
+        """Delete a cycle on ``board_id`` (its cards are detached, not deleted).
+        204 No Content — no body to parse."""
+        self._request("DELETE", f"/boards/{board_id}/cycles/{cycle_id}")
+        return {"deleted": cycle_id}

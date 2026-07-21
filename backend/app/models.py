@@ -204,6 +204,43 @@ class Epic(Base):
     )
 
 
+class Cycle(Base):
+    """A board-scoped, time-boxed iteration a story can belong to (V33, KAN-297).
+
+    A cycle groups the stories worked in one iteration (a sprint / week). Unlike an
+    epic it is **not** a first-class ticketed entity — it mirrors the flat,
+    board-owned shape of :class:`SavedView` / :class:`CardTemplate` (no
+    ``ticket_number``, no soft-delete): full CRUD-lite addressed under its board.
+
+    ``board_id`` FK → ``board`` (``ON DELETE CASCADE``): a cycle belongs to a board
+    and is hard-deleted with it (consistent with the app's hard-delete model).
+    ``starts_on`` / ``ends_on`` are optional (nullable) iteration bounds. A story
+    links to zero-or-one cycle via the nullable ``card.cycle_id`` FK, exactly
+    mirroring ``card.epic_id`` (``ON DELETE SET NULL`` — deleting a cycle detaches
+    its stories rather than blocking or cascading). The non-empty ``name`` rule is
+    enforced by the Pydantic schema (:class:`app.schemas.CycleCreate`), not the table.
+    """
+
+    __tablename__ = "cycle"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    board_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("board.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Optional iteration bounds (nullable + additive). Timestamptz to match the rest
+    # of the schema's date columns (e.g. epic.target_date, card.due_date).
+    starts_on: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    ends_on: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class CardDependency(Base):
     """A directed blocker→blocked edge between two cards on the same board
     (KAN-28, the foundation for the dependency line).
@@ -366,6 +403,12 @@ class Card(Base):
     # the app's hard-delete model.
     epic_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("epic.id", ondelete="SET NULL"), nullable=True
+    )
+    # Optional link to the story's iteration/cycle (V33, KAN-297). Mirrors ``epic_id``
+    # exactly: ON DELETE SET NULL so deleting a cycle detaches (rather than blocks or
+    # cascades) its stories. Validated on POST/PATCH (same board, ``_validate_cycle``).
+    cycle_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("cycle.id", ondelete="SET NULL"), nullable=True
     )
     story_points: Mapped[int | None] = mapped_column(Integer, nullable=True)
     assignee: Mapped[str | None] = mapped_column(String(255), nullable=True)

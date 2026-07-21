@@ -521,6 +521,76 @@ def test_delete_template_issues_delete():
     assert out == {"deleted": 7}
 
 
+# --- cycles / iterations (V33) ---------------------------------------------
+
+
+def test_list_cycles_reads_board_cycles():
+    handler, seen = record_requests(httpx.Response(200, json=[{"id": 4, "name": "sprint-1"}]))
+    out = make_client(handler).list_cycles(3)
+    assert seen["requests"][0]["path"] == "/api/v1/boards/3/cycles"
+    assert out == {"cycles": [{"id": 4, "name": "sprint-1"}]}
+
+
+def test_create_cycle_posts_name_and_bounds():
+    handler, seen = record_requests(httpx.Response(201, json={"id": 4}))
+    make_client(handler).create_cycle(
+        3, "sprint-1", starts_on="2026-01-01T00:00:00Z", ends_on="2026-01-14T00:00:00Z"
+    )
+    req = seen["requests"][0]
+    assert req["method"] == "POST"
+    assert req["path"] == "/api/v1/boards/3/cycles"
+    assert req["body"] == {
+        "name": "sprint-1",
+        "starts_on": "2026-01-01T00:00:00Z",
+        "ends_on": "2026-01-14T00:00:00Z",
+    }
+
+
+def test_create_cycle_omits_unset_bounds():
+    handler, seen = record_requests(httpx.Response(201, json={"id": 4}))
+    make_client(handler).create_cycle(3, "sprint-1")
+    assert seen["requests"][0]["body"] == {"name": "sprint-1"}
+
+
+def test_get_cycle_reads_one():
+    handler, seen = record_requests(httpx.Response(200, json={"id": 4}))
+    make_client(handler).get_cycle(3, 4)
+    req = seen["requests"][0]
+    assert req["method"] == "GET"
+    assert req["path"] == "/api/v1/boards/3/cycles/4"
+
+
+def test_delete_cycle_issues_delete():
+    handler, seen = record_requests(httpx.Response(204))
+    out = make_client(handler).delete_cycle(3, 4)
+    req = seen["requests"][0]
+    assert req["method"] == "DELETE"
+    assert req["path"] == "/api/v1/boards/3/cycles/4"
+    assert out == {"deleted": 4}
+
+
+def test_list_cards_sends_cycle_id_filter():
+    handler, seen = capture(httpx.Response(200, json=[]))
+    make_client(handler).list_cards(cycle_id=4)
+    assert seen["params"]["cycle_id"] == "4"
+
+
+def test_create_card_sends_cycle_id():
+    handler, seen = capture(httpx.Response(201, json={"id": 1}))
+    make_client(handler).create_card("T", cycle_id=4)
+    import json as _json
+
+    assert _json.loads(seen["content"])["cycle_id"] == 4
+
+
+def test_update_card_sends_cycle_id():
+    handler, seen = capture(httpx.Response(200, json={"id": 1}))
+    make_client(handler).update_card(1, cycle_id=4)
+    import json as _json
+
+    assert _json.loads(seen["content"])["cycle_id"] == 4
+
+
 # --- auth + error mapping --------------------------------------------------
 
 

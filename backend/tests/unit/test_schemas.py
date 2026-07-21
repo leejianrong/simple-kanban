@@ -15,6 +15,7 @@ from app.schemas import (
     CardUpdate,
     ColumnEnum,
     CommentCreate,
+    CycleCreate,
     DependencyCreate,
     EpicCreate,
     EpicUpdate,
@@ -39,6 +40,32 @@ def test_create_minimal_defaults_to_todo():
 
 def test_create_accepts_epic_id():
     assert CardCreate(title="ok", epic_id=7).epic_id == 7
+
+
+def test_create_and_update_accept_cycle_id():
+    # V33 (KAN-297): cycle_id defaults to None and is accepted on create + update.
+    assert CardCreate(title="ok").cycle_id is None
+    assert CardCreate(title="ok", cycle_id=4).cycle_id == 4
+    assert CardUpdate(cycle_id=4).cycle_id == 4
+    assert CardUpdate(cycle_id=None).cycle_id is None
+
+
+def test_cycle_create_requires_non_empty_name():
+    # V33 (KAN-297): name required non-empty; bounds optional (default None).
+    cycle = CycleCreate(name="Sprint 1")
+    assert cycle.starts_on is None and cycle.ends_on is None
+    for bad_name in ("", "   ", "\t\n"):
+        with pytest.raises(ValidationError):
+            CycleCreate(name=bad_name)
+
+
+def test_cycle_create_accepts_bounds():
+    cycle = CycleCreate(
+        name="Sprint 1",
+        starts_on="2026-01-01T00:00:00Z",
+        ends_on="2026-01-14T00:00:00Z",
+    )
+    assert cycle.starts_on is not None and cycle.ends_on is not None
 
 
 def test_epic_create_requires_non_empty_name():
@@ -133,6 +160,7 @@ def test_card_read_dependency_arrays_default_empty():
         story_points=None,
         assignee=None,
         epic_id=None,
+        cycle_id=None,
         priority="none",
         due_date=None,
         needs_human=False,
@@ -167,6 +195,7 @@ def test_card_read_links_default_empty():
         story_points=None,
         assignee=None,
         epic_id=None,
+        cycle_id=None,
         priority="none",
         due_date=None,
         needs_human=False,

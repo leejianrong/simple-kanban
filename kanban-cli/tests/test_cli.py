@@ -158,6 +158,15 @@ class FakeClient:
     def apply_template(self, board_id, template_id):
         return self._call("apply_template", board_id=board_id, template_id=template_id)
 
+    def list_cycles(self, board_id):
+        return self._call("list_cycles", board_id=board_id)
+
+    def create_cycle(self, board_id, name, **kw):
+        return self._call("create_cycle", board_id=board_id, name=name, **kw)
+
+    def delete_cycle(self, board_id, cycle_id):
+        return self._call("delete_cycle", board_id=board_id, cycle_id=cycle_id)
+
     def add_dependency(self, card_id, blocker_id):
         return self._call("add_dependency", card_id=card_id, blocker_id=blocker_id)
 
@@ -232,6 +241,7 @@ def test_list_maps_all_filters(monkeypatch, env):
                 "board_id": 3,
                 "column": "done",
                 "epic_id": 5,
+                "cycle_id": None,
                 "priority": None,
                 "label": None,
                 "due_before": None,
@@ -364,6 +374,57 @@ def test_template_delete_requires_yes(monkeypatch, env):
     assert fake.calls == []
     assert cli.run(["template", "delete", "7", "--board", "3", "--yes"]) == 0
     assert fake.calls == [("delete_template", {"board_id": 3, "template_id": 7})]
+
+
+# --- cycle subcommands (V33 / KAN-297) -------------------------------------
+
+
+def test_cycle_list_calls_client(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"cycles": []}))
+    assert cli.run(["cycle", "list", "--board", "3"]) == 0
+    assert fake.calls == [("list_cycles", {"board_id": 3})]
+
+
+def test_cycle_create_passes_name_and_bounds(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"id": 4, "name": "sprint-1"}))
+    code = cli.run(
+        ["cycle", "create", "sprint-1", "--board", "3",
+         "--starts-on", "2026-01-01T00:00:00Z", "--ends-on", "2026-01-14T00:00:00Z"]
+    )
+    assert code == 0
+    assert fake.calls == [
+        (
+            "create_cycle",
+            {
+                "board_id": 3,
+                "name": "sprint-1",
+                "starts_on": "2026-01-01T00:00:00Z",
+                "ends_on": "2026-01-14T00:00:00Z",
+            },
+        )
+    ]
+
+
+def test_cycle_delete_requires_yes(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"deleted": 4}))
+    assert cli.run(["cycle", "delete", "4", "--board", "3"]) == 1
+    assert fake.calls == []
+    assert cli.run(["cycle", "delete", "4", "--board", "3", "--yes"]) == 0
+    assert fake.calls == [("delete_cycle", {"board_id": 3, "cycle_id": 4})]
+
+
+def test_list_filters_by_cycle(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"cards": []}))
+    assert cli.run(["list", "--cycle", "4"]) == 0
+    assert fake.calls[0][1]["cycle_id"] == 4
+
+
+def test_create_and_update_pass_cycle(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient())
+    assert cli.run(["create", "S", "--cycle", "4"]) == 0
+    assert fake.calls[0][1]["cycle_id"] == 4
+    assert cli.run(["update", "7", "--cycle", "5"]) == 0
+    assert fake.calls[1][1]["cycle_id"] == 5
 
 
 def test_list_needs_human_filter(monkeypatch, env):
@@ -518,6 +579,7 @@ def test_create_maps_all_options(monkeypatch, env):
                 "story_points": 5,
                 "assignee": "alice",
                 "epic_id": 9,
+                "cycle_id": None,
                 "priority": None,
                 "due_date": None,
                 "label_ids": None,
@@ -556,6 +618,7 @@ def test_update_maps_fields(monkeypatch, env):
                 "story_points": 8,
                 "assignee": "bob",
                 "epic_id": None,
+                "cycle_id": None,
                 "priority": None,
                 "due_date": None,
                 "label_ids": None,
@@ -1485,8 +1548,8 @@ def test_update_epic_link_accepts_epic_ticket(monkeypatch, env):
             "update_card",
             {
                 "card_id": 7, "title": None, "description": None, "story_points": None,
-                "assignee": None, "epic_id": 9, "priority": None, "due_date": None,
-                "label_ids": None,
+                "assignee": None, "epic_id": 9, "cycle_id": None, "priority": None,
+                "due_date": None, "label_ids": None,
             },
         ),
     ]
