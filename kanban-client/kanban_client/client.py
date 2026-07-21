@@ -311,15 +311,43 @@ class KanbanClient:
         return {"created": created}
 
     def create_epic(
-        self, name: str, *, board_id: int | None = None, description: str | None = None
+        self,
+        name: str,
+        *,
+        board_id: int | None = None,
+        description: str | None = None,
+        target_date: str | None = None,
+        lead: str | None = None,
     ) -> dict[str, Any]:
-        payload = _clean({"board_id": board_id, "name": name, "description": description})
+        payload = _clean(
+            {
+                "board_id": board_id,
+                "name": name,
+                "description": description,
+                # Project fields (V31, KAN-295): target_date (ISO-8601) + lead.
+                "target_date": target_date,
+                "lead": lead,
+            }
+        )
         return self._request("POST", "/epics", json=payload).json()
 
     def update_epic(
-        self, epic_id: int, *, name: str | None = None, description: str | None = None
+        self,
+        epic_id: int,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        target_date: str | None = None,
+        lead: str | None = None,
     ) -> dict[str, Any]:
-        payload = _clean({"name": name, "description": description})
+        payload = _clean(
+            {
+                "name": name,
+                "description": description,
+                "target_date": target_date,
+                "lead": lead,
+            }
+        )
         return self._request("PATCH", f"/epics/{epic_id}", json=payload).json()
 
     def delete_epic(self, epic_id: int) -> dict[str, Any]:

@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 MAX_TITLE_LEN = 255  # card.title varchar(255)
 MAX_NAME_LEN = 255  # epic/board/template/view/label/token name varchar(255)
 MAX_ASSIGNEE_LEN = 255  # card.assignee varchar(255)
+MAX_LEAD_LEN = 255  # epic.lead varchar(255)
 MAX_LINK_LABEL_LEN = 255  # card_link.label varchar(255)
 MAX_LABEL_COLOR_LEN = 32  # label.color varchar(32)
 MAX_EMAIL_LEN = 320  # RFC 5321 upper bound (member lookup)
@@ -317,6 +318,10 @@ class EpicCreate(BaseModel):
     description: Annotated[str | None, Field(max_length=MAX_DESCRIPTION_LEN)] = None
     # Target board (M3 V7); optional → default board when omitted (see CardCreate).
     board_id: int | None = None
+    # Lightweight project fields (V31, KAN-295). ``target_date`` is an optional
+    # target/ship date; ``lead`` an optional free-text owner. Both optional → NULL.
+    target_date: datetime | None = None
+    lead: Annotated[str | None, Field(max_length=MAX_LEAD_LEN)] = None
 
     @field_validator("name")
     @classmethod
@@ -327,10 +332,15 @@ class EpicCreate(BaseModel):
 
 
 class EpicUpdate(BaseModel):
-    """Field edits for an epic. All optional — only sent fields are applied."""
+    """Field edits for an epic. All optional — only sent fields are applied.
+
+    ``target_date`` / ``lead`` (V31, KAN-295) accept a value to set, or ``null`` to
+    clear (the router applies only the fields actually sent, via ``exclude_unset``)."""
 
     name: Annotated[str | None, Field(max_length=MAX_NAME_LEN)] = None
     description: Annotated[str | None, Field(max_length=MAX_DESCRIPTION_LEN)] = None
+    target_date: datetime | None = None
+    lead: Annotated[str | None, Field(max_length=MAX_LEAD_LEN)] = None
 
     @field_validator("name")
     @classmethod
@@ -348,6 +358,9 @@ class EpicRead(BaseModel):
     board_id: int
     name: str
     description: str | None
+    # Lightweight project fields (V31, KAN-295) — real columns, read directly.
+    target_date: datetime | None
+    lead: str | None
     created_at: datetime
     updated_at: datetime
 

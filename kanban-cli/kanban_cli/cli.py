@@ -610,6 +610,8 @@ def _cmd_epic_create(client: KanbanClient, config: Config, args: argparse.Namesp
         args.name,
         board_id=_resolve_board(args.board, config),
         description=args.description,
+        target_date=args.target_date,
+        lead=args.lead,
     )
 
 
@@ -618,6 +620,8 @@ def _cmd_epic_update(client: KanbanClient, config: Config, args: argparse.Namesp
         _resolve_epic_id(client, args.epic_id),
         name=args.name,
         description=args.description,
+        target_date=args.target_date,
+        lead=args.lead,
     )
 
 
@@ -1179,6 +1183,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_epic_create.add_argument("name")
     p_epic_create.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
     p_epic_create.add_argument("--description")
+    p_epic_create.add_argument(
+        "--target-date", dest="target_date", metavar="ISO",
+        help="a target/ship date (ISO-8601 timestamp)",
+    )
+    p_epic_create.add_argument("--lead", help="a free-text owner (person/agent handle)")
     p_epic_create.set_defaults(func=_cmd_epic_create, noun="epic")
 
     p_epic_update = epic_sub.add_parser("update", parents=[common], help="edit an epic's fields")
@@ -1188,6 +1197,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_epic_update.add_argument("--name")
     p_epic_update.add_argument("--description")
+    p_epic_update.add_argument(
+        "--target-date", dest="target_date", metavar="ISO",
+        help="a target/ship date (ISO-8601 timestamp)",
+    )
+    p_epic_update.add_argument("--lead", help="a free-text owner (person/agent handle)")
     p_epic_update.set_defaults(func=_cmd_epic_update, noun="epic")
 
     p_epic_delete = epic_sub.add_parser("delete", parents=[common], help="delete an epic")

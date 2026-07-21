@@ -837,19 +837,39 @@ def test_epic_list_uses_board_env_default(monkeypatch, env):
 def test_epic_create_maps_all_options(monkeypatch, env):
     fake = patch_client(monkeypatch, FakeClient(result=EPIC))
     code = cli.run(
-        ["epic", "create", "Onboarding", "--board", "2", "--description", "d"]
+        [
+            "epic", "create", "Onboarding", "--board", "2", "--description", "d",
+            "--target-date", "2026-09-01T00:00:00Z", "--lead", "ada",
+        ]
     )
     assert code == 0
     assert fake.calls == [
-        ("create_epic", {"name": "Onboarding", "board_id": 2, "description": "d"})
+        (
+            "create_epic",
+            {
+                "name": "Onboarding", "board_id": 2, "description": "d",
+                "target_date": "2026-09-01T00:00:00Z", "lead": "ada",
+            },
+        )
     ]
 
 
 def test_epic_update_maps_fields(monkeypatch, env):
     fake = patch_client(monkeypatch, FakeClient(result=EPIC))
-    assert cli.run(["epic", "update", "1", "--name", "New", "--description", "x"]) == 0
+    assert cli.run(
+        [
+            "epic", "update", "1", "--name", "New", "--description", "x",
+            "--target-date", "2026-12-31T12:00:00Z", "--lead", "grace",
+        ]
+    ) == 0
     assert fake.calls == [
-        ("update_epic", {"epic_id": 1, "name": "New", "description": "x"})
+        (
+            "update_epic",
+            {
+                "epic_id": 1, "name": "New", "description": "x",
+                "target_date": "2026-12-31T12:00:00Z", "lead": "grace",
+            },
+        )
     ]
 
 
@@ -1483,7 +1503,13 @@ def test_epic_update_accepts_epic_ticket(monkeypatch, env):
     assert cli.run(["epic", "update", "EPIC-4", "--name", "New"]) == 0
     assert fake.calls == [
         ("list_epics", {"board_id": None}),
-        ("update_epic", {"epic_id": 7, "name": "New", "description": None}),
+        (
+            "update_epic",
+            {
+                "epic_id": 7, "name": "New", "description": None,
+                "target_date": None, "lead": None,
+            },
+        ),
     ]
 
 

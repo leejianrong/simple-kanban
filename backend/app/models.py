@@ -177,6 +177,15 @@ class Epic(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Lightweight project fields (V31, KAN-295). ``target_date`` is an optional
+    # target/ship date for the epic; ``lead`` is an optional free-text owner (a
+    # person/agent handle, not an FK to ``user`` — an epic lead can be anyone). Both
+    # nullable + additive: existing epics read NULL. ``lead`` is a plain varchar(255),
+    # capped in the schema (``MAX_LEAD_LEN``) so an over-long value is a clean 422.
+    target_date: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    lead: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Soft-delete tombstone (KAN-19, R5.2). NULL = live; a timestamp = deleted.
     # DELETE sets this instead of removing the row; default reads filter it out
     # (``deleted_at IS NULL``). The FK from ``card.epic_id`` is intentionally left

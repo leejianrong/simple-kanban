@@ -17,6 +17,7 @@ from app.schemas import (
     CommentCreate,
     DependencyCreate,
     EpicCreate,
+    EpicUpdate,
     LabelCreate,
     LinkCreate,
     NeedsHumanRequest,
@@ -45,6 +46,44 @@ def test_epic_create_requires_non_empty_name():
     for bad_name in ("", "   ", "\t\n"):
         with pytest.raises(ValidationError):
             EpicCreate(name=bad_name)
+
+
+def test_epic_project_fields_default_to_none():
+    # V31 (KAN-295): target_date + lead are optional and default to None.
+    epic = EpicCreate(name="Q3 Launch")
+    assert epic.target_date is None
+    assert epic.lead is None
+    upd = EpicUpdate()
+    assert upd.target_date is None
+    assert upd.lead is None
+
+
+def test_epic_create_accepts_project_fields():
+    epic = EpicCreate(name="Q3 Launch", target_date="2026-09-01T00:00:00Z", lead="ada")
+    assert epic.target_date is not None
+    assert epic.lead == "ada"
+
+
+def test_epic_update_accepts_project_fields_and_clears():
+    upd = EpicUpdate(target_date="2026-09-01T00:00:00Z", lead="ada")
+    assert upd.target_date is not None
+    assert upd.lead == "ada"
+    # Explicit null clears (only sent fields are applied by the router).
+    cleared = EpicUpdate(target_date=None, lead=None)
+    assert cleared.model_dump(exclude_unset=True) == {"target_date": None, "lead": None}
+
+
+def test_epic_lead_rejects_over_length():
+    # lead is varchar(255); an over-long value is a clean 422, not a 500 at INSERT.
+    with pytest.raises(ValidationError):
+        EpicCreate(name="ok", lead="x" * 256)
+    with pytest.raises(ValidationError):
+        EpicUpdate(lead="x" * 256)
+
+
+def test_epic_create_rejects_bad_target_date():
+    with pytest.raises(ValidationError):
+        EpicCreate(name="ok", target_date="not-a-date")
 
 
 @pytest.mark.parametrize("bad_title", ["", "   ", "\t\n"])
