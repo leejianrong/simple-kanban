@@ -983,3 +983,42 @@ Dogfooding observations about driving this board as an agent PM. Seeded from the
     the CLI has **no** purge/restore/trash, no `board delete`, and no comment delete — so smoke-test
     cards soft-delete but their ticket numbers (KAN-278…284, 289) are permanently burned; called out,
     not a bug.
+- **M6 Wave 1b + Wave 2 (hardening finish + Projects + Cycles): the migration-serialized spine, and CI
+  earning its keep.** Wave 1b landed the remaining hardening (V26 edge/fly.toml + a Cloudflare human
+  runbook; V28 payload caps + V29 report-only-CSP headers bundled since both touch `main.py`). Wave 2
+  shipped Projects (V31 fields + V32 rollup) and Cycles (V33 model + V34 burndown), all auto-merged on
+  green + prod-verified. **M6 must-haves complete**; EPIC-49/50 (palette, notifications) left as the
+  Nice-to-have tail by choice.
+  - **Two migrations can't be implemented in parallel — the alembic head serialises them.** V33's
+    `alembic revision --autogenerate` has to run off V31's *merged* head (0022) or it branches a second
+    head and alembic gets two heads. So the migration cards go strictly one-at-a-time (V31 merged →
+    then V33 starts), and land ALONE with prod-verify. The **derived** follow-ups (V32 rollup, V34
+    burndown — no migration) are what you parallelise: V32 ‖ V33, then V34 solo. Migration-alone is a
+    *landing* rule; the head-dependency is an even harder *implementation* rule.
+  - **Parallel edits to one shared file (`schemas.py`) stayed conflict-free by region discipline.**
+    V32 (EpicRead area) ‖ V33 (card `cycle_id` + a new Cycle section appended at EOF) — briefing each
+    "stay in your region, don't reflow the rest" made GitHub report MERGEABLE with zero manual rebase,
+    even landing them a migration apart. Same lesson as the CLI batch: localized appends auto-merge.
+  - **CI caught a real regression a narrow local test missed (V32).** The agent ran only its own new
+    `epic-rollup.spec.ts` locally, not the full e2e suite, and shipped a green-looking PR that broke an
+    *existing* ui-polish test. Root cause was a genuine bug: V32 made the Epics grouping read the
+    server-derived `epic.progress`, but the card-mutation helpers only `refetch()`-ed cards, never
+    `refetchEpics()` — so `epicStore` went stale after a move and the "Completed" group never rendered.
+    Fix: `addCard/editCard/removeCard/moveCard` now `refetch()` **and** `refetchEpics()` (server-
+    authoritative + fresh, mirroring the `refetchLabels` pattern). **Standing rule: a change to a shared
+    UI component must run the FULL `npm run e2e`, not just its new spec.** The green gate did its job.
+  - **`alembic --autogenerate` has phantom index churn in this repo — every migration must review +
+    strip it.** Both V31 and V33 saw autogen emit spurious drop/create_index for existing indexes
+    (`ix_card_search_vector`, `ix_card_comment_card_id`, the two `card_dependency` FK indexes,
+    `ix_card_link_card_id`) — pre-existing model-vs-DB drift, unrelated to the slice. Both hand-stripped
+    to only their real ops and re-ran autogen to confirm a clean diff. Filed a tech-debt card to
+    reconcile the model `Index()` declarations so future autogen is clean.
+  - **Worktree e2e can silently bind to the WRONG backend on fixed ports.** V34's full-suite e2e failed
+    all 31 at login because ports 8000/5173 were held by an *unrelated* local project and Playwright's
+    `reuseExistingServer` connected to it (test-login 404). The agent did NOT kill the user's app —
+    it retargeted the e2e stack to free ports, ran green, then reverted the config (verified the PR had
+    no stray `vite.config`/`playwright.config`). Worth a per-worktree port offset if this recurs.
+  - **Dogfooded the feature mid-build:** used V32's just-shipped epic progress rollup (`GET /epics/{id}`
+    → `progress {done,total,percent}`) to report M6 epic completion back to the user. The prod-verify of
+    each migration/derived slice was an API round-trip against the live app (set→read→clear for epic
+    fields; create→assign→filter→delete for cycles; endpoint-shape for metrics), not just "CI green".
