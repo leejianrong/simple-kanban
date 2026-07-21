@@ -85,11 +85,58 @@ def install_body_size_limit(app: FastAPI) -> None:
         return await call_next(request)
 
 
+# --- Security headers (V29, KAN-293) ---------------------------------------
+# Single-origin app (FastAPI serves the SPA + /docs from one host), so the CSP is
+# tractable: everything is 'self' plus the inline scripts/styles the SPA and Swagger
+# UI use.
+#
+# CSP ships as **Content-Security-Policy-Report-Only** first: browsers evaluate it
+# and log violations to the console but do NOT block anything, so it cannot break the
+# SPA or /docs (Swagger UI loads its bundle from a CDN + uses inline script/style).
+# Watch prod consoles for report-only violations; once clean, flip to enforcing by
+# renaming the header to ``Content-Security-Policy`` (and, for /docs, either
+# self-host the Swagger assets or add the CDN host + relax to allow it).
+_CSP = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; "
+    "font-src 'self' data:; "
+    "connect-src 'self'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'; "
+    "object-src 'none'"
+)
+
+
+def install_security_headers(app: FastAPI) -> None:
+    """Set defensive response headers on every response (API, SPA, /docs, and error
+    responses alike). Registered outermost so it also covers a rate-limit 429 and
+    HTTPException responses. ``setdefault`` so a route that sets its own wins."""
+
+    @app.middleware("http")
+    async def _security_headers(request: Request, call_next):  # pyright: ignore[reportUnusedFunction]
+        response = await call_next(request)
+        headers = response.headers
+        # HTTPS is enforced at the Fly edge (force_https); browsers ignore HSTS over
+        # plain http, so setting it unconditionally is safe for dev/tests.
+        headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
+        headers.setdefault("X-Content-Type-Options", "nosniff")
+        headers.setdefault("X-Frame-Options", "DENY")
+        headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        headers.setdefault("Content-Security-Policy-Report-Only", _CSP)
+        return response
+
+
 app = FastAPI(title="Simple Kanban API", version="0.1.0")
 
 # Middleware registration order matters: Starlette runs the *last-registered*
-# middleware outermost. We want the access logger outermost (so a 413/429 rejection
-# still gets logged), then the body-size + rate-limit guards.
+# middleware outermost. We want security headers outermost (they must decorate every
+# response, including a 429/413/4xx), the access logger just inside it (so those
+# rejections still get logged), then the body-size + rate-limit guards.
 
 # Rate limiting (V27, KAN-291): one classifying middleware over slowapi's in-memory
 # limiter, guarding auth/write/expensive-read/webhook tiers. Off unless
@@ -104,6 +151,11 @@ install_body_size_limit(app)
 # Registered after the guards above so it stays outermost of them and a 413/429 is
 # still logged.
 add_request_logging(app)
+
+# Security headers (V29, KAN-293): HSTS/CSP(report-only)/nosniff/frame/referrer on
+# every response. Registered last → outermost, so it also decorates rate-limit 429s
+# and HTTPException error responses.
+install_security_headers(app)
 
 # Mount each router under the canonical versioned prefix /api/v1/... (P3,
 # spike-p3-versioning.md). The temporary /api compat alias that eased the V2

@@ -255,6 +255,15 @@ over-long field is a clean `422`, not a 500 at INSERT); only the two lever ampli
 - `MAX_BATCH_ITEMS` (default `500`) — max cards per `PATCH /api/v1/cards/batch` (`422` over it).
 - `MAX_TEMPLATE_CARDS` (default `200`) — max cards per template, enforced on both create and apply.
 
+**Security headers (V29, KAN-293)** — a response middleware
+([backend/app/main.py](backend/app/main.py), registered outermost so it decorates errors + the
+rate-limit `429` too) sets HSTS, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+`Referrer-Policy`, and a single-origin CSP. **The CSP ships as `Content-Security-Policy-Report-Only`
+first** (browsers report violations but block nothing, so it can't break the SPA or `/docs`, whose
+Swagger UI uses inline scripts/styles + a CDN bundle); flip to enforcing by renaming the header to
+`Content-Security-Policy` once prod consoles are clean (and self-host or allow the Swagger CDN for
+`/docs`). No env config.
+
 `E2E_AUTH_BYPASS` (V8) — when truthy, mounts an **e2e-only** `POST /auth/test-login` that mints a
 real cookie session for an arbitrary email (Playwright can't fake the httpOnly session a
 route-stub used to). **Never set in prod** — it's a login bypass. The Playwright `webServer` sets it;
