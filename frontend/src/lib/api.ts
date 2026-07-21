@@ -100,6 +100,17 @@ export interface CardUpdate {
   label_ids?: number[];
 }
 
+// Derived per-epic health signal (V32, KAN-296) — computed server-side from the
+// epic's target_date vs. remaining child work; null when the epic has no target_date.
+export type EpicHealth = "on_track" | "at_risk" | "overdue";
+
+// Derived rollup over an epic's non-deleted child cards (V32, KAN-296).
+export interface EpicProgress {
+  total: number;
+  done: number;
+  percent: number; // 0–100
+}
+
 // An epic is a grouping a story can belong to (ADR 0009), scoped to a board (V7).
 export interface Epic {
   id: number;
@@ -107,6 +118,12 @@ export interface Epic {
   board_id: number;
   name: string;
   description: string | null;
+  // Lightweight project fields (V31, KAN-295) — optional target/ship date + lead.
+  target_date: string | null;
+  lead: string | null;
+  // Derived, server-authoritative (V32, KAN-296): progress rollup + health signal.
+  progress: EpicProgress;
+  health: EpicHealth | null;
   created_at: string;
   updated_at: string;
 }

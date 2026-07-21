@@ -185,12 +185,34 @@ def _card_line(card: dict[str, Any]) -> str:
     )
 
 
+def _fmt_progress(epic: dict[str, Any]) -> str:
+    """Render an epic's derived rollup (V32, KAN-296) for human output: ``60% (3/5)``
+    plus a ``[health]`` tag when the API reports one (on_track/at_risk/overdue). Falls
+    back to ``-`` on an older API that doesn't carry ``progress``."""
+    progress = epic.get("progress")
+    if not isinstance(progress, dict):
+        return "-"
+    percent = progress.get("percent", 0)
+    done = progress.get("done", 0)
+    total = progress.get("total", 0)
+    out = f"{percent}% ({done}/{total})"
+    health = epic.get("health")
+    if health:
+        out += f" [{health}]"
+    return out
+
+
 def _epic_line(epic: dict[str, Any]) -> str:
-    """One concise line for an epic: ticket, name (tab-separated)."""
+    """One concise line for an epic: ticket, name, progress rollup (tab-separated).
+
+    Progress reads the API's derived ``progress``/``health`` (V32, KAN-296), rendered
+    ``<pct>% (<done>/<total>) [<health>]`` so an epic's completion + risk are visible
+    in human output; ``--json`` shows the full objects."""
     return "\t".join(
         (
             str(epic.get("ticket_number", epic.get("id", "?"))),
             str(epic.get("name", "")),
+            _fmt_progress(epic),
         )
     )
 
