@@ -938,3 +938,48 @@ Dogfooding observations about driving this board as an agent PM. Seeded from the
     prod that the FIXES are actually in the artifact: `kan get 260` → `KAN-260  done  …  pts=3` (not
     `(no labels)`), `kan list` shows `pts=` per row, `kan dep/activity/comment --help` all present.
     Building green ≠ shipped-and-working — download the real asset and run it.
+- **M6 planning + Wave 1a (hardening + CLI bugs): 3 agents ‖, all merged + `done`.** After a full
+  `kan` CLI exercise surfaced 4 real bugs (filed KAN-285…288), shaped M6 "Harden & Sharpen" (5 epics
+  EPIC-46…50, cards KAN-290…304; docs PR #156) and ran the first parallel wave. Land policy:
+  auto-merge on green, serialized landing.
+  - **The disjoint axis was subsystem, and `main.py` is the hardening chokepoint.** Wave 1a =
+    V27 rate-limiting (KAN-291: `main.py`+routers+new `ratelimit.py`) ‖ V30 DB resilience (KAN-294:
+    `db.py` only) ‖ CLI batch (KAN-285…288: `kanban-cli/` only) — three provably non-overlapping file
+    sets. Every M6 *middleware* card touches `backend/app/main.py`, so those must serialize; V27 owned
+    it this wave and V28/V29 were deferred to Wave 1b to rebase on V27's merged version.
+  - **Two Deploy `workflow_run` events fire per PR merge — poll the right one.** A merge triggers the
+    Deploy workflow twice: once from the *PR-branch* CI completion (gated out by the workflow's
+    `head_branch == 'main'` check → shows `completed/skipped`) and once from the *main-push* CI (the
+    real deploy). A naïve `gh run list … | head -1` grabs the skipped twin and falsely reports
+    "deployed/skipped". Select the run whose triggering CI was on `main` (or simply: wait for a deploy
+    run with `conclusion == success`, ignore `skipped`). Cost me one false "skip" read on V30.
+  - **`isolation: worktree` sandboxes Edit/Write but NOT Bash — all three agents hit it.** Each
+    agent's first `Edit` targeted the *shared*-checkout path (from the CLAUDE.md context) and was
+    correctly rejected (Edit is confined to the worktree); but two agents also ran `uv lock`/`uv sync`
+    via `cd …/backend` against the shared checkout before catching themselves. No harm (verified the
+    primary checkout `git status` clean after each returned), but the brief's "run all git/uv against
+    your worktree only" line is load-bearing — keep it, and re-verify the primary checkout is clean on
+    every agent return.
+  - **Adding a global middleware must not break the existing suite — ship it off by default.** V27's
+    limiter is gated behind `RATE_LIMIT_ENABLED` (unset = no-op), because the module-singleton app
+    shares one in-memory `limits` store across the whole pytest session, so a default-on limiter with
+    cumulative hits would trip existing tests. Off-by-default + a targeted test that injects a low
+    limit is the clean pattern; it also means the prod deploy is a no-op until the Fly secret is set.
+    (V30 followed the same "configurable, safe defaults" shape for `DB_*`.)
+  - **Two PRs editing CLAUDE.md's Configuration section did NOT conflict** — V30 added its `DB_*`
+    bullet after the `DATABASE_URL` paragraph, V27 its rate-limit bullet near the auth/E2E env vars, so
+    the edits were far enough apart that GitHub reported `MERGEABLE`. Adjacent-line edits still would
+    (the KAN-9/#10 lesson); non-adjacent same-section edits are fine.
+  - **Verify by the change's actual observable.** V30/V27 (DB timeouts / off-by-default limiter) can't
+    be seen externally, so prod-verify = readiness+liveness `ok` + an authenticated read served (proves
+    the new engine connect-args / installed middleware didn't regress serving). The CLI batch is
+    tag-gated (no deploy), so it was verified by running the CLI **from merged source** against prod
+    (`kan get KAN-250` by ticket, `--sort -priority` space form, human `template list`, `label
+    --color`) — not from the on-PATH v0.3.0 binary, which predates the fixes.
+  - **`kan` friction the CLI exercise surfaced (now fixed in KAN-285…288, PR #159):** every id-taking
+    command rejected the `KAN-`/`EPIC-` ticket it displays and demanded the numeric DB id; `--sort
+    -x` failed unless written `--sort=-x` (argparse eats the leading dash); `template list` dumped raw
+    JSON in human mode; `label create --color` was undocumented (color was positional). Also confirmed
+    the CLI has **no** purge/restore/trash, no `board delete`, and no comment delete — so smoke-test
+    cards soft-delete but their ticket numbers (KAN-278…284, 289) are permanently burned; called out,
+    not a bug.
