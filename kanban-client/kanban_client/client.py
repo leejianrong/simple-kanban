@@ -732,3 +732,13 @@ class KanbanClient:
         204 No Content — no body to parse."""
         self._request("DELETE", f"/boards/{board_id}/cycles/{cycle_id}")
         return {"deleted": cycle_id}
+
+    def cycle_metrics(self, board_id: int, cycle_id: int) -> dict[str, Any]:
+        """Fetch derived burndown / velocity metrics for a cycle (V34): committed
+        vs completed (stories + points), velocity (completed points), and a per-day
+        burndown over the cycle's ``starts_on``..``ends_on`` window — all computed
+        from the cycle's card state + activity feed (no stored metric). 404 if the
+        cycle doesn't exist or isn't on ``board_id``. Returns the metrics as-is."""
+        return self._request(
+            "GET", f"/boards/{board_id}/cycles/{cycle_id}/metrics"
+        ).json()

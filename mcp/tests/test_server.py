@@ -57,6 +57,7 @@ EXPECTED_TOOLS = {
     "list_cycles",
     "create_cycle",
     "delete_cycle",
+    "cycle_metrics",
 }
 
 
@@ -437,6 +438,16 @@ def test_delete_cycle_deletes_path(monkeypatch):
     assert out == {"deleted": 4}
 
 
+def test_cycle_metrics_reads_metrics_path(monkeypatch):
+    seen = _capture_client(
+        monkeypatch, httpx.Response(200, json={"velocity": 8, "unit": "points"})
+    )
+    out = server.cycle_metrics(4, board_id=3)
+    assert seen["method"] == "GET"
+    assert seen["path"] == "/api/v1/boards/3/cycles/4/metrics"
+    assert out == {"velocity": 8, "unit": "points"}
+
+
 def test_cycle_tools_require_a_board(monkeypatch):
     _capture_client(monkeypatch, httpx.Response(200, json=[]))
     import pytest
@@ -445,6 +456,8 @@ def test_cycle_tools_require_a_board(monkeypatch):
         server.list_cycles()
     with pytest.raises(ValueError):
         server.create_cycle("x")
+    with pytest.raises(ValueError):
+        server.cycle_metrics(4)
 
 
 def test_list_cards_passes_cycle_id(monkeypatch):

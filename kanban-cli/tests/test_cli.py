@@ -175,6 +175,9 @@ class FakeClient:
     def delete_cycle(self, board_id, cycle_id):
         return self._call("delete_cycle", board_id=board_id, cycle_id=cycle_id)
 
+    def cycle_metrics(self, board_id, cycle_id):
+        return self._call("cycle_metrics", board_id=board_id, cycle_id=cycle_id)
+
     def add_dependency(self, card_id, blocker_id):
         return self._call("add_dependency", card_id=card_id, blocker_id=blocker_id)
 
@@ -419,6 +422,45 @@ def test_cycle_delete_requires_yes(monkeypatch, env):
     assert fake.calls == []
     assert cli.run(["cycle", "delete", "4", "--board", "3", "--yes"]) == 0
     assert fake.calls == [("delete_cycle", {"board_id": 3, "cycle_id": 4})]
+
+
+CYCLE_METRICS = {
+    "board_id": 3,
+    "cycle_id": 4,
+    "generated_at": "2026-07-17T12:00:00Z",
+    "starts_on": "2026-07-01T00:00:00Z",
+    "ends_on": "2026-07-03T00:00:00Z",
+    "committed": {"count": 3, "points": 16},
+    "completed": {"count": 2, "points": 11},
+    "velocity": 11,
+    "unit": "points",
+    "burndown": [
+        {"date": "2026-07-01", "remaining": 13, "completed": 3, "ideal": 16.0},
+        {"date": "2026-07-03", "remaining": 5, "completed": 11, "ideal": 0.0},
+    ],
+}
+
+
+def test_cycle_metrics_maps_board_and_cycle(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result=CYCLE_METRICS))
+    assert cli.run(["cycle", "metrics", "4", "--board", "3"]) == 0
+    assert fake.calls == [("cycle_metrics", {"board_id": 3, "cycle_id": 4})]
+
+
+def test_cycle_metrics_pretty_renders_burndown(monkeypatch, env, capsys):
+    patch_client(monkeypatch, FakeClient(result=CYCLE_METRICS))
+    assert cli.run(["cycle", "metrics", "4", "--board", "3"]) == 0
+    out = capsys.readouterr().out
+    assert "velocity:    11 pts done" in out
+    assert "committed:   3 stories  16 pts" in out
+    assert "2026-07-01\tremaining 13\tideal 16.0" in out
+
+
+def test_cycle_metrics_json(monkeypatch, env, capsys):
+    patch_client(monkeypatch, FakeClient(result=CYCLE_METRICS))
+    assert cli.run(["cycle", "metrics", "4", "--board", "3", "--json"]) == 0
+    out = capsys.readouterr().out
+    assert json.loads(out)["velocity"] == 11
 
 
 def test_list_filters_by_cycle(monkeypatch, env):

@@ -146,6 +146,8 @@ def _humanize(result: Any, *, noun: str = "card") -> str:
         return f"deleted {noun} {result['deleted']}"
     if isinstance(result, dict) and "status" in result:  # warmup
         return _warmup_line(result)
+    if isinstance(result, dict) and "velocity" in result and "burndown" in result:
+        return _cycle_metrics_block(result)  # cycle metrics (V34)
     if isinstance(result, dict) and "throughput" in result and "cycle_time" in result:
         return _metrics_block(result)  # board metrics (V17)
     # A single saved view carries ``query`` (distinctive) — matched before the
@@ -357,6 +359,31 @@ def _metrics_block(result: dict[str, Any]) -> str:
         for row in by_assignee:
             who = row.get("assignee") or "(unassigned)"
             lines.append(f"  {who}\tdone {row.get('throughput', 0)}\twip {row.get('wip', 0)}")
+    return "\n".join(lines)
+
+
+def _cycle_metrics_block(result: dict[str, Any]) -> str:
+    """Render cycle burndown / velocity (V34) as a compact multi-line readout."""
+    unit = result.get("unit", "points")
+    committed = result.get("committed", {})
+    completed = result.get("completed", {})
+    lines = [
+        f"cycle {result.get('cycle_id', '?')}  (board {result.get('board_id', '?')}, unit: {unit})",
+        f"committed:   {committed.get('count', 0)} stories  {committed.get('points', 0)} pts",
+        f"completed:   {completed.get('count', 0)} stories  {completed.get('points', 0)} pts",
+        f"velocity:    {result.get('velocity', 0)} pts done",
+    ]
+    burndown = result.get("burndown", [])
+    if burndown:
+        lines.append(f"burndown ({unit}):")
+        for point in burndown:
+            lines.append(
+                f"  {point.get('date', '?')}\t"
+                f"remaining {point.get('remaining', 0)}\t"
+                f"ideal {point.get('ideal', 0)}"
+            )
+    else:
+        lines.append("burndown:    (no dated window)")
     return "\n".join(lines)
 
 
@@ -792,6 +819,11 @@ def _cmd_cycle_delete(client: KanbanClient, config: Config, args: argparse.Names
             f"refusing to delete cycle {args.cycle_id} without confirmation; pass --yes"
         )
     return client.delete_cycle(_require_view_board(args, config), args.cycle_id)
+
+
+def _cmd_cycle_metrics(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    """Derived burndown / velocity metrics for a cycle (V34, KAN-298)."""
+    return client.cycle_metrics(_require_view_board(args, config), args.cycle_id)
 
 
 # --- batch update + card templates (M5 V19 API / KAN-252 adapter) ----------
@@ -1404,6 +1436,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_cycle_delete.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
     p_cycle_delete.add_argument("--yes", action="store_true", help="confirm the deletion")
     p_cycle_delete.set_defaults(func=_cmd_cycle_delete, noun="cycle")
+
+    p_cycle_metrics = cycle_sub.add_parser(
+        "metrics",
+        parents=[common],
+        help="burndown / velocity for a cycle (committed vs completed + per-day burndown)",
+    )
+    p_cycle_metrics.add_argument("cycle_id", type=int)
+    p_cycle_metrics.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
+    p_cycle_metrics.set_defaults(func=_cmd_cycle_metrics, noun="cycle")
 
     # --- batch update (M5 V19 / KAN-252): atomic multi-card PATCH ------------
     # One transaction server-side: all cards update or none (any bad id fails the
