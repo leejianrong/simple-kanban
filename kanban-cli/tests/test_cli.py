@@ -1509,3 +1509,47 @@ def test_dep_add_resolves_both_card_and_blocker_tickets(monkeypatch, env):
         ("list_cards", {"board_id": None}),
         ("add_dependency", {"card_id": 7, "blocker_id": 3}),
     ]
+
+
+# --- KAN-286: `--sort` with a leading-dash value in the space form -----------
+# `kan list --sort -priority,position` used to fail ("expected one argument")
+# because argparse read the leading '-' as a flag; only `--sort=...` worked. The
+# argv normalizer rewrites `--sort -spec` → `--sort=-spec` so the documented space
+# form works, without breaking the equals form.
+
+
+def test_sort_space_form_with_leading_dash(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"cards": []}))
+    assert cli.run(["list", "--sort", "-priority,position"]) == 0
+    assert fake.calls[0][1]["sort"] == "-priority,position"
+
+
+def test_sort_equals_form_still_works(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"cards": []}))
+    assert cli.run(["list", "--sort=-priority,position"]) == 0
+    assert fake.calls[0][1]["sort"] == "-priority,position"
+
+
+def test_sort_space_form_ascending_value(monkeypatch, env):
+    # A plain (ascending) value in the space form was always fine — keep it so.
+    fake = patch_client(monkeypatch, FakeClient(result={"cards": []}))
+    assert cli.run(["list", "--sort", "priority,position"]) == 0
+    assert fake.calls[0][1]["sort"] == "priority,position"
+
+
+def test_sort_normalizer_leaves_real_flags_alone(monkeypatch, env, capsys):
+    # `--sort` with a following long flag (not a value) must not swallow the flag:
+    # argparse still reports the missing sort value as a usage error.
+    with pytest.raises(SystemExit) as exc:
+        cli.run(["list", "--sort", "--json"])
+    assert exc.value.code == cli.EXIT_USAGE
+
+
+def test_normalize_sort_argv_only_touches_sort():
+    # Unit check on the rewriter: only `--sort -x` is rewritten; nothing else moves.
+    assert cli._normalize_sort_argv(["list", "--sort", "-priority", "--json"]) == [
+        "list", "--sort=-priority", "--json",
+    ]
+    assert cli._normalize_sort_argv(["list", "--column", "todo"]) == [
+        "list", "--column", "todo",
+    ]

@@ -967,8 +967,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_list.add_argument(
         "--sort", metavar="SPEC",
         help=(
-            "sort keys, comma-separated, '-' prefix = descending. For a leading "
-            "'-' use the equals form so it isn't read as a flag, e.g. "
+            "sort keys, comma-separated, '-' prefix = descending. Both the space "
+            "and equals forms work, e.g. --sort -priority,position or "
             "--sort=-priority,position. Fields: position/priority/due_date/"
             "created_at/updated_at/story_points/assignee/title/column/id"
         ),
@@ -1449,10 +1449,40 @@ def build_parser() -> argparse.ArgumentParser:
 # --- entry point ------------------------------------------------------------
 
 
+def _normalize_sort_argv(argv: list[str]) -> list[str]:
+    """Rewrite ``--sort -spec`` → ``--sort=-spec`` so a sort value that leads with
+    ``-`` (descending, e.g. ``-priority,position``) isn't mistaken for a flag
+    (KAN-286). argparse can't consume an option value beginning with ``-`` in the
+    space form — only the ``=`` form worked — so the documented
+    ``kan list --sort -priority,position`` failed with "expected one argument".
+
+    We only rewrite when the next token starts with a **single** ``-`` (a
+    descending sort key); a real long flag (``--json``) or a missing value is left
+    alone so argparse still reports it. The ``=`` form and plain values are
+    untouched. Applies to the ``--sort`` of ``list`` and ``view create``."""
+    out: list[str] = []
+    i = 0
+    while i < len(argv):
+        tok = argv[i]
+        if (
+            tok == "--sort"
+            and i + 1 < len(argv)
+            and argv[i + 1].startswith("-")
+            and not argv[i + 1].startswith("--")
+        ):
+            out.append(f"--sort={argv[i + 1]}")
+            i += 2
+            continue
+        out.append(tok)
+        i += 1
+    return out
+
+
 def run(argv: Sequence[str] | None = None) -> int:
     """Parse args, dispatch, print, and return an exit code (no ``sys.exit``)."""
     parser = build_parser()
-    args = parser.parse_args(argv)
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    args = parser.parse_args(_normalize_sort_argv(raw_argv))
 
     # Local commands (login / config …) touch only the config file — no token, no
     # client, no network. Dispatch them before resolving or requiring config.
