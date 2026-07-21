@@ -190,6 +190,17 @@ psycopg **v3** driver — keep it. Both the app ([backend/app/db.py](backend/app
 ([backend/alembic/env.py](backend/alembic/env.py)) read the same `DATABASE_URL`, so migrations
 always target the app's database.
 
+**DB + cold-start resilience env vars (V30, KAN-294)** — tune the app engines in
+[backend/app/db.py](backend/app/db.py) so a slow query on a cold-woken Neon can't pile up
+connections and wedge the 256MB box. All optional with prod-safe defaults, and applied to **both**
+the sync board engine and the async auth engine (Alembic's own engine in `env.py` is **untouched**,
+so long-running migrations are never cut short):
+- `DB_STATEMENT_TIMEOUT_MS` (default `30000`) — Postgres per-statement server-side cap in ms (via the
+  psycopg `options` connect-arg `-c statement_timeout=…`); a runaway query is cancelled, not hung. `0` disables.
+- `DB_POOL_SIZE` (`5`) / `DB_MAX_OVERFLOW` (`5`) — bounded connection pool (10 max), on top of `pool_pre_ping`.
+- `DB_POOL_TIMEOUT` (`10`) — seconds a caller waits for a free pooled connection before erroring (a burst degrades gracefully).
+- `DB_CONNECT_TIMEOUT` (`10`) — libpq connect timeout in seconds, so a stuck DB fails fast.
+
 **Agent auth is a per-user PAT (V9, ADR 0014; V10, ADR 0015).** `/api/v1` is **auth-required** for
 every request. Agents (the MCP server, `curl`) authenticate with a self-serve per-user **PAT**
 (`kanban_pat_…`, hashed HMAC-SHA256; created/revoked at `/api/v1/tokens` + the Tokens UI) set as
