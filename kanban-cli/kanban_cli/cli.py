@@ -113,6 +113,9 @@ def _humanize(result: Any, *, noun: str = "card") -> str:
             if templates
             else "(no templates)"
         )
+    if isinstance(result, dict) and "cycles" in result:  # list_cycles
+        cycles = result["cycles"]
+        return "\n".join(_cycle_line(c) for c in cycles) if cycles else "(no cycles)"
     if isinstance(result, dict) and "activity" in result:  # list_activity
         rows = result["activity"]
         if not rows:
@@ -149,6 +152,10 @@ def _humanize(result: Any, *, noun: str = "card") -> str:
     # generic name-without-title branch below (a view also has ``name``).
     if isinstance(result, dict) and "query" in result and "name" in result:
         return _view_line(result)
+    # A single cycle carries ``starts_on`` (distinctive) — matched before the
+    # generic name-without-title branch below.
+    if isinstance(result, dict) and "starts_on" in result and "name" in result:
+        return _cycle_line(result)
     # A single label carries ``color`` (distinctive) — matched before the generic
     # name-without-title branch below.
     if isinstance(result, dict) and "color" in result and "name" in result:
@@ -218,6 +225,21 @@ def _view_line(view: dict[str, Any]) -> str:
             str(view.get("id", "?")),
             str(view.get("name", "")),
             json.dumps(view.get("query", {}), default=str, sort_keys=True),
+        )
+    )
+
+
+def _cycle_line(cycle: dict[str, Any]) -> str:
+    """One concise line for a cycle: id, name, starts_on, ends_on (tab-separated).
+
+    Dates read the API's ``starts_on`` / ``ends_on`` (rendered ``-`` when unset), so
+    an iteration's window is visible without ``--json``."""
+    return "\t".join(
+        (
+            str(cycle.get("id", "?")),
+            str(cycle.get("name", "")),
+            str(cycle.get("starts_on") or "-"),
+            str(cycle.get("ends_on") or "-"),
         )
     )
 
@@ -466,6 +488,7 @@ def _cmd_list(client: KanbanClient, config: Config, args: argparse.Namespace) ->
         board_id=_resolve_board(args.board, config),
         column=args.column,
         epic_id=_resolve_epic_opt(client, args.epic),
+        cycle_id=args.cycle,
         priority=args.priority,
         label=args.label,
         due_before=args.due_before,
@@ -491,6 +514,7 @@ def _cmd_create(client: KanbanClient, config: Config, args: argparse.Namespace) 
         story_points=args.points,
         assignee=args.assignee,
         epic_id=_resolve_epic_opt(client, args.epic),
+        cycle_id=args.cycle,
         priority=args.priority,
         due_date=args.due,
         label_ids=args.label or None,
@@ -505,6 +529,7 @@ def _cmd_update(client: KanbanClient, config: Config, args: argparse.Namespace) 
         story_points=args.points,
         assignee=args.assignee,
         epic_id=_resolve_epic_opt(client, args.epic),
+        cycle_id=args.cycle,
         priority=args.priority,
         due_date=args.due,
         label_ids=args.label if args.label is not None else None,
@@ -719,6 +744,32 @@ def _cmd_view_delete(client: KanbanClient, config: Config, args: argparse.Namesp
             f"refusing to delete view {args.view_id} without confirmation; pass --yes"
         )
     return client.delete_view(_require_view_board(args, config), args.view_id)
+
+
+# --- cycle handlers (V33 / KAN-297) -----------------------------------------
+# Cycles are board-scoped: list/create/delete honour --board / KANBAN_BOARD_ID.
+# Assigning a card to a cycle is a field edit — `kan update <card> --cycle <id>`.
+
+
+def _cmd_cycle_list(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    return client.list_cycles(_require_view_board(args, config))
+
+
+def _cmd_cycle_create(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    return client.create_cycle(
+        _require_view_board(args, config),
+        args.name,
+        starts_on=args.starts_on,
+        ends_on=args.ends_on,
+    )
+
+
+def _cmd_cycle_delete(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
+    if not args.yes:
+        raise ConfigError(
+            f"refusing to delete cycle {args.cycle_id} without confirmation; pass --yes"
+        )
+    return client.delete_cycle(_require_view_board(args, config), args.cycle_id)
 
 
 # --- batch update + card templates (M5 V19 API / KAN-252 adapter) ----------
@@ -977,6 +1028,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--epic", type=_id_or_ticket_arg, metavar="EPIC",
         help="filter by epic (id or EPIC-<n>)",
     )
+    p_list.add_argument(
+        "--cycle", type=int, metavar="CYCLE_ID", help="filter by cycle/iteration id"
+    )
     p_list.add_argument("--priority", choices=PRIORITIES, help="filter by priority")
     p_list.add_argument("--label", type=int, metavar="LABEL_ID", help="filter by label id")
     p_list.add_argument(
@@ -1032,6 +1086,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--epic", type=_id_or_ticket_arg, metavar="EPIC",
         help="link to an epic (id or EPIC-<n>)",
     )
+    p_create.add_argument(
+        "--cycle", type=int, metavar="CYCLE_ID",
+        help="assign to a cycle/iteration by id",
+    )
     p_create.add_argument("--priority", choices=PRIORITIES, help="priority (default: none)")
     p_create.add_argument("--due", metavar="ISO", help="due date (ISO-8601 timestamp)")
     p_create.add_argument(
@@ -1054,6 +1112,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_update.add_argument("--assignee")
     p_update.add_argument(
         "--epic", type=_id_or_ticket_arg, metavar="EPIC", help="link to an epic (id or EPIC-<n>)"
+    )
+    p_update.add_argument(
+        "--cycle", type=int, metavar="CYCLE_ID",
+        help="assign to a cycle/iteration by id",
     )
     p_update.add_argument("--priority", choices=PRIORITIES, help="re-rank priority")
     p_update.add_argument("--due", metavar="ISO", help="due date (ISO-8601 timestamp)")
@@ -1289,6 +1351,37 @@ def build_parser() -> argparse.ArgumentParser:
     p_view_delete.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
     p_view_delete.add_argument("--yes", action="store_true", help="confirm the deletion")
     p_view_delete.set_defaults(func=_cmd_view_delete, noun="view")
+
+    # --- cycle subcommands (V33 / KAN-297): board iterations ----------------
+    # Board-scoped, named iterations. Assign a card to one with
+    # `kan update <card> --cycle <id>`; filter with `kan list --cycle <id>`.
+    p_cycle = sub.add_parser("cycle", help="manage cycles / iterations (list / create / delete)")
+    cycle_sub = p_cycle.add_subparsers(
+        dest="cycle_command", metavar="<subcommand>", required=True
+    )
+
+    p_cycle_list = cycle_sub.add_parser("list", parents=[common], help="list a board's cycles")
+    p_cycle_list.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
+    p_cycle_list.set_defaults(func=_cmd_cycle_list, noun="cycle")
+
+    p_cycle_create = cycle_sub.add_parser("create", parents=[common], help="create a cycle")
+    p_cycle_create.add_argument("name")
+    p_cycle_create.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
+    p_cycle_create.add_argument(
+        "--starts-on", dest="starts_on", metavar="ISO",
+        help="iteration start (ISO-8601 timestamp)",
+    )
+    p_cycle_create.add_argument(
+        "--ends-on", dest="ends_on", metavar="ISO",
+        help="iteration end (ISO-8601 timestamp)",
+    )
+    p_cycle_create.set_defaults(func=_cmd_cycle_create, noun="cycle")
+
+    p_cycle_delete = cycle_sub.add_parser("delete", parents=[common], help="delete a cycle")
+    p_cycle_delete.add_argument("cycle_id", type=int)
+    p_cycle_delete.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
+    p_cycle_delete.add_argument("--yes", action="store_true", help="confirm the deletion")
+    p_cycle_delete.set_defaults(func=_cmd_cycle_delete, noun="cycle")
 
     # --- batch update (M5 V19 / KAN-252): atomic multi-card PATCH ------------
     # One transaction server-side: all cards update or none (any bad id fails the

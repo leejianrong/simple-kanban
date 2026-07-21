@@ -54,6 +54,9 @@ EXPECTED_TOOLS = {
     "create_template",
     "delete_template",
     "apply_template",
+    "list_cycles",
+    "create_cycle",
+    "delete_cycle",
 }
 
 
@@ -402,3 +405,55 @@ def test_template_tools_require_a_board(monkeypatch):
         server.list_templates()
     with pytest.raises(ValueError):
         server.apply_template(7)
+
+
+# --- cycle tools (V33, KAN-297) --------------------------------------------
+
+
+def test_list_cycles_reads_board_cycles(monkeypatch):
+    seen = _capture_client(monkeypatch, httpx.Response(200, json=[{"id": 4}]))
+    out = server.list_cycles(board_id=3)
+    assert seen["method"] == "GET"
+    assert seen["path"] == "/api/v1/boards/3/cycles"
+    assert out == {"cycles": [{"id": 4}]}
+
+
+def test_create_cycle_posts_name_and_bounds(monkeypatch):
+    seen = _capture_client(monkeypatch, httpx.Response(201, json={"id": 4}))
+    server.create_cycle("sprint-1", starts_on="2026-01-01T00:00:00Z", board_id=3)
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/api/v1/boards/3/cycles"
+    assert json.loads(seen["content"]) == {
+        "name": "sprint-1",
+        "starts_on": "2026-01-01T00:00:00Z",
+    }
+
+
+def test_delete_cycle_deletes_path(monkeypatch):
+    seen = _capture_client(monkeypatch, httpx.Response(204))
+    out = server.delete_cycle(4, board_id=3)
+    assert seen["method"] == "DELETE"
+    assert seen["path"] == "/api/v1/boards/3/cycles/4"
+    assert out == {"deleted": 4}
+
+
+def test_cycle_tools_require_a_board(monkeypatch):
+    _capture_client(monkeypatch, httpx.Response(200, json=[]))
+    import pytest
+
+    with pytest.raises(ValueError):
+        server.list_cycles()
+    with pytest.raises(ValueError):
+        server.create_cycle("x")
+
+
+def test_list_cards_passes_cycle_id(monkeypatch):
+    seen = _capture_get(monkeypatch, httpx.Response(200, json=[]))
+    server.list_cards(board_id=3, cycle_id=4)
+    assert seen["params"] == {"board_id": "3", "cycle_id": "4"}
+
+
+def test_create_card_passes_cycle_id(monkeypatch):
+    seen = _capture_client(monkeypatch, httpx.Response(201, json={"id": 1}))
+    server.create_card("T", board_id=3, cycle_id=4)
+    assert json.loads(seen["content"]) == {"board_id": 3, "title": "T", "cycle_id": 4}

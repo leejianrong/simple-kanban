@@ -31,7 +31,16 @@ from ..auth_models import User
 from ..authz import Access, authorize_board, get_principal, visible_board_ids
 from ..card_query import sort_order_by
 from ..db import get_db
-from ..models import Card, CardComment, CardDependency, CardLabel, CardLink, Epic, Label
+from ..models import (
+    Card,
+    CardComment,
+    CardDependency,
+    CardLabel,
+    CardLink,
+    Cycle,
+    Epic,
+    Label,
+)
 from ..ordering import next_position, renumber_column
 from ..pagination import NEXT_CURSOR_HEADER, decode_cursor, encode_cursor
 from ..schemas import (
@@ -263,6 +272,25 @@ def _validate_epic(db: Session, epic_id: int | None, board_id: int) -> None:
         )
 
 
+def _validate_cycle(db: Session, cycle_id: int | None, board_id: int) -> None:
+    """A story's ``cycle_id`` (if set) must reference an existing cycle (V33,
+    KAN-297) **on the same board** as the story (no cross-board links); 422
+    otherwise. Mirrors :func:`_validate_epic`."""
+    if cycle_id is None:
+        return
+    cycle = db.get(Cycle, cycle_id)
+    if cycle is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="cycle_id must reference an existing cycle",
+        )
+    if cycle.board_id != board_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="cycle must belong to the same board as the story",
+        )
+
+
 @router.get("", response_model=list[CardRead])
 def list_cards(
     response: Response,
@@ -271,6 +299,7 @@ def list_cards(
     board_id: int | None = None,
     column: ColumnEnum | None = None,
     epic_id: int | None = None,
+    cycle_id: int | None = None,
     updated_since: datetime | None = None,
     blocked: bool | None = None,
     priority: PriorityEnum | None = None,
@@ -292,7 +321,8 @@ def list_cards(
 
     Filters (all optional, AND-ed): ``board_id`` (cards on that board — the SPA
     always sends it to scope the view; omitted → all *your* boards); ``column``;
-    ``epic_id`` (stories linked to that epic); ``updated_since`` (an ISO-8601
+    ``epic_id`` (stories linked to that epic); ``cycle_id`` (stories in that
+    cycle/iteration, V33); ``updated_since`` (an ISO-8601
     timestamp — cards whose ``updated_at`` is at or after it, **inclusive**, the
     "changed since" feed for polling agents); ``blocked`` (KAN-29 ready/blocked
     signal — ``blocked=true`` returns only cards with ≥1 blocker not yet ``done``;
@@ -365,6 +395,9 @@ def list_cards(
         query = query.where(Card.column == column.value)
     if epic_id is not None:
         query = query.where(Card.epic_id == epic_id)
+    if cycle_id is not None:
+        # Cards in a cycle/iteration (V33, KAN-297); mirrors the epic_id filter.
+        query = query.where(Card.cycle_id == cycle_id)
     if updated_since is not None:
         query = query.where(Card.updated_at >= updated_since)
     if blocked is not None:
@@ -502,6 +535,7 @@ def _create_card_row(
     it) but does **not** commit — the caller owns the transaction, so a single create
     and a batch/template apply can share this and stay atomic (M5 V19, KAN-252)."""
     _validate_epic(db, payload.epic_id, board_id)
+    _validate_cycle(db, payload.cycle_id, board_id)
     label_ids = _validate_labels(db, payload.label_ids, board_id)
     card = Card(
         board_id=board_id,
@@ -512,6 +546,7 @@ def _create_card_row(
         story_points=payload.story_points,
         assignee=payload.assignee,
         epic_id=payload.epic_id,
+        cycle_id=payload.cycle_id,
         priority=payload.priority.value,
         due_date=payload.due_date,
     )
@@ -570,6 +605,8 @@ def _apply_card_update(db: Session, principal: User, card: Card, data: dict) -> 
         )
     if "epic_id" in data:
         _validate_epic(db, data["epic_id"], card.board_id)
+    if "cycle_id" in data:
+        _validate_cycle(db, data["cycle_id"], card.board_id)
     # ``label_ids`` isn't a card column — it replaces the card_label join, so pull
     # it out of the field-edit loop and apply it separately (M5 V11).
     label_ids_sent = "label_ids" in data

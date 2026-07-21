@@ -121,6 +121,7 @@ def list_cards(
     board_id: int | None = None,
     column: Column | None = None,
     epic_id: int | None = None,
+    cycle_id: int | None = None,
     updated_since: str | None = None,
     priority: Priority | None = None,
     label: int | None = None,
@@ -135,7 +136,8 @@ def list_cards(
 ) -> dict[str, Any]:
     """List/query stories. ``board_id`` targets one board (defaults to
     KANBAN_BOARD_ID; omit both to span all your boards). Other filters (AND-ed):
-    column, epic_id, updated_since (an ISO-8601 timestamp — stories changed
+    column, epic_id, cycle_id (stories in that cycle/iteration),
+    updated_since (an ISO-8601 timestamp — stories changed
     at/after it), priority, label (a label id), due_before (an ISO-8601 timestamp —
     stories due strictly before it), overdue (true → past-due and not done),
     needs_human (true → cards flagged for a human via needs_human; false → the rest),
@@ -154,6 +156,7 @@ def list_cards(
         board_id=_board(board_id),
         column=column,
         epic_id=epic_id,
+        cycle_id=cycle_id,
         updated_since=updated_since,
         priority=priority,
         label=label,
@@ -197,6 +200,7 @@ def create_card(
     story_points: int | None = None,
     assignee: str | None = None,
     epic_id: int | None = None,
+    cycle_id: int | None = None,
     priority: Priority | None = None,
     due_date: str | None = None,
     label_ids: list[int] | None = None,
@@ -205,7 +209,8 @@ def create_card(
     column (default ``todo``). ``board_id`` targets one board (defaults to
     KANBAN_BOARD_ID; omit both to use your earliest board). ``story_points`` must
     be one of 1/2/3/5/8/13. ``epic_id`` links it to an existing epic on the same
-    board. ``priority`` is one of none/low/medium/high/urgent (default none);
+    board; ``cycle_id`` assigns it to a cycle/iteration on the same board.
+    ``priority`` is one of none/low/medium/high/urgent (default none);
     ``due_date`` is an ISO-8601 timestamp; ``label_ids`` attaches board labels
     (each must belong to the card's board — see create_label/list_labels).
     """
@@ -217,6 +222,7 @@ def create_card(
         story_points=story_points,
         assignee=assignee,
         epic_id=epic_id,
+        cycle_id=cycle_id,
         priority=priority,
         due_date=due_date,
         label_ids=label_ids,
@@ -275,15 +281,18 @@ def update_card(
     story_points: int | None = None,
     assignee: str | None = None,
     epic_id: int | None = None,
+    cycle_id: int | None = None,
     priority: Priority | None = None,
     due_date: str | None = None,
     label_ids: list[int] | None = None,
 ) -> dict[str, Any]:
     """Edit a story's fields (only the arguments you pass are changed). Use
     move_card to change column/position, not this. ``priority`` re-ranks;
-    ``due_date`` is an ISO-8601 timestamp; ``label_ids`` **replaces** the card's
-    label set (``[]`` clears it — each id must belong to the card's board).
-    Authorized via the card's own board — no ``board_id`` needed.
+    ``due_date`` is an ISO-8601 timestamp; ``epic_id`` re-links the parent epic and
+    ``cycle_id`` (re)assigns the cycle/iteration (both on the card's board; pass
+    them to move the card, or clear with a separate call); ``label_ids``
+    **replaces** the card's label set (``[]`` clears it — each id must belong to the
+    card's board). Authorized via the card's own board — no ``board_id`` needed.
     """
     return _client_instance().update_card(
         card_id,
@@ -292,6 +301,7 @@ def update_card(
         story_points=story_points,
         assignee=assignee,
         epic_id=epic_id,
+        cycle_id=cycle_id,
         priority=priority,
         due_date=due_date,
         label_ids=label_ids,
@@ -664,6 +674,42 @@ def apply_template(template_id: int, board_id: int | None = None) -> dict[str, A
     board (defaults to KANBAN_BOARD_ID). Returns ``{"created": [<card>, ...]}`` in
     template order."""
     return _client_instance().apply_template(_require_board(board_id), template_id)
+
+
+# --- cycles / iterations (V33, KAN-297) ------------------------------------
+
+
+@mcp.tool()
+def list_cycles(board_id: int | None = None) -> dict[str, Any]:
+    """List a board's cycles/iterations (id, name, starts_on, ends_on). ``board_id``
+    targets one board (defaults to KANBAN_BOARD_ID). Use a cycle's id as the
+    ``cycle_id`` filter on list_cards, or to assign a card via update_card. Returns
+    ``{"cycles": [...]}``."""
+    return _client_instance().list_cycles(_require_board(board_id))
+
+
+@mcp.tool()
+def create_cycle(
+    name: str,
+    starts_on: str | None = None,
+    ends_on: str | None = None,
+    board_id: int | None = None,
+) -> dict[str, Any]:
+    """Create a cycle/iteration — a ``name`` and optional ISO-8601 ``starts_on`` /
+    ``ends_on`` bounds. ``board_id`` targets one board (defaults to KANBAN_BOARD_ID).
+    Returns the created cycle; assign cards to it with update_card(card_id,
+    cycle_id=<id>)."""
+    return _client_instance().create_cycle(
+        _require_board(board_id), name, starts_on=starts_on, ends_on=ends_on
+    )
+
+
+@mcp.tool()
+def delete_cycle(cycle_id: int, board_id: int | None = None) -> dict[str, Any]:
+    """Delete a cycle by id on a board; its cards are detached (their cycle_id is
+    cleared), not deleted. ``board_id`` targets one board (defaults to
+    KANBAN_BOARD_ID). 404 if no such cycle is on that board."""
+    return _client_instance().delete_cycle(_require_board(board_id), cycle_id)
 
 
 def main() -> None:
