@@ -220,6 +220,20 @@ Health probes (ADR 0017): `GET /api/health` is a **readiness** probe (cheap `SEL
 board engine → `503 {"status":"unavailable"}` when the DB is unreachable, else `200 {"status":"ok"}`);
 `GET /api/health/live` is a static **liveness** probe (always `200` while the process serves).
 
+**Rate limiting env vars (V27, KAN-291)** — wired in [backend/app/ratelimit.py](backend/app/ratelimit.py):
+a single classifying middleware over slowapi's in-memory `limits` engine guards four tiers —
+**auth** (login + OAuth callback), **write** (every `/api/v1` mutation incl. card `move`, board
+`dispatch`, `POST /tokens`), **expensive** (full-text search `GET /api/v1/cards?q=` + board
+`/metrics`), **webhook** (`POST /api/v1/webhooks/github`). Over the limit → `429` + a `Retry-After`
+header. Keyed on the **trusted `Fly-Client-IP`** header (never the spoofable `X-Forwarded-For`, since
+uvicorn runs `--forwarded-allow-ips=*`) plus a cheap principal hint. In-memory storage: single
+machine, resets on cold-start (accepted MVP). Config:
+- `RATE_LIMIT_ENABLED` — master switch. **Off unless truthy**, so dev + the test suite (which fire
+  many requests) are unaffected by default; set it on in prod (a Fly secret) to enable protection.
+- `RATE_LIMIT_AUTH` / `RATE_LIMIT_WRITE` / `RATE_LIMIT_EXPENSIVE` / `RATE_LIMIT_WEBHOOK` — per-tier
+  `limits` rate strings (`"N/second|minute|hour|day"`); generous defaults
+  `30`/`300`/`120`/`240` per minute.
+
 `E2E_AUTH_BYPASS` (V8) — when truthy, mounts an **e2e-only** `POST /auth/test-login` that mints a
 real cookie session for an arbitrary email (Playwright can't fake the httpOnly session a
 route-stub used to). **Never set in prod** — it's a login bypass. The Playwright `webServer` sets it;
