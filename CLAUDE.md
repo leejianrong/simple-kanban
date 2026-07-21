@@ -245,6 +245,16 @@ machine, resets on cold-start (accepted MVP). Config:
   `limits` rate strings (`"N/second|minute|hour|day"`); generous defaults
   `30`/`300`/`120`/`240` per minute.
 
+**Payload hardening env vars (V28, KAN-292)** — body-size + array caps; all optional with generous
+defaults, additive so normal payloads are unaffected. String `max_length`s are hardcoded in
+[backend/app/schemas.py](backend/app/schemas.py) (aligned to the `varchar(N)` column widths, so an
+over-long field is a clean `422`, not a 500 at INSERT); only the two lever amplifiers are env-tunable:
+- `MAX_REQUEST_BODY_BYTES` (default `2000000`, ~2 MB) — a body-size ceiling middleware
+  ([backend/app/main.py](backend/app/main.py)) that rejects a request whose declared `Content-Length`
+  exceeds it with `413`, before the body is read (header-only check).
+- `MAX_BATCH_ITEMS` (default `500`) — max cards per `PATCH /api/v1/cards/batch` (`422` over it).
+- `MAX_TEMPLATE_CARDS` (default `200`) — max cards per template, enforced on both create and apply.
+
 `E2E_AUTH_BYPASS` (V8) — when truthy, mounts an **e2e-only** `POST /auth/test-login` that mints a
 real cookie session for an arbitrary email (Playwright can't fake the httpOnly session a
 route-stub used to). **Never set in prod** — it's a login bypass. The Playwright `webServer` sets it;

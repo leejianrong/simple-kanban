@@ -13,8 +13,8 @@ import logging
 import os
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Response, status
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, Request, Response, status
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -43,15 +43,66 @@ init_error_tracking()
 
 logger = logging.getLogger("kanban.health")
 
+
+# --- Payload hardening: request body-size ceiling (V28, KAN-292) -----------
+# Reject an over-large request by its declared Content-Length *before* the body is
+# read or a route runs, so a giant upload can't buffer into the 256 MB box. String
+# and array caps live in schemas.py (per-field). The ceiling is env-tunable with a
+# generous default — normal JSON payloads are kilobytes, far below it.
+def _max_body_bytes() -> int:
+    try:
+        value = int(os.environ["MAX_REQUEST_BODY_BYTES"])
+    except (KeyError, ValueError):
+        return 2_000_000  # ~2 MB
+    return value if value > 0 else 2_000_000
+
+
+MAX_REQUEST_BODY_BYTES = _max_body_bytes()
+
+
+def install_body_size_limit(app: FastAPI) -> None:
+    """Middleware that 413s a request whose declared ``Content-Length`` exceeds the
+    ceiling. Header-only (no body buffering) so the rejection is cheap and early."""
+
+    @app.middleware("http")
+    async def _limit_body_size(request: Request, call_next):  # pyright: ignore[reportUnusedFunction]
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                declared = int(content_length)
+            except ValueError:
+                declared = None
+            if declared is not None and declared > MAX_REQUEST_BODY_BYTES:
+                return JSONResponse(
+                    status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                    content={
+                        "detail": (
+                            "Request body too large "
+                            f"(limit {MAX_REQUEST_BODY_BYTES} bytes)."
+                        )
+                    },
+                )
+        return await call_next(request)
+
+
 app = FastAPI(title="Simple Kanban API", version="0.1.0")
+
+# Middleware registration order matters: Starlette runs the *last-registered*
+# middleware outermost. We want the access logger outermost (so a 413/429 rejection
+# still gets logged), then the body-size + rate-limit guards.
 
 # Rate limiting (V27, KAN-291): one classifying middleware over slowapi's in-memory
 # limiter, guarding auth/write/expensive-read/webhook tiers. Off unless
-# RATE_LIMIT_ENABLED is set, so dev + tests are unaffected. Installed *before* the
-# access logger below so the logger stays outermost and a 429 still gets logged.
+# RATE_LIMIT_ENABLED is set, so dev + tests are unaffected.
 install_rate_limiting(app)
 
+# Payload hardening (V28, KAN-292): reject an over-large Content-Length with 413,
+# early (before the route reads the body). String/array caps live in schemas.py.
+install_body_size_limit(app)
+
 # One structured access line per request (method/path/status/latency/principal).
+# Registered after the guards above so it stays outermost of them and a 413/429 is
+# still logged.
 add_request_logging(app)
 
 # Mount each router under the canonical versioned prefix /api/v1/... (P3,
