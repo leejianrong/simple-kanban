@@ -247,14 +247,23 @@ def create_cards(cards: list[dict[str, Any]]) -> dict[str, Any]:
 
 @mcp.tool()
 def create_epic(
-    name: str, board_id: int | None = None, description: str | None = None
+    name: str,
+    board_id: int | None = None,
+    description: str | None = None,
+    target_date: str | None = None,
+    lead: str | None = None,
 ) -> dict[str, Any]:
     """Create an epic (a per-board grouping stories can link to via epic_id).
     ``board_id`` targets one board (defaults to KANBAN_BOARD_ID; omit both to use
-    your earliest board).
+    your earliest board). ``target_date`` is an optional ISO-8601 target/ship date;
+    ``lead`` is an optional free-text owner (a person/agent handle).
     """
     return _client_instance().create_epic(
-        name, board_id=_board(board_id), description=description
+        name,
+        board_id=_board(board_id),
+        description=description,
+        target_date=target_date,
+        lead=lead,
     )
 
 
@@ -316,12 +325,23 @@ def delete_card(card_id: int) -> dict[str, Any]:
 
 @mcp.tool()
 def update_epic(
-    epic_id: int, name: str | None = None, description: str | None = None
+    epic_id: int,
+    name: str | None = None,
+    description: str | None = None,
+    target_date: str | None = None,
+    lead: str | None = None,
 ) -> dict[str, Any]:
-    """Edit an epic's fields (only the arguments you pass are changed). Authorized
-    via the epic's own board — no ``board_id`` needed.
+    """Edit an epic's fields (only the arguments you pass are changed). ``target_date``
+    is an ISO-8601 target/ship date; ``lead`` is a free-text owner. Authorized via the
+    epic's own board — no ``board_id`` needed.
     """
-    return _client_instance().update_epic(epic_id, name=name, description=description)
+    return _client_instance().update_epic(
+        epic_id,
+        name=name,
+        description=description,
+        target_date=target_date,
+        lead=lead,
+    )
 
 
 @mcp.tool()

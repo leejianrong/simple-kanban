@@ -181,6 +181,21 @@ def test_create_epic_includes_board_id_when_given():
     assert json.loads(seen["content"]) == {"board_id": 7, "name": "E"}
 
 
+def test_create_epic_includes_project_fields_when_given():
+    import json
+
+    # V31 (KAN-295): target_date + lead pass through the body when supplied.
+    handler, seen = capture(httpx.Response(201, json={"id": 1, "name": "E"}))
+    make_client(handler).create_epic(
+        "E", target_date="2026-09-01T00:00:00Z", lead="ada"
+    )
+    assert json.loads(seen["content"]) == {
+        "name": "E",
+        "target_date": "2026-09-01T00:00:00Z",
+        "lead": "ada",
+    }
+
+
 def test_update_card_patches_provided_fields():
     import json
 
@@ -200,6 +215,17 @@ def test_update_epic_patches_only_provided_fields():
     assert seen["path"] == "/api/v1/epics/3"
     # None fields (description) are dropped, not sent as null.
     assert json.loads(seen["content"]) == {"name": "E"}
+
+
+def test_update_epic_includes_project_fields_when_given():
+    import json
+
+    handler, seen = capture(httpx.Response(200, json={"id": 3, "name": "E"}))
+    make_client(handler).update_epic(3, target_date="2026-12-31T12:00:00Z", lead="grace")
+    assert json.loads(seen["content"]) == {
+        "target_date": "2026-12-31T12:00:00Z",
+        "lead": "grace",
+    }
 
 
 def test_delete_epic_sends_delete_and_returns_ack_without_parsing_body():

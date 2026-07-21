@@ -111,6 +111,8 @@ def create_epic(
         board_id=board_id,
         name=payload.name,
         description=payload.description,
+        target_date=payload.target_date,
+        lead=payload.lead,
     )
     db.add(epic)
     db.commit()
