@@ -37,6 +37,25 @@ CLI parity** (R6.4) — endpoint first, then the MCP tool + `kan` verb, then any
 > **Status:** planned (0/14). Board cards: **KAN-290…KAN-303** (this file's V26–V39), under the five
 > `M6:` epics **EPIC-46…EPIC-50**. The sister-app kickoff is **KAN-304** (human-owned).
 
+### Wave 4 — UI Enhancement & Design System (EPIC-49)
+
+Added after the V26–V39 plan: a focused pass on the frontend's visual consistency and keyboard
+ergonomics, prompted by a dark-mode screenshot audit. Frontend-only (no API/DB) — each merge deploys.
+U-slices are numbered in their own `U`-series; **V35/V36 (the ⌘K palette + shortcuts, above) fold into
+this epic** since the palette builds on U2's Bits UI Command primitive.
+
+| Slice | What | Card | Ends in (demo) |
+|-------|------|------|----------------|
+| **U1 · Dark-mode form controls** | `color-scheme` + themed native selects/inputs | KAN-316 | No white/light form controls anywhere in dark mode; light unchanged |
+| **U2 · Design system** | Bits UI Select/DropdownMenu/Popover/Command + in-house Field/TextInput/Textarea/Checkbox, styled with existing Zinc/Teal tokens (no Tailwind) | KAN-317 | One consistent control style across the app in both themes |
+| **U3 · Card modal content** | bigger resizable markdown Description (`marked` + DOMPurify) + rename Notes→Comments | KAN-318 | Rendered sanitized markdown; "Comments" everywhere in the modal |
+| **U4 · Top-nav reorg** | minimal top bar + hamburger side-nav drawer + avatar menu | KAN-319 | Uncrowded top bar; drawer reaches every view; avatar menu = email/settings/logout |
+| **U5 · Filter/sort clarity** | lucide icons + grouping distinguishing filter from sort | KAN-320 | The filter/sort row reads at a glance as filtering vs sorting |
+
+> **Status:** U1 ✅ done (PR #168, deployed + prod-verified). U2–U5 + V35/V36 in progress.
+> **Build order:** U1 solo → U2 (design-first) → U3 ‖ U4 (design-first) ‖ U5 → V35 (on U2's Command)
+> → V36. **EPIC-50 (notifications, V37–V39) stays deferred.**
+
 ---
 
 ## Wave 1 — Harden
