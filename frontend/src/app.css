@@ -31,6 +31,9 @@
   --scrim: rgba(18, 22, 26, 0.42);
   --shadow-lg: 0 24px 60px -18px rgba(15, 20, 25, 0.45), 0 4px 12px -6px rgba(15, 20, 25, 0.25);
 
+  /* Tell the UA to paint native controls/popups/date-pickers/scrollbars light. */
+  color-scheme: light;
+
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color: var(--text);
 }
@@ -39,6 +42,7 @@
    [data-theme] overrides let a future manual toggle force either theme. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg: #101315;
     --col-bg: #15191c;
     --card-bg: #1a1f23;
@@ -64,6 +68,7 @@
   }
 }
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --bg: #101315;
   --col-bg: #15191c;
   --card-bg: #1a1f23;
@@ -745,6 +750,8 @@ button.danger {
   border: 1px solid var(--border);
   border-radius: 4px;
   width: 100%;
+  background-color: var(--card-bg);
+  color: var(--text);
 }
 .card-form .row {
   display: flex;
@@ -1043,6 +1050,8 @@ button.primary:disabled {
 .rail-select {
   appearance: none;
   -webkit-appearance: none;
+  background-color: var(--card-bg);
+  color: var(--text);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237a828b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 0.55rem center;
@@ -1271,6 +1280,8 @@ button.primary:disabled {
 .rail-field select {
   width: 100%;
   border-radius: 7px;
+  background-color: var(--card-bg);
+  color: var(--text);
 }
 .rail-field input:focus-visible,
 .rail-field select:focus-visible,
