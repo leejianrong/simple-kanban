@@ -33,7 +33,15 @@ CARD = {
     "story_points": None,
     "labels": [],
 }
-EPIC = {"ticket_number": "EPIC-1", "name": "Onboarding", "description": "d", "id": 1}
+EPIC = {
+    "ticket_number": "EPIC-1",
+    "name": "Onboarding",
+    "description": "d",
+    "id": 1,
+    # Derived rollup + health (V32, KAN-296) ride the epic payload.
+    "progress": {"total": 5, "done": 3, "percent": 60},
+    "health": "at_risk",
+}
 BOARD = {"id": 2, "name": "Roadmap", "owner_id": None}
 
 
@@ -954,13 +962,13 @@ def test_epic_delete_with_yes(monkeypatch, env, capsys):
 def test_epic_list_human_output(monkeypatch, env, capsys):
     patch_client(monkeypatch, FakeClient(result={"epics": [EPIC]}))
     cli.run(["epic", "list"])
-    assert capsys.readouterr().out.strip() == "EPIC-1\tOnboarding"
+    assert capsys.readouterr().out.strip() == "EPIC-1\tOnboarding\t60% (3/5) [at_risk]"
 
 
 def test_epic_single_human_output(monkeypatch, env, capsys):
     patch_client(monkeypatch, FakeClient(result=EPIC))
     cli.run(["epic", "create", "Onboarding"])
-    assert capsys.readouterr().out.strip() == "EPIC-1\tOnboarding"
+    assert capsys.readouterr().out.strip() == "EPIC-1\tOnboarding\t60% (3/5) [at_risk]"
 
 
 def test_epic_missing_subcommand_is_usage_error(env):

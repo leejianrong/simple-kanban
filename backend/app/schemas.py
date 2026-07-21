@@ -358,6 +358,26 @@ class EpicUpdate(BaseModel):
         return v
 
 
+class EpicHealth(str, Enum):
+    """Derived health signal for an epic (V32, KAN-296). ``on_track`` / ``at_risk``
+    / ``overdue`` — computed from ``target_date`` vs. remaining child work; ``null``
+    (absent) when the epic has no ``target_date``. See ``app.epic_rollup``."""
+
+    on_track = "on_track"
+    at_risk = "at_risk"
+    overdue = "overdue"
+
+
+class EpicProgress(BaseModel):
+    """Derived rollup over an epic's **non-deleted** child cards (V32, KAN-296):
+    ``done`` of ``total``, and ``percent`` = round(done/total*100) (``0`` when the
+    epic has no children). Computed on read — no stored column, no migration."""
+
+    total: int
+    done: int
+    percent: int
+
+
 class EpicRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -369,6 +389,11 @@ class EpicRead(BaseModel):
     # Lightweight project fields (V31, KAN-295) — real columns, read directly.
     target_date: datetime | None
     lead: str | None
+    # Derived progress rollup + health signal (V32, KAN-296) — NOT stored columns;
+    # the epics router attaches them per read from a grouped child-card COUNT +
+    # ``app.epic_rollup.compute_rollup``. ``health`` is null when target_date is unset.
+    progress: EpicProgress
+    health: EpicHealth | None = None
     created_at: datetime
     updated_at: datetime
 

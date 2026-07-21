@@ -16,6 +16,9 @@
   --agent: #7c3aed;
   --agent-soft: #eee6fd;
   --success: #16a34a;
+  --success-soft: #dcf3e3;
+  --warning: #b45309;
+  --warning-soft: #fbeccd;
   --danger: #dc2626;
   --danger-soft: #fde4e4;
   --hover: rgba(20, 25, 30, 0.06);
@@ -48,6 +51,9 @@
     --agent: #b794f6;
     --agent-soft: #241a3d;
     --success: #4ade80;
+    --success-soft: #14301f;
+    --warning: #fbbf24;
+    --warning-soft: #3a2c10;
     --danger: #f87171;
     --danger-soft: #3a1717;
     --hover: rgba(255, 255, 255, 0.06);
@@ -70,6 +76,9 @@
   --agent: #b794f6;
   --agent-soft: #241a3d;
   --success: #4ade80;
+  --success-soft: #14301f;
+  --warning: #fbbf24;
+  --warning-soft: #3a2c10;
   --danger: #f87171;
   --danger-soft: #3a1717;
   --hover: rgba(255, 255, 255, 0.06);
@@ -1404,6 +1413,43 @@ button.primary:disabled {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+/* Progress-bar fill tinted by health (V32, KAN-296): teal/on-track by default,
+   amber at-risk, red overdue; a complete epic (`.full`) always reads success. */
+.progress .bar i.fill-at_risk {
+  background: var(--warning);
+}
+.progress .bar i.fill-overdue {
+  background: var(--danger);
+}
+
+/* Health pill (V32, KAN-296) — small RAG badge on the epic card head. */
+.health-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.health-pill.on_track {
+  background: var(--success-soft);
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 30%, transparent);
+}
+.health-pill.at_risk {
+  background: var(--warning-soft);
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 35%, transparent);
+}
+.health-pill.overdue {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
 }
 
 /* ---- Shared page header (Epics + Tokens) ---- */
