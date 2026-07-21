@@ -1046,3 +1046,34 @@ Dogfooding observations about driving this board as an agent PM. Seeded from the
   - **e2e "screenshot" specs dirty the tree.** The activity/dashboard/trash specs overwrite tracked
     baseline PNGs in the repo root on every run; the agent reverted them to keep the PR scoped to
     `app.css`. Standing friction — those baseline artifacts arguably shouldn't be git-tracked.
+
+- **EPIC-49 Wave 2: U2 (KAN-317) design system — Bits UI primitives.** The foundation the rest of the
+  epic adopts. Ran **design-first, two phases, one agent** (PR #170 → `d17bed2`, deployed + verified):
+  Phase 1 the agent built a self-contained `mockup.html` (both themes side by side, real extracted
+  tokens); the PM screenshotted it, confirmed it matched the locked decisions (Bits UI headless,
+  Zinc/Teal tokens, NO Tailwind, Command primitive for V35), then resumed the SAME agent via
+  SendMessage for Phase 2. Learnings:
+  - **Design-first phases in one agent is the right shape for a big UI refactor.** The mockup locked
+    the visual spec (radius unified to 7px, teal focus ring, custom caret) and surfaced 4 real design
+    questions (native date input vs Bits DatePicker; radius unification; labels multi-select scope;
+    Command-wrapper-only vs ⌘K wiring) *before* any code was written — cheap to decide, expensive to
+    rework. Resuming the same agent kept full mockup context into implementation.
+  - **Full e2e was load-bearing (again).** The Bits `Select` trigger renders a `<button>`; the agent
+    gave the board switcher `aria-label="Board"`, which collided with the **"Board" view-nav tab**
+    under `getByRole("button", {name:"Board"})` and broke a *shared* helper (`createStoryUnder`) used
+    across epic specs. Only the FULL suite caught it (fixed by relabelling to "Switch board"). A
+    subset run would have shipped a broken `main`. This is the second consecutive shared-UI card where
+    the full-suite requirement paid for itself.
+  - **Bits UI e2e pattern:** a Bits `Select` is NOT a native `<select>`, so Playwright `selectOption`
+    and `toHaveValue`/`<option>` assertions don't work. The new `pickSelect()` helper (click combobox →
+    click `role=option`) + `toContainText` on the trigger is the pattern future specs (incl. V35) reuse.
+  - **`bits-ui@^2.18.1`** is the current Svelte-5-native line; its `@internationalized/date` peer is
+    only for Calendar/DatePicker (unused — we kept native `<input type=date>`), so it's not installed
+    and npm's peer warning is harmless. Commit BOTH `package.json` + `package-lock.json`.
+  - **Portalled popups justify keeping primitive CSS global.** Bits portals its Select/menu content to
+    `<body>`, so the `.ui-*` styles were appended as a token-only block in `app.css` (not per-component
+    scoped `<style>`), matching how `.rail-select`/`.board-switcher` already lived.
+  - **Scope discipline on a "standardize everything" card:** the agent replaced the genuinely ad-hoc
+    native `<select>`s but left CardModal's title/description/assignee inputs (already deliberately
+    styled in the KAN-65/66 modal redesign) native — forcing the wrapper there risked regressing a
+    tuned layout for zero visual change. Reasonable; U3 reworks the description into markdown anyway.
