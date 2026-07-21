@@ -40,7 +40,7 @@ nested groups so their verbs don't collide with the card verbs (parity with the
 | `kan epic update <epic_id> [--name N] [--description D] [--json]` | `PATCH /epics/{id}` |
 | `kan epic delete <epic_id> --yes [--json]` | `DELETE /epics/{id}` |
 | `kan label list [--board N] [--json]` | `GET /boards/{id}/labels` |
-| `kan label create <name> <color> [--board N] [--json]` | `POST /boards/{id}/labels` |
+| `kan label create <name> [color] [--color C] [--board N] [--json]` | `POST /boards/{id}/labels` |
 | `kan label delete <label_id> --yes [--json]` | `DELETE /labels/{id}` |
 | `kan view list [--board N] [--json]` | `GET /boards/{id}/views` |
 | `kan view create <name> [--board N] [--column C] [--epic ID] [--priority P] [--label ID] [--due-before ISO] [--overdue] [--needs-human] [--assignee A] [--sort SPEC] [--json]` | `POST /boards/{id}/views` |
@@ -65,6 +65,12 @@ nested groups so their verbs don't collide with the card verbs (parity with the
 
 Valid columns are `todo`, `in_progress`, `done`. `delete` requires `--yes` as a
 guard against accidental destruction.
+
+**Ids accept tickets.** Anywhere a card or epic id is taken (`get`/`update`/`move`/
+`delete`, `--epic`, `dep --blocked-by`, `epic update`/`delete`, …) you can pass the
+`KAN-<n>` / `EPIC-<n>` **ticket** the CLI itself prints (case-insensitive) instead of
+the numeric DB id — the CLI resolves it to the id for you via a lookup. Bare integers
+still work unchanged. (Label ids are numeric only — labels have no ticket number.)
 
 `kan warmup` pings the public health endpoint to wake a scaled-to-zero Fly + Neon
 deploy (the first request after idle is slow — a documented cold start), riding it

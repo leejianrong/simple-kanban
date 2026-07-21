@@ -40,10 +40,19 @@ BOARD = {"id": 2, "name": "Roadmap", "owner_id": None}
 class FakeClient:
     """Records method calls; returns a canned result or raises a canned error."""
 
-    def __init__(self, result=None, error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        result=None,
+        error: Exception | None = None,
+        results: dict | None = None,
+    ) -> None:
         self.calls: list[tuple[str, dict]] = []
         self._result = CARD if result is None else result
         self._error = error
+        # Optional per-method overrides (e.g. `list_cards` returns a card page while
+        # `get_card` returns the single card) — used by the KAN-285 ticket-resolution
+        # tests, where one command makes two different client calls.
+        self._results = results or {}
 
     def __enter__(self) -> "FakeClient":
         return self
@@ -55,6 +64,8 @@ class FakeClient:
         self.calls.append((method, kwargs))
         if self._error is not None:
             raise self._error
+        if method in self._results:
+            return self._results[method]
         return self._result
 
     def warmup(self):
@@ -1288,3 +1299,342 @@ def test_next_humanizes_empty(monkeypatch, env, capsys):
     code = cli.run(["next", "--board", "3"])
     assert code == 0
     assert capsys.readouterr().out.strip() == "(no card ready)"
+
+
+# --- KAN-285: id-taking commands accept KAN-/EPIC- tickets (not only DB ids) --
+# Every id argument resolves a KAN-<n> / EPIC-<n> ticket (the form the CLI itself
+# prints) to its numeric id via a client-side lookup; bare integers still pass
+# through unchanged with no extra request. Fixtures carry the full CardRead shape
+# (labels/story_points) so they match the real API (the KAN-277 lesson).
+
+
+def _card(ticket, cid, **extra):
+    return {
+        "ticket_number": ticket, "id": cid, "column": "todo",
+        "title": "t", "story_points": None, "labels": [], **extra,
+    }
+
+
+def _epic(ticket, eid, **extra):
+    return {"ticket_number": ticket, "id": eid, "name": "n", "description": None, **extra}
+
+
+def test_get_accepts_kan_ticket(monkeypatch, env):
+    # `get KAN-9` lists cards, matches the ticket → numeric id 42, then GETs it.
+    fake = patch_client(
+        monkeypatch,
+        FakeClient(
+            result=_card("KAN-9", 42),
+            results={"list_cards": {"cards": [_card("KAN-9", 42)]}},
+        ),
+    )
+    assert cli.run(["get", "KAN-9"]) == 0
+    assert fake.calls == [
+        ("list_cards", {"board_id": None}),
+        ("get_card", {"card_id": 42}),
+    ]
+
+
+def test_get_ticket_is_case_insensitive(monkeypatch, env):
+    fake = patch_client(
+        monkeypatch,
+        FakeClient(
+            result=_card("KAN-9", 42),
+            results={"list_cards": {"cards": [_card("KAN-9", 42)]}},
+        ),
+    )
+    assert cli.run(["get", "kan-9"]) == 0
+    assert fake.calls[-1] == ("get_card", {"card_id": 42})
+
+
+def test_bare_int_card_id_skips_lookup(monkeypatch, env):
+    # A bare integer resolves with NO list request — only the target call is made.
+    fake = patch_client(monkeypatch, FakeClient())
+    assert cli.run(["get", "42"]) == 0
+    assert fake.calls == [("get_card", {"card_id": 42})]
+
+
+def test_move_accepts_kan_ticket(monkeypatch, env):
+    fake = patch_client(
+        monkeypatch,
+        FakeClient(
+            result=_card("KAN-7", 7),
+            results={"list_cards": {"cards": [_card("KAN-7", 7)]}},
+        ),
+    )
+    assert cli.run(["move", "KAN-7", "done"]) == 0
+    assert fake.calls == [
+        ("list_cards", {"board_id": None}),
+        ("move_card", {"card_id": 7, "column": "done", "position": None}),
+    ]
+
+
+def test_delete_accepts_kan_ticket(monkeypatch, env):
+    fake = patch_client(
+        monkeypatch,
+        FakeClient(result={"deleted": 7}, results={"list_cards": {"cards": [_card("KAN-7", 7)]}}),
+    )
+    assert cli.run(["delete", "KAN-7", "--yes"]) == 0
+    assert fake.calls == [
+        ("list_cards", {"board_id": None}),
+        ("delete_card", {"card_id": 7}),
+    ]
+
+
+def test_card_ticket_resolution_pages_the_cursor(monkeypatch, env):
+    # A ticket on a later page is still found — the resolver follows next_cursor.
+    class Paging:
+        def __init__(self):
+            self.calls = []
+            self._pages = [
+                {"cards": [_card("KAN-1", 1)], "next_cursor": "c2"},
+                {"cards": [_card("KAN-9", 42)]},
+            ]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def list_cards(self, **kw):
+            self.calls.append(("list_cards", kw))
+            return self._pages.pop(0)
+
+        def get_card(self, card_id):
+            self.calls.append(("get_card", {"card_id": card_id}))
+            return _card("KAN-9", card_id)
+
+    fake = Paging()
+    patch_client(monkeypatch, fake)
+    assert cli.run(["get", "KAN-9"]) == 0
+    assert fake.calls == [
+        ("list_cards", {"board_id": None}),
+        ("list_cards", {"board_id": None, "cursor": "c2"}),
+        ("get_card", {"card_id": 42}),
+    ]
+
+
+def test_unknown_card_ticket_is_a_clean_error(monkeypatch, env, capsys):
+    fake = patch_client(monkeypatch, FakeClient(results={"list_cards": {"cards": []}}))
+    assert cli.run(["get", "KAN-999"]) == cli.EXIT_ERROR
+    assert "no card found with ticket KAN-999" in capsys.readouterr().err
+    assert fake.calls == [("list_cards", {"board_id": None})]
+
+
+def test_card_id_arg_rejects_epic_ticket(monkeypatch, env, capsys):
+    fake = patch_client(monkeypatch, FakeClient())
+    assert cli.run(["get", "EPIC-3"]) == cli.EXIT_ERROR
+    assert "not a card ticket" in capsys.readouterr().err
+    assert fake.calls == []  # never lists — the shape is wrong up front
+
+
+def test_malformed_id_is_usage_error(env):
+    # A value that is neither an int nor a KAN-/EPIC- ticket is a usage error (2).
+    with pytest.raises(SystemExit) as exc:
+        cli.run(["get", "not-an-id"])
+    assert exc.value.code == cli.EXIT_USAGE
+
+
+def test_list_epic_filter_accepts_epic_ticket(monkeypatch, env):
+    fake = patch_client(
+        monkeypatch,
+        FakeClient(
+            result={"cards": []},
+            results={"list_epics": {"epics": [_epic("EPIC-4", 7)]}},
+        ),
+    )
+    assert cli.run(["list", "--epic", "EPIC-4"]) == 0
+    assert fake.calls[0] == ("list_epics", {"board_id": None})
+    assert fake.calls[1][0] == "list_cards"
+    assert fake.calls[1][1]["epic_id"] == 7
+
+
+def test_update_epic_link_accepts_epic_ticket(monkeypatch, env):
+    fake = patch_client(
+        monkeypatch,
+        FakeClient(
+            result=_card("KAN-7", 7),
+            results={"list_epics": {"epics": [_epic("EPIC-4", 9)]}},
+        ),
+    )
+    assert cli.run(["update", "7", "--epic", "EPIC-4"]) == 0
+    assert fake.calls == [
+        ("list_epics", {"board_id": None}),
+        (
+            "update_card",
+            {
+                "card_id": 7, "title": None, "description": None, "story_points": None,
+                "assignee": None, "epic_id": 9, "priority": None, "due_date": None,
+                "label_ids": None,
+            },
+        ),
+    ]
+
+
+def test_epic_update_accepts_epic_ticket(monkeypatch, env):
+    fake = patch_client(
+        monkeypatch,
+        FakeClient(
+            result=_epic("EPIC-4", 7),
+            results={"list_epics": {"epics": [_epic("EPIC-4", 7)]}},
+        ),
+    )
+    assert cli.run(["epic", "update", "EPIC-4", "--name", "New"]) == 0
+    assert fake.calls == [
+        ("list_epics", {"board_id": None}),
+        ("update_epic", {"epic_id": 7, "name": "New", "description": None}),
+    ]
+
+
+def test_epic_arg_rejects_kan_ticket(monkeypatch, env, capsys):
+    fake = patch_client(monkeypatch, FakeClient())
+    assert cli.run(["epic", "update", "KAN-3", "--name", "x"]) == cli.EXIT_ERROR
+    assert "not an epic ticket" in capsys.readouterr().err
+    assert fake.calls == []
+
+
+def test_dep_add_resolves_both_card_and_blocker_tickets(monkeypatch, env):
+    fake = patch_client(
+        monkeypatch,
+        FakeClient(
+            result={"ticket_number": "KAN-7", "blocked_by": [3], "blocks": [], "id": 7},
+            results={"list_cards": {"cards": [_card("KAN-7", 7), _card("KAN-3", 3)]}},
+        ),
+    )
+    assert cli.run(["dep", "add", "KAN-7", "--blocked-by", "KAN-3"]) == 0
+    # Two lookups (card + blocker), then the add with resolved numeric ids.
+    assert fake.calls == [
+        ("list_cards", {"board_id": None}),
+        ("list_cards", {"board_id": None}),
+        ("add_dependency", {"card_id": 7, "blocker_id": 3}),
+    ]
+
+
+# --- KAN-286: `--sort` with a leading-dash value in the space form -----------
+# `kan list --sort -priority,position` used to fail ("expected one argument")
+# because argparse read the leading '-' as a flag; only `--sort=...` worked. The
+# argv normalizer rewrites `--sort -spec` → `--sort=-spec` so the documented space
+# form works, without breaking the equals form.
+
+
+def test_sort_space_form_with_leading_dash(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"cards": []}))
+    assert cli.run(["list", "--sort", "-priority,position"]) == 0
+    assert fake.calls[0][1]["sort"] == "-priority,position"
+
+
+def test_sort_equals_form_still_works(monkeypatch, env):
+    fake = patch_client(monkeypatch, FakeClient(result={"cards": []}))
+    assert cli.run(["list", "--sort=-priority,position"]) == 0
+    assert fake.calls[0][1]["sort"] == "-priority,position"
+
+
+def test_sort_space_form_ascending_value(monkeypatch, env):
+    # A plain (ascending) value in the space form was always fine — keep it so.
+    fake = patch_client(monkeypatch, FakeClient(result={"cards": []}))
+    assert cli.run(["list", "--sort", "priority,position"]) == 0
+    assert fake.calls[0][1]["sort"] == "priority,position"
+
+
+def test_sort_normalizer_leaves_real_flags_alone(monkeypatch, env, capsys):
+    # `--sort` with a following long flag (not a value) must not swallow the flag:
+    # argparse still reports the missing sort value as a usage error.
+    with pytest.raises(SystemExit) as exc:
+        cli.run(["list", "--sort", "--json"])
+    assert exc.value.code == cli.EXIT_USAGE
+
+
+def test_normalize_sort_argv_only_touches_sort():
+    # Unit check on the rewriter: only `--sort -x` is rewritten; nothing else moves.
+    assert cli._normalize_sort_argv(["list", "--sort", "-priority", "--json"]) == [
+        "list", "--sort=-priority", "--json",
+    ]
+    assert cli._normalize_sort_argv(["list", "--column", "todo"]) == [
+        "list", "--column", "todo",
+    ]
+
+
+# --- KAN-287: `template list` human formatter (not raw JSON) -----------------
+# Every other list verb prints a tab-separated human line without --json;
+# `template list` used to dump raw JSON always. It now prints `id<TAB>name<TAB>N
+# cards` and reserves raw JSON for --json.
+
+# A realistic CardTemplateRead carries id/board_id/name/cards/created_at.
+TEMPLATE = {
+    "id": 5,
+    "board_id": 3,
+    "name": "sprint",
+    "cards": [{"title": "A"}, {"title": "B"}],
+    "created_at": "2026-07-17T12:00:00Z",
+}
+
+
+def test_template_list_human_output(monkeypatch, env, capsys):
+    patch_client(monkeypatch, FakeClient(result={"templates": [TEMPLATE]}))
+    assert cli.run(["template", "list", "--board", "3"]) == 0
+    assert capsys.readouterr().out.strip() == "5\tsprint\t2 cards"
+
+
+def test_template_list_empty_human_output(monkeypatch, env, capsys):
+    patch_client(monkeypatch, FakeClient(result={"templates": []}))
+    assert cli.run(["template", "list", "--board", "3"]) == 0
+    assert capsys.readouterr().out.strip() == "(no templates)"
+
+
+def test_template_list_json_is_still_raw(monkeypatch, env, capsys):
+    result = {"templates": [TEMPLATE]}
+    patch_client(monkeypatch, FakeClient(result=result))
+    assert cli.run(["template", "list", "--board", "3", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == result
+
+
+# --- KAN-288: `label create` accepts --color as well as the positional --------
+# The signature was `label create <name> <color>` (color a required positional);
+# docs/users expected a --color flag. Color is now optional either way — the
+# positional still works, --color works, --color wins if both are given, and
+# omitting both falls back to a neutral default.
+
+
+def test_label_create_color_positional_still_works(monkeypatch, env):
+    fake = patch_client(
+        monkeypatch,
+        FakeClient(result={"id": 1, "board_id": 2, "name": "bug", "color": "#ef4444"}),
+    )
+    assert cli.run(["label", "create", "bug", "#ef4444", "--board", "2"]) == 0
+    assert fake.calls == [
+        ("create_label", {"board_id": 2, "name": "bug", "color": "#ef4444"})
+    ]
+
+
+def test_label_create_color_flag(monkeypatch, env):
+    fake = patch_client(
+        monkeypatch,
+        FakeClient(result={"id": 1, "board_id": 2, "name": "bug", "color": "#ef4444"}),
+    )
+    assert cli.run(["label", "create", "bug", "--color", "#ef4444", "--board", "2"]) == 0
+    assert fake.calls == [
+        ("create_label", {"board_id": 2, "name": "bug", "color": "#ef4444"})
+    ]
+
+
+def test_label_create_color_flag_wins_over_positional(monkeypatch, env):
+    fake = patch_client(
+        monkeypatch,
+        FakeClient(result={"id": 1, "board_id": 2, "name": "bug", "color": "#111111"}),
+    )
+    assert cli.run(
+        ["label", "create", "bug", "#000000", "--color", "#111111", "--board", "2"]
+    ) == 0
+    assert fake.calls == [
+        ("create_label", {"board_id": 2, "name": "bug", "color": "#111111"})
+    ]
+
+
+def test_label_create_default_color_when_omitted(monkeypatch, env):
+    label = {"id": 1, "board_id": 2, "name": "bug", "color": cli.DEFAULT_LABEL_COLOR}
+    fake = patch_client(monkeypatch, FakeClient(result=label))
+    assert cli.run(["label", "create", "bug", "--board", "2"]) == 0
+    assert fake.calls == [
+        ("create_label", {"board_id": 2, "name": "bug", "color": cli.DEFAULT_LABEL_COLOR})
+    ]

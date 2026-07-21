@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections.abc import Sequence
 from typing import Any
@@ -55,6 +56,11 @@ _STATUS_EXIT = {401: EXIT_AUTH, 403: EXIT_FORBIDDEN, 404: EXIT_NOT_FOUND}
 
 COLUMNS = ("todo", "in_progress", "done")
 PRIORITIES = ("none", "low", "medium", "high", "urgent")
+
+# Fallback color for `label create` when neither the positional nor --color is
+# given (KAN-288). A neutral slate so an unspecified label still renders sensibly;
+# the API requires a non-empty color string.
+DEFAULT_LABEL_COLOR = "#64748b"
 
 
 # --- output helpers ---------------------------------------------------------
@@ -100,6 +106,13 @@ def _humanize(result: Any, *, noun: str = "card") -> str:
     if isinstance(result, dict) and "views" in result:  # list_views
         views = result["views"]
         return "\n".join(_view_line(v) for v in views) if views else "(no views)"
+    if isinstance(result, dict) and "templates" in result:  # list_templates
+        templates = result["templates"]
+        return (
+            "\n".join(_template_line(t) for t in templates)
+            if templates
+            else "(no templates)"
+        )
     if isinstance(result, dict) and "activity" in result:  # list_activity
         rows = result["activity"]
         if not rows:
@@ -205,6 +218,22 @@ def _view_line(view: dict[str, Any]) -> str:
             str(view.get("id", "?")),
             str(view.get("name", "")),
             json.dumps(view.get("query", {}), default=str, sort_keys=True),
+        )
+    )
+
+
+def _template_line(tmpl: dict[str, Any]) -> str:
+    """One concise line for a card template: id, name, card count (tab-separated).
+
+    Matches the other list verbs' human output (KAN-287) — ``template list`` used
+    to dump raw JSON even without ``--json``. The stored ``cards`` list is a JSON
+    array of card payloads; we show its length rather than the payloads."""
+    cards = tmpl.get("cards") or []
+    return "\t".join(
+        (
+            str(tmpl.get("id", "?")),
+            str(tmpl.get("name", "")),
+            f"{len(cards)} cards",
         )
     )
 
@@ -348,6 +377,86 @@ def _resolve_board(arg_board: int | None, config: Config) -> int | None:
     return arg_board if arg_board is not None else config.board_id
 
 
+# --- id / ticket resolution (KAN-285) ---------------------------------------
+# The CLI displays cards/epics by their ticket (``KAN-<n>`` / ``EPIC-<n>``), so
+# every id-taking command should accept that ticket — not only the numeric DB id.
+# We keep the resolution client-side (API-first: a thin adapter, no new endpoint):
+# a bare integer passes through unchanged; a ticket is looked up via the query API
+# and matched on ``ticket_number``. Ticket sequences are globally unique
+# (``card_ticket_seq`` / ``epic_ticket_seq``), so the lookup spans all your boards
+# (``board_id=None``) and needs no board scope to disambiguate.
+
+_TICKET_RE = re.compile(r"^(KAN|EPIC)-(\d+)$", re.IGNORECASE)
+
+
+def _id_or_ticket_arg(value: str) -> str:
+    """argparse ``type`` for id arguments: accept a numeric DB id **or** a
+    ``KAN-<n>`` / ``EPIC-<n>`` ticket (case-insensitive), both kept as a string for
+    the handler to resolve (KAN-285). Malformed input is a usage error (exit 2)."""
+    v = value.strip()
+    if v.isdigit() or _TICKET_RE.match(v):
+        return v
+    raise argparse.ArgumentTypeError(
+        f"expected a numeric id or a KAN-/EPIC- ticket, got {value!r}"
+    )
+
+
+def _parse_id_or_ticket(raw: str) -> tuple[int | None, str | None]:
+    """Split a raw id-or-ticket value: a bare integer → ``(id, None)``; a
+    ``KAN-<n>``/``EPIC-<n>`` ticket → ``(None, "KAN-5")`` (normalised upper-case)."""
+    v = str(raw).strip()
+    if v.isdigit():
+        return int(v), None
+    m = _TICKET_RE.match(v)
+    if m is None:
+        raise ConfigError(f"expected a numeric id or a KAN-/EPIC- ticket, got {raw!r}")
+    return None, f"{m.group(1).upper()}-{m.group(2)}"
+
+
+def _resolve_card_id(client: KanbanClient, raw: str | int) -> int:
+    """Resolve a card id-or-ticket to its numeric DB id (KAN-285). A bare integer is
+    returned as-is (no request); a ``KAN-<n>`` ticket is looked up via the query API
+    (paging its keyset cursor) and matched on ``ticket_number``."""
+    id_, ticket = _parse_id_or_ticket(raw)
+    if id_ is not None:
+        return id_
+    if not ticket.startswith("KAN-"):
+        raise ConfigError(f"{ticket} is not a card ticket (cards are KAN-…)")
+    cursor: str | None = None
+    while True:
+        result = (
+            client.list_cards(board_id=None, cursor=cursor)
+            if cursor
+            else client.list_cards(board_id=None)
+        )
+        for card in result.get("cards", []):
+            if str(card.get("ticket_number", "")).upper() == ticket:
+                return int(card["id"])
+        cursor = result.get("next_cursor")
+        if not cursor:
+            raise ConfigError(f"no card found with ticket {ticket}")
+
+
+def _resolve_epic_id(client: KanbanClient, raw: str | int) -> int:
+    """Resolve an epic id-or-ticket to its numeric DB id (KAN-285). A bare integer is
+    returned as-is; an ``EPIC-<n>`` ticket is looked up via ``list_epics`` and
+    matched on ``ticket_number``."""
+    id_, ticket = _parse_id_or_ticket(raw)
+    if id_ is not None:
+        return id_
+    if not ticket.startswith("EPIC-"):
+        raise ConfigError(f"{ticket} is not an epic ticket (epics are EPIC-…)")
+    for epic in client.list_epics(board_id=None).get("epics", []):
+        if str(epic.get("ticket_number", "")).upper() == ticket:
+            return int(epic["id"])
+    raise ConfigError(f"no epic found with ticket {ticket}")
+
+
+def _resolve_epic_opt(client: KanbanClient, raw: str | int | None) -> int | None:
+    """Resolve an optional ``--epic`` value (``None`` stays ``None``)."""
+    return None if raw is None else _resolve_epic_id(client, raw)
+
+
 # --- command handlers -------------------------------------------------------
 # Each returns the client's result dict; printing + exit codes are handled centrally.
 
@@ -356,7 +465,7 @@ def _cmd_list(client: KanbanClient, config: Config, args: argparse.Namespace) ->
     return client.list_cards(
         board_id=_resolve_board(args.board, config),
         column=args.column,
-        epic_id=args.epic,
+        epic_id=_resolve_epic_opt(client, args.epic),
         priority=args.priority,
         label=args.label,
         due_before=args.due_before,
@@ -370,7 +479,7 @@ def _cmd_list(client: KanbanClient, config: Config, args: argparse.Namespace) ->
 
 
 def _cmd_get(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
-    return client.get_card(args.card_id)
+    return client.get_card(_resolve_card_id(client, args.card_id))
 
 
 def _cmd_create(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
@@ -381,7 +490,7 @@ def _cmd_create(client: KanbanClient, config: Config, args: argparse.Namespace) 
         column=args.column,
         story_points=args.points,
         assignee=args.assignee,
-        epic_id=args.epic,
+        epic_id=_resolve_epic_opt(client, args.epic),
         priority=args.priority,
         due_date=args.due,
         label_ids=args.label or None,
@@ -390,12 +499,12 @@ def _cmd_create(client: KanbanClient, config: Config, args: argparse.Namespace) 
 
 def _cmd_update(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
     return client.update_card(
-        args.card_id,
+        _resolve_card_id(client, args.card_id),
         title=args.title,
         description=args.description,
         story_points=args.points,
         assignee=args.assignee,
-        epic_id=args.epic,
+        epic_id=_resolve_epic_opt(client, args.epic),
         priority=args.priority,
         due_date=args.due,
         label_ids=args.label if args.label is not None else None,
@@ -403,7 +512,9 @@ def _cmd_update(client: KanbanClient, config: Config, args: argparse.Namespace) 
 
 
 def _cmd_move(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
-    return client.move_card(args.card_id, args.column, position=args.position)
+    return client.move_card(
+        _resolve_card_id(client, args.card_id), args.column, position=args.position
+    )
 
 
 def _cmd_delete(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
@@ -411,7 +522,7 @@ def _cmd_delete(client: KanbanClient, config: Config, args: argparse.Namespace) 
         raise ConfigError(
             f"refusing to delete card {args.card_id} without confirmation; pass --yes"
         )
-    return client.delete_card(args.card_id)
+    return client.delete_card(_resolve_card_id(client, args.card_id))
 
 
 def _cmd_next(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
@@ -429,11 +540,13 @@ def _cmd_next(client: KanbanClient, config: Config, args: argparse.Namespace) ->
 
 
 def _cmd_needs_human(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
-    return client.flag_needs_human(args.card_id, attention_note=args.note)
+    return client.flag_needs_human(
+        _resolve_card_id(client, args.card_id), attention_note=args.note
+    )
 
 
 def _cmd_resolve(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
-    return client.resolve_card(args.card_id)
+    return client.resolve_card(_resolve_card_id(client, args.card_id))
 
 
 def _cmd_metrics(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
@@ -502,7 +615,7 @@ def _cmd_epic_create(client: KanbanClient, config: Config, args: argparse.Namesp
 
 def _cmd_epic_update(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
     return client.update_epic(
-        args.epic_id,
+        _resolve_epic_id(client, args.epic_id),
         name=args.name,
         description=args.description,
     )
@@ -513,7 +626,7 @@ def _cmd_epic_delete(client: KanbanClient, config: Config, args: argparse.Namesp
         raise ConfigError(
             f"refusing to delete epic {args.epic_id} without confirmation; pass --yes"
         )
-    return client.delete_epic(args.epic_id)
+    return client.delete_epic(_resolve_epic_id(client, args.epic_id))
 
 
 # --- label handlers ---------------------------------------------------------
@@ -532,7 +645,10 @@ def _cmd_label_create(client: KanbanClient, config: Config, args: argparse.Names
     board = _resolve_board(args.board, config)
     if board is None:
         raise ConfigError("a board is required; pass --board or set KANBAN_BOARD_ID")
-    return client.create_label(board, args.name, args.color)
+    # KAN-288: color accepts either the positional or the --color flag (flag wins),
+    # falling back to a neutral default so it can be omitted entirely.
+    color = args.color_opt or args.color_pos or DEFAULT_LABEL_COLOR
+    return client.create_label(board, args.name, color)
 
 
 def _cmd_label_delete(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
@@ -549,15 +665,16 @@ def _cmd_label_delete(client: KanbanClient, config: Config, args: argparse.Names
 # stored query (the filter+sort grammar), so a view is "the current list, saved".
 
 
-def _build_view_query(args: argparse.Namespace) -> dict[str, Any]:
+def _build_view_query(client: KanbanClient, args: argparse.Namespace) -> dict[str, Any]:
     """Assemble a saved view's stored query (the filter+sort grammar) from the
     list-style flags — only the ones the caller set. Field names match the GET
-    /cards params exactly, so the stored query replays verbatim."""
+    /cards params exactly, so the stored query replays verbatim. ``--epic`` accepts
+    an ``EPIC-<n>`` ticket and is resolved to its numeric id before storing (KAN-285)."""
     query: dict[str, Any] = {}
     if args.column:
         query["column"] = args.column
     if args.epic is not None:
-        query["epic_id"] = args.epic
+        query["epic_id"] = _resolve_epic_id(client, args.epic)
     if args.priority:
         query["priority"] = args.priority
     if args.label is not None:
@@ -588,7 +705,7 @@ def _cmd_view_list(client: KanbanClient, config: Config, args: argparse.Namespac
 
 def _cmd_view_create(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
     return client.create_view(
-        _require_view_board(args, config), args.name, _build_view_query(args)
+        _require_view_board(args, config), args.name, _build_view_query(client, args)
     )
 
 
@@ -668,31 +785,37 @@ def _link_facet(card: dict[str, Any], card_id: int) -> dict[str, Any]:
 
 
 def _cmd_dep_add(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
-    return _dep_facet(client.add_dependency(args.card_id, args.blocked_by), args.card_id)
+    card_id = _resolve_card_id(client, args.card_id)
+    blocker_id = _resolve_card_id(client, args.blocked_by)
+    return _dep_facet(client.add_dependency(card_id, blocker_id), card_id)
 
 
 def _cmd_dep_rm(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
-    return _dep_facet(client.remove_dependency(args.card_id, args.blocked_by), args.card_id)
+    card_id = _resolve_card_id(client, args.card_id)
+    blocker_id = _resolve_card_id(client, args.blocked_by)
+    return _dep_facet(client.remove_dependency(card_id, blocker_id), card_id)
 
 
 def _cmd_dep_list(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
-    return client.list_dependencies(args.card_id)
+    return client.list_dependencies(_resolve_card_id(client, args.card_id))
 
 
 def _cmd_link_add(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
-    return _link_facet(client.add_link(args.card_id, args.label, args.url), args.card_id)
+    card_id = _resolve_card_id(client, args.card_id)
+    return _link_facet(client.add_link(card_id, args.label, args.url), card_id)
 
 
 def _cmd_link_rm(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
-    return _link_facet(client.remove_link(args.card_id, args.link_id), args.card_id)
+    card_id = _resolve_card_id(client, args.card_id)
+    return _link_facet(client.remove_link(card_id, args.link_id), card_id)
 
 
 def _cmd_comment_add(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
-    return client.add_comment(args.card_id, args.body)
+    return client.add_comment(_resolve_card_id(client, args.card_id), args.body)
 
 
 def _cmd_comment_list(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
-    return client.list_comments(args.card_id)
+    return client.list_comments(_resolve_card_id(client, args.card_id))
 
 
 # --- config handlers (local: no client, no network) -------------------------
@@ -846,7 +969,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_list = sub.add_parser("list", parents=[common], help="list / query cards")
     p_list.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
     p_list.add_argument("--column", choices=COLUMNS, help="filter by column")
-    p_list.add_argument("--epic", type=int, metavar="EPIC_ID", help="filter by epic id")
+    p_list.add_argument(
+        "--epic", type=_id_or_ticket_arg, metavar="EPIC",
+        help="filter by epic (id or EPIC-<n>)",
+    )
     p_list.add_argument("--priority", choices=PRIORITIES, help="filter by priority")
     p_list.add_argument("--label", type=int, metavar="LABEL_ID", help="filter by label id")
     p_list.add_argument(
@@ -872,8 +998,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_list.add_argument(
         "--sort", metavar="SPEC",
         help=(
-            "sort keys, comma-separated, '-' prefix = descending. For a leading "
-            "'-' use the equals form so it isn't read as a flag, e.g. "
+            "sort keys, comma-separated, '-' prefix = descending. Both the space "
+            "and equals forms work, e.g. --sort -priority,position or "
             "--sort=-priority,position. Fields: position/priority/due_date/"
             "created_at/updated_at/story_points/assignee/title/column/id"
         ),
@@ -882,7 +1008,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_list.set_defaults(func=_cmd_list)
 
     p_get = sub.add_parser("get", parents=[common], help="get a single card by id")
-    p_get.add_argument("card_id", type=int)
+    p_get.add_argument(
+        "card_id", type=_id_or_ticket_arg, metavar="CARD",
+        help="a card id or KAN-<n> ticket",
+    )
     p_get.set_defaults(func=_cmd_get)
 
     p_create = sub.add_parser("create", parents=[common], help="create a card")
@@ -895,7 +1024,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="story points (1/2/3/5/8/13); sets the card's story_points (shown as pts=N)",
     )
     p_create.add_argument("--assignee")
-    p_create.add_argument("--epic", type=int, metavar="EPIC_ID", help="link to an epic")
+    p_create.add_argument(
+        "--epic", type=_id_or_ticket_arg, metavar="EPIC",
+        help="link to an epic (id or EPIC-<n>)",
+    )
     p_create.add_argument("--priority", choices=PRIORITIES, help="priority (default: none)")
     p_create.add_argument("--due", metavar="ISO", help="due date (ISO-8601 timestamp)")
     p_create.add_argument(
@@ -905,7 +1037,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_create.set_defaults(func=_cmd_create)
 
     p_update = sub.add_parser("update", parents=[common], help="edit a card's fields")
-    p_update.add_argument("card_id", type=int)
+    p_update.add_argument(
+        "card_id", type=_id_or_ticket_arg, metavar="CARD",
+        help="a card id or KAN-<n> ticket",
+    )
     p_update.add_argument("--title")
     p_update.add_argument("--description")
     p_update.add_argument(
@@ -914,7 +1049,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_update.add_argument("--assignee")
     p_update.add_argument(
-        "--epic", type=int, metavar="EPIC_ID", help="link to an epic (by id)"
+        "--epic", type=_id_or_ticket_arg, metavar="EPIC", help="link to an epic (id or EPIC-<n>)"
     )
     p_update.add_argument("--priority", choices=PRIORITIES, help="re-rank priority")
     p_update.add_argument("--due", metavar="ISO", help="due date (ISO-8601 timestamp)")
@@ -925,13 +1060,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_update.set_defaults(func=_cmd_update)
 
     p_move = sub.add_parser("move", parents=[common], help="move a card to a column")
-    p_move.add_argument("card_id", type=int)
+    p_move.add_argument(
+        "card_id", type=_id_or_ticket_arg, metavar="CARD",
+        help="a card id or KAN-<n> ticket",
+    )
     p_move.add_argument("column", choices=COLUMNS)
     p_move.add_argument("--position", type=int, help="index within the column (default: append)")
     p_move.set_defaults(func=_cmd_move)
 
     p_delete = sub.add_parser("delete", parents=[common], help="delete a card")
-    p_delete.add_argument("card_id", type=int)
+    p_delete.add_argument(
+        "card_id", type=_id_or_ticket_arg, metavar="CARD",
+        help="a card id or KAN-<n> ticket",
+    )
     p_delete.add_argument("--yes", action="store_true", help="confirm the deletion")
     p_delete.set_defaults(func=_cmd_delete)
 
@@ -957,14 +1098,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_needs_human = sub.add_parser(
         "needs-human", parents=[common], help="flag a card as needing a human"
     )
-    p_needs_human.add_argument("card_id", type=int)
+    p_needs_human.add_argument(
+        "card_id", type=_id_or_ticket_arg, metavar="CARD",
+        help="a card id or KAN-<n> ticket",
+    )
     p_needs_human.add_argument("--note", help="an optional note describing the ask")
     p_needs_human.set_defaults(func=_cmd_needs_human)
 
     p_resolve = sub.add_parser(
         "resolve", parents=[common], help="clear a card's needs-human flag"
     )
-    p_resolve.add_argument("card_id", type=int)
+    p_resolve.add_argument(
+        "card_id", type=_id_or_ticket_arg, metavar="CARD",
+        help="a card id or KAN-<n> ticket",
+    )
     p_resolve.set_defaults(func=_cmd_resolve)
 
     # --- fleet reporting / metrics (M5 V17, KAN-250) -------------------------
@@ -1035,13 +1182,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_epic_create.set_defaults(func=_cmd_epic_create, noun="epic")
 
     p_epic_update = epic_sub.add_parser("update", parents=[common], help="edit an epic's fields")
-    p_epic_update.add_argument("epic_id", type=int)
+    p_epic_update.add_argument(
+        "epic_id", type=_id_or_ticket_arg, metavar="EPIC",
+        help="an epic id or EPIC-<n> ticket",
+    )
     p_epic_update.add_argument("--name")
     p_epic_update.add_argument("--description")
     p_epic_update.set_defaults(func=_cmd_epic_update, noun="epic")
 
     p_epic_delete = epic_sub.add_parser("delete", parents=[common], help="delete an epic")
-    p_epic_delete.add_argument("epic_id", type=int)
+    p_epic_delete.add_argument(
+        "epic_id", type=_id_or_ticket_arg, metavar="EPIC",
+        help="an epic id or EPIC-<n> ticket",
+    )
     p_epic_delete.add_argument("--yes", action="store_true", help="confirm the deletion")
     p_epic_delete.set_defaults(func=_cmd_epic_delete, noun="epic")
 
@@ -1057,7 +1210,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_label_create = label_sub.add_parser("create", parents=[common], help="create a label")
     p_label_create.add_argument("name")
-    p_label_create.add_argument("color", help="a color string, e.g. a hex like #0ea5e9")
+    # KAN-288: color is accepted as an optional positional OR the --color flag, so
+    # both `label create bug '#hex'` and `label create bug --color '#hex'` work.
+    # Omit both → a neutral default (DEFAULT_LABEL_COLOR); --color wins over the
+    # positional when both are given.
+    p_label_create.add_argument(
+        "color_pos", nargs="?", metavar="COLOR",
+        help=f"a color string, e.g. #0ea5e9 (or use --color; default {DEFAULT_LABEL_COLOR})",
+    )
+    p_label_create.add_argument(
+        "--color", dest="color_opt", metavar="COLOR",
+        help="a color string, e.g. #0ea5e9 (alternative to the positional)",
+    )
     p_label_create.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
     p_label_create.set_defaults(func=_cmd_label_create, noun="label")
 
@@ -1085,7 +1249,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_view_create.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
     # The same filter/sort grammar as `list` — assembled into the stored query.
     p_view_create.add_argument("--column", choices=COLUMNS, help="filter by column")
-    p_view_create.add_argument("--epic", type=int, metavar="EPIC_ID", help="filter by epic id")
+    p_view_create.add_argument(
+        "--epic", type=_id_or_ticket_arg, metavar="EPIC",
+        help="filter by epic (id or EPIC-<n>)",
+    )
     p_view_create.add_argument("--priority", choices=PRIORITIES, help="filter by priority")
     p_view_create.add_argument("--label", type=int, metavar="LABEL_ID", help="filter by label id")
     p_view_create.add_argument(
@@ -1224,27 +1391,38 @@ def build_parser() -> argparse.ArgumentParser:
     p_dep_add = dep_sub.add_parser(
         "add", parents=[common], help="record that a card is blocked-by another card"
     )
-    p_dep_add.add_argument("card_id", type=int)
     p_dep_add.add_argument(
-        "--blocked-by", dest="blocked_by", type=int, required=True, metavar="BLOCKER_ID",
-        help="id of the card that blocks this one",
+        "card_id", type=_id_or_ticket_arg, metavar="CARD",
+        help="a card id or KAN-<n> ticket",
+    )
+    p_dep_add.add_argument(
+        "--blocked-by", dest="blocked_by", type=_id_or_ticket_arg, required=True,
+        metavar="BLOCKER",
+        help="the blocker (card id or KAN-<n> ticket)",
     )
     p_dep_add.set_defaults(func=_cmd_dep_add)
 
     p_dep_rm = dep_sub.add_parser(
         "rm", parents=[common], help="remove a blocked-by edge"
     )
-    p_dep_rm.add_argument("card_id", type=int)
     p_dep_rm.add_argument(
-        "--blocked-by", dest="blocked_by", type=int, required=True, metavar="BLOCKER_ID",
-        help="id of the blocker to detach",
+        "card_id", type=_id_or_ticket_arg, metavar="CARD",
+        help="a card id or KAN-<n> ticket",
+    )
+    p_dep_rm.add_argument(
+        "--blocked-by", dest="blocked_by", type=_id_or_ticket_arg, required=True,
+        metavar="BLOCKER",
+        help="the blocker to detach (card id or KAN-<n> ticket)",
     )
     p_dep_rm.set_defaults(func=_cmd_dep_rm)
 
     p_dep_list = dep_sub.add_parser(
         "list", parents=[common], help="list a card's blocked_by / blocks edges"
     )
-    p_dep_list.add_argument("card_id", type=int)
+    p_dep_list.add_argument(
+        "card_id", type=_id_or_ticket_arg, metavar="CARD",
+        help="a card id or KAN-<n> ticket",
+    )
     p_dep_list.set_defaults(func=_cmd_dep_list)
 
     # --- link subcommands (KAN-270): card work-links (PR / branch / CI URLs) -
@@ -1256,7 +1434,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_link_add = link_sub.add_parser(
         "add", parents=[common], help="attach a work-link (label + url) to a card"
     )
-    p_link_add.add_argument("card_id", type=int)
+    p_link_add.add_argument(
+        "card_id", type=_id_or_ticket_arg, metavar="CARD",
+        help="a card id or KAN-<n> ticket",
+    )
     p_link_add.add_argument(
         "--url", required=True, help="the link URL (e.g. a PR / branch / CI run)"
     )
@@ -1269,7 +1450,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_link_rm = link_sub.add_parser(
         "rm", parents=[common], help="detach a work-link by its id"
     )
-    p_link_rm.add_argument("card_id", type=int)
+    p_link_rm.add_argument(
+        "card_id", type=_id_or_ticket_arg, metavar="CARD",
+        help="a card id or KAN-<n> ticket",
+    )
     p_link_rm.add_argument(
         "--link-id", dest="link_id", type=int, required=True, metavar="LINK_ID",
         help="id of the link to remove",
@@ -1285,14 +1469,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_comment_add = comment_sub.add_parser(
         "add", parents=[common], help="post a note to a card"
     )
-    p_comment_add.add_argument("card_id", type=int)
+    p_comment_add.add_argument(
+        "card_id", type=_id_or_ticket_arg, metavar="CARD",
+        help="a card id or KAN-<n> ticket",
+    )
     p_comment_add.add_argument("--body", required=True, help="the note text (non-empty)")
     p_comment_add.set_defaults(func=_cmd_comment_add)
 
     p_comment_list = comment_sub.add_parser(
         "list", parents=[common], help="list a card's notes, oldest-first"
     )
-    p_comment_list.add_argument("card_id", type=int)
+    p_comment_list.add_argument(
+        "card_id", type=_id_or_ticket_arg, metavar="CARD",
+        help="a card id or KAN-<n> ticket",
+    )
     p_comment_list.set_defaults(func=_cmd_comment_list)
 
     return parser
@@ -1301,10 +1491,40 @@ def build_parser() -> argparse.ArgumentParser:
 # --- entry point ------------------------------------------------------------
 
 
+def _normalize_sort_argv(argv: list[str]) -> list[str]:
+    """Rewrite ``--sort -spec`` → ``--sort=-spec`` so a sort value that leads with
+    ``-`` (descending, e.g. ``-priority,position``) isn't mistaken for a flag
+    (KAN-286). argparse can't consume an option value beginning with ``-`` in the
+    space form — only the ``=`` form worked — so the documented
+    ``kan list --sort -priority,position`` failed with "expected one argument".
+
+    We only rewrite when the next token starts with a **single** ``-`` (a
+    descending sort key); a real long flag (``--json``) or a missing value is left
+    alone so argparse still reports it. The ``=`` form and plain values are
+    untouched. Applies to the ``--sort`` of ``list`` and ``view create``."""
+    out: list[str] = []
+    i = 0
+    while i < len(argv):
+        tok = argv[i]
+        if (
+            tok == "--sort"
+            and i + 1 < len(argv)
+            and argv[i + 1].startswith("-")
+            and not argv[i + 1].startswith("--")
+        ):
+            out.append(f"--sort={argv[i + 1]}")
+            i += 2
+            continue
+        out.append(tok)
+        i += 1
+    return out
+
+
 def run(argv: Sequence[str] | None = None) -> int:
     """Parse args, dispatch, print, and return an exit code (no ``sys.exit``)."""
     parser = build_parser()
-    args = parser.parse_args(argv)
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    args = parser.parse_args(_normalize_sort_argv(raw_argv))
 
     # Local commands (login / config …) touch only the config file — no token, no
     # client, no network. Dispatch them before resolving or requiring config.
