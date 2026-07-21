@@ -14,6 +14,7 @@
     removeView,
     setViewMode,
   } from "../board.svelte";
+  import { Checkbox, Select, TextInput } from "./ui";
   import type { Priority } from "../api";
 
   const PRIORITIES: Priority[] = ["none", "low", "medium", "high", "urgent"];
@@ -25,17 +26,24 @@
     { value: "-updated_at", label: "Recently updated" },
   ];
 
+  const priorityOptions = [
+    { value: "", label: "Any" },
+    ...PRIORITIES.map((p) => ({ value: p, label: p })),
+  ];
+  const viewOptions = $derived([
+    { value: "", label: "All cards" },
+    ...viewStore.views.map((v) => ({ value: String(v.id), label: v.name })),
+  ]);
+
   let saving = $state(false);
   let newName = $state("");
   let busy = $state(false);
 
-  function onSelectView(e: Event) {
-    const raw = (e.currentTarget as HTMLSelectElement).value;
+  function onSelectView(raw: string) {
     setActiveView(raw === "" ? null : Number(raw));
   }
 
-  function onPriority(e: Event) {
-    const v = (e.currentTarget as HTMLSelectElement).value;
+  function onPriority(v: string) {
     setQuery({ priority: (v || undefined) as Priority | undefined });
   }
 
@@ -48,13 +56,11 @@
     setQuery({ assignee: assigneeInput.trim() || undefined });
   }
 
-  function onNeedsHuman(e: Event) {
-    const checked = (e.currentTarget as HTMLInputElement).checked;
+  function onNeedsHuman(checked: boolean) {
     setQuery({ needs_human: checked ? true : undefined });
   }
 
-  function onSort(e: Event) {
-    const v = (e.currentTarget as HTMLSelectElement).value;
+  function onSort(v: string) {
     setQuery({ sort: v || undefined });
   }
 
@@ -85,17 +91,13 @@
 <div class="view-bar">
   <div class="view-group">
     <Bookmark size={15} class="view-icon" aria-hidden="true" />
-    <select
-      class="rail-select"
+    <Select
+      class="compact"
       aria-label="Saved view"
       value={viewStore.activeViewId == null ? "" : String(viewStore.activeViewId)}
-      onchange={onSelectView}
-    >
-      <option value="">All cards</option>
-      {#each viewStore.views as v (v.id)}
-        <option value={String(v.id)}>{v.name}</option>
-      {/each}
-    </select>
+      options={viewOptions}
+      onValueChange={onSelectView}
+    />
     {#if viewStore.activeViewId != null}
       <button
         class="icon-btn"
@@ -112,52 +114,45 @@
   <div class="view-filters">
     <label class="filter">
       <span>Priority</span>
-      <select
-        class="rail-select"
+      <Select
+        class="compact"
         aria-label="Filter by priority"
         value={viewStore.query.priority ?? ""}
-        onchange={onPriority}
-      >
-        <option value="">Any</option>
-        {#each PRIORITIES as p (p)}
-          <option value={p}>{p}</option>
-        {/each}
-      </select>
+        options={priorityOptions}
+        onValueChange={onPriority}
+      />
     </label>
 
     <label class="filter">
       <span>Assignee</span>
-      <input
-        class="filter-input"
-        placeholder="anyone"
-        aria-label="Filter by assignee"
-        bind:value={assigneeInput}
-        onchange={onAssignee}
-      />
+      <span class="input-wrap">
+        <TextInput
+          placeholder="anyone"
+          aria-label="Filter by assignee"
+          bind:value={assigneeInput}
+          onchange={onAssignee}
+        />
+      </span>
     </label>
 
-    <label class="filter checkbox">
-      <input
-        type="checkbox"
+    <div class="filter checkbox">
+      <Checkbox
+        label="Needs human"
         aria-label="Only cards needing a human"
         checked={viewStore.query.needs_human === true}
-        onchange={onNeedsHuman}
+        onCheckedChange={onNeedsHuman}
       />
-      <span>Needs human</span>
-    </label>
+    </div>
 
     <label class="filter">
       <span>Sort</span>
-      <select
-        class="rail-select"
+      <Select
+        class="compact"
         aria-label="Sort cards"
         value={viewStore.query.sort ?? ""}
-        onchange={onSort}
-      >
-        {#each SORTS as s (s.value)}
-          <option value={s.value}>{s.label}</option>
-        {/each}
-      </select>
+        options={SORTS}
+        onValueChange={onSort}
+      />
     </label>
   </div>
 
@@ -170,12 +165,9 @@
           save();
         }}
       >
-        <input
-          class="filter-input"
-          placeholder="View name"
-          aria-label="View name"
-          bind:value={newName}
-        />
+        <span class="input-wrap">
+          <TextInput placeholder="View name" aria-label="View name" bind:value={newName} />
+        </span>
         <button type="submit" class="primary" disabled={!newName.trim() || busy}>Save</button>
         <button type="button" class="icon-btn" aria-label="Cancel" onclick={() => (saving = false)}>
           <X size={15} />
@@ -249,19 +241,10 @@
     gap: 0.3rem;
     cursor: pointer;
   }
-  .filter-input {
-    padding: 0.3rem 0.5rem;
-    font: inherit;
-    font-size: 0.82rem;
-    color: var(--text);
-    background: var(--card-bg);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    max-width: 9rem;
-  }
-  .filter-input:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 1px;
+  /* Fixed-width wrapper for the primitive TextInput (renders width:100%). */
+  .input-wrap {
+    display: inline-flex;
+    width: 9rem;
   }
   .save-form {
     display: inline-flex;

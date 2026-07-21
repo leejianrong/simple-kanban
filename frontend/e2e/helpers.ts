@@ -49,7 +49,7 @@ export async function createBoardViaSwitcher(page: Page, name: string): Promise<
   await switcher.getByRole("button", { name: "New board" }).click();
   await page.getByLabel("Board name").fill(name);
   await switcher.getByRole("button", { name: "Create", exact: true }).click();
-  await expect(page.getByLabel("Board", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Switch board", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Todo", exact: true })).toBeVisible();
   return name;
 }
@@ -62,6 +62,20 @@ export async function openFreshBoard(page: Page): Promise<string> {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Todo", exact: true })).toBeVisible();
   return createBoardViaSwitcher(page, uniqueTitle("board"));
+}
+
+// Pick an option from a U2 Select primitive (Bits UI, KAN-317) — NOT a native
+// <select>, so Playwright's selectOption() doesn't apply. Click the labelled
+// trigger (role=combobox), then the option (role=option, portalled to <body>, so
+// queried off the page). `scope` narrows which labelled trigger (a dialog/column).
+export async function pickSelect(
+  page: Page,
+  scope: Page | Locator,
+  triggerLabel: string,
+  optionLabel: string,
+): Promise<void> {
+  await scope.getByLabel(triggerLabel, { exact: true }).click();
+  await page.getByRole("option", { name: optionLabel, exact: true }).click();
 }
 
 export function column(page: Page, label: string): Locator {
@@ -123,7 +137,7 @@ export async function createStoryUnder(
   const col = column(page, columnLabel);
   await col.getByRole("button", { name: "Add card" }).click();
   await col.getByPlaceholder("Title (required)").fill(title);
-  await col.getByLabel("Epic", { exact: true }).selectOption({ label: `${epicTicket} · ${epicName}` });
+  await pickSelect(page, col, "Epic", `${epicTicket} · ${epicName}`);
   await col.getByRole("button", { name: "Create" }).click();
   await expect(cardInColumn(page, columnLabel, title)).toBeVisible();
 }

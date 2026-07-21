@@ -26,6 +26,7 @@
   } from "../board.svelte";
   import { session } from "../session.svelte";
   import Modal from "./Modal.svelte";
+  import { Select } from "./ui";
 
   // The card is read live from the store by id (not a snapshot): every mutation
   // refetches board state, and this modal must reflect the fresh card without
@@ -78,6 +79,24 @@
   const epicOptions = $derived(epicStore.epics);
   const labelOptions = $derived(labelStore.labels);
 
+  // Option lists for the standardized Select primitives.
+  const statusOptions = COLUMNS.map((c) => ({ value: c.key, label: c.label }));
+  const pointOptions = [
+    { value: "", label: "— unestimated" },
+    ...STORY_POINTS.map((p) => ({ value: String(p), label: String(p) })),
+  ];
+  const priorityOptions = PRIORITIES.map((p) => ({
+    value: p,
+    label: p === "none" ? "— none" : p,
+  }));
+  const epicSelectOptions = $derived([
+    { value: "", label: "— no epic" },
+    ...epicOptions.map((e) => ({
+      value: String(e.id),
+      label: `${e.ticket_number} · ${e.name}`,
+    })),
+  ]);
+
   function toggleLabel(id: number) {
     labelIds = labelIds.includes(id)
       ? labelIds.filter((x) => x !== id)
@@ -91,12 +110,11 @@
 
   // --- Status → move (dedicated endpoint, immediate) ----------------------
   let moving = $state(false);
-  async function onStatusChange(e: Event) {
-    const next = (e.currentTarget as HTMLSelectElement).value as Column;
+  async function onStatusChange(next: string) {
     if (!card || next === card.column) return;
     moving = true;
     try {
-      await moveCard(card.id, { column: next });
+      await moveCard(card.id, { column: next as Column });
     } finally {
       moving = false;
     }
@@ -116,7 +134,16 @@
   const blocks = $derived(
     card ? card.blocks.map((id) => cardById(id)) : [],
   );
-  let addBlockerId = $state<string>("");
+  const blockerOptions = $derived([
+    {
+      value: "",
+      label: blockerCandidates.length === 0 ? "— no cards to add" : "— add a blocker",
+    },
+    ...blockerCandidates.map((c) => ({
+      value: String(c.id),
+      label: `${c.ticket_number} · ${c.title}`,
+    })),
+  ]);
   let depBusy = $state(false);
   let depError = $state<string | null>(null);
 
@@ -129,7 +156,6 @@
     } catch (e) {
       depError = e instanceof Error ? e.message : "Failed to add blocker";
     } finally {
-      addBlockerId = "";
       depBusy = false;
     }
   }
@@ -391,56 +417,43 @@
           <aside class="modal-rail">
             <div class="rail-field">
               <span class="field-label">Status</span>
-              <select
-                class="rail-select"
+              <Select
                 aria-label="Status"
                 value={card.column}
+                options={statusOptions}
                 disabled={moving}
-                onchange={onStatusChange}
-              >
-                {#each COLUMNS as col (col.key)}
-                  <option value={col.key}>{col.label}</option>
-                {/each}
-              </select>
+                onValueChange={onStatusChange}
+              />
             </div>
 
             <div class="rail-field">
               <span class="field-label">Story points</span>
-              <select class="rail-select" bind:value={storyPoints} aria-label="Story points">
-                <option value="">— unestimated</option>
-                {#each STORY_POINTS as p}
-                  <option value={String(p)}>{p}</option>
-                {/each}
-              </select>
+              <Select bind:value={storyPoints} options={pointOptions} aria-label="Story points" />
             </div>
 
             <div class="rail-field">
               <span class="field-label">Assignee</span>
-              <input type="text" placeholder="Assignee" bind:value={assignee} />
+              <input type="text" class="ui-input" placeholder="Assignee" bind:value={assignee} aria-label="Assignee" />
             </div>
 
             <div class="rail-field">
               <span class="field-label">Epic</span>
-              <select class="rail-select" bind:value={epicId} aria-label="Epic">
-                <option value="">— no epic</option>
-                {#each epicOptions as e (e.id)}
-                  <option value={String(e.id)}>{e.ticket_number} · {e.name}</option>
-                {/each}
-              </select>
+              <Select bind:value={epicId} options={epicSelectOptions} aria-label="Epic" />
             </div>
 
             <div class="rail-field">
               <span class="field-label">Priority</span>
-              <select class="rail-select" bind:value={priority} aria-label="Priority">
-                {#each PRIORITIES as p}
-                  <option value={p}>{p === "none" ? "— none" : p}</option>
-                {/each}
-              </select>
+              <Select
+                value={priority}
+                options={priorityOptions}
+                onValueChange={(v) => (priority = v as Priority)}
+                aria-label="Priority"
+              />
             </div>
 
             <div class="rail-field">
               <span class="field-label">Due date</span>
-              <input type="date" bind:value={dueDate} aria-label="Due date" />
+              <input type="date" class="ui-input" bind:value={dueDate} aria-label="Due date" />
             </div>
 
             <div class="rail-field">
@@ -489,20 +502,15 @@
                   {/each}
                 </ul>
               {/if}
-              <select
-                class="rail-select"
-                bind:value={addBlockerId}
+              <Select
+                value=""
+                options={blockerOptions}
                 aria-label="Add blocker"
                 disabled={depBusy || blockerCandidates.length === 0}
-                onchange={() => onAddBlocker(addBlockerId)}
-              >
-                <option value="">
-                  {blockerCandidates.length === 0 ? "— no cards to add" : "— add a blocker"}
-                </option>
-                {#each blockerCandidates as c (c.id)}
-                  <option value={String(c.id)}>{c.ticket_number} · {c.title}</option>
-                {/each}
-              </select>
+                onValueChange={(v) => {
+                  if (v) onAddBlocker(v);
+                }}
+              />
               {#if depError}
                 <p class="form-error" role="alert">{depError}</p>
               {/if}
