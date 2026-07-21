@@ -1022,3 +1022,27 @@ Dogfooding observations about driving this board as an agent PM. Seeded from the
     → `progress {done,total,percent}`) to report M6 epic completion back to the user. The prod-verify of
     each migration/derived slice was an API round-trip against the live app (set→read→clear for epic
     fields; create→assign→filter→delete for cycles; endpoint-shape for metrics), not just "CI green".
+
+- **EPIC-49 (M6 "UI Enhancement & Design System") — Wave 1: U1 (KAN-316) dark-mode form controls.**
+  The visible white-in-dark-mode bug across all native controls (filter-row selects, card-modal
+  form, date picker, checkbox). Root cause was a *missing* declaration, not a wrong one: `color-scheme`
+  was set nowhere, so every native control fell back to the UA light default regardless of theme.
+  One-agent CSS-only slice, merged as PR #168 → `c13e494`, deployed + prod-verified. Learnings:
+  - **The fix is `color-scheme` on `:root`, in all THREE theme contexts.** This repo themes via
+    `:root`/`[data-theme="light"]` (light), `@media (prefers-color-scheme: dark) :root:not([data-theme="light"])`
+    (OS dark), and `:root[data-theme="dark"]` (forced dark). A `color-scheme` fix has to land in each
+    of the three, not just one — easy to under-fix by only touching the media query.
+  - **Use `background-color`, not the `background` shorthand, on `.rail-select`.** The custom select
+    carries its dropdown-caret as a `background-image`; the shorthand wipes it. The agent caught this
+    itself and used `background-color` to theme the control while preserving the caret. Worth a
+    reviewer's eye whenever an `appearance:none` control gets a themed background.
+  - **Headless Chromium lies about open native `<select>` popups.** An opened option menu screenshots
+    as *light* even when `color-scheme: dark` is correctly applied — the popup chrome ignores
+    `color-scheme` in headless. The reliable dark-mode signals are the *closed* control's rendering and
+    the computed `color-scheme`/`background-color` via `page.evaluate`, not an open-popup screenshot.
+    This exact artifact could produce a false "still broken" report on the very bug being fixed.
+  - **Prod-verify for a CSS card = grep the deployed hashed `/assets/index-*.css`** (not the JS bundle)
+    for the new declarations (`color-scheme:dark`/`light`, `.rail-select{…background-color:var(--card-bg)`).
+  - **e2e "screenshot" specs dirty the tree.** The activity/dashboard/trash specs overwrite tracked
+    baseline PNGs in the repo root on every run; the agent reverted them to keep the PR scoped to
+    `app.css`. Standing friction — those baseline artifacts arguably shouldn't be git-tracked.
