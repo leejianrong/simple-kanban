@@ -853,3 +853,51 @@ class CycleRead(BaseModel):
     starts_on: datetime | None
     ends_on: datetime | None
     created_at: datetime
+
+
+# --- cycle metrics: burndown / velocity (V34, KAN-298) ---------------------
+# Derived from the cycle's card state (story points + column) + the ``done``
+# transition times in the activity feed — no stored metric, no migration. See
+# ``app.metrics.compute_cycle_metrics`` and
+# ``GET /api/v1/boards/{id}/cycles/{cid}/metrics`` (routers/cycles.py).
+
+
+class WorkTotals(BaseModel):
+    """A count of stories and their summed story points (``points`` treats an
+    unestimated story as 0)."""
+
+    count: int
+    points: int
+
+
+class BurndownPoint(BaseModel):
+    """One calendar day of the cycle window: work still ``remaining``, work
+    ``completed`` cumulatively by that day, and the linear ``ideal`` reference
+    line. All in the cycle's chosen unit (points, or card count when unestimated)."""
+
+    date: str  # ISO-8601 calendar day (YYYY-MM-DD, UTC)
+    remaining: float
+    completed: float
+    ideal: float
+
+
+class CycleMetricsRead(BaseModel):
+    """Derived burndown / velocity metrics for one cycle (V34, KAN-298).
+
+    Entirely computed from the cycle's current card state + the activity feed —
+    no stored metric, no migration. ``committed`` is the work assigned to the
+    cycle; ``completed`` the subset currently ``done``; ``velocity`` the completed
+    story points. ``unit`` is ``"points"`` when the cycle has any estimated work,
+    else ``"count"`` — the unit ``burndown`` is expressed in. ``burndown`` is empty
+    when the cycle has no dated ``starts_on`` / ``ends_on`` window."""
+
+    board_id: int
+    cycle_id: int
+    generated_at: datetime
+    starts_on: datetime | None = None
+    ends_on: datetime | None = None
+    committed: WorkTotals
+    completed: WorkTotals
+    velocity: int
+    unit: str
+    burndown: list[BurndownPoint] = []

@@ -774,6 +774,60 @@ export async function getBoardMetrics(
   return res.json();
 }
 
+// --- Cycles / iterations (V33 API) + cycle burndown/velocity (V34, KAN-298) --
+// A cycle is a board-scoped, time-boxed iteration a story can belong to. Its
+// metrics (burndown / velocity) are derived server-side from the cycle's card
+// state + the activity feed (no stored metric). Read-only; owner/member-gated.
+
+export interface Cycle {
+  id: number;
+  board_id: number;
+  name: string;
+  starts_on: string | null;
+  ends_on: string | null;
+  created_at: string;
+}
+
+export interface WorkTotals {
+  count: number;
+  points: number;
+}
+
+export interface BurndownPoint {
+  date: string; // ISO calendar day (YYYY-MM-DD, UTC)
+  remaining: number;
+  completed: number;
+  ideal: number;
+}
+
+export interface CycleMetrics {
+  board_id: number;
+  cycle_id: number;
+  generated_at: string;
+  starts_on: string | null;
+  ends_on: string | null;
+  committed: WorkTotals;
+  completed: WorkTotals;
+  velocity: number;
+  unit: "points" | "count";
+  burndown: BurndownPoint[];
+}
+
+export async function listCycles(boardId: number): Promise<Cycle[]> {
+  const res = await fetch(`${API}/boards/${boardId}/cycles`);
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
+export async function getCycleMetrics(
+  boardId: number,
+  cycleId: number,
+): Promise<CycleMetrics> {
+  const res = await fetch(`${API}/boards/${boardId}/cycles/${cycleId}/metrics`);
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res.json();
+}
+
 // --- Auth (Milestone 3 V6, ADR 0011) ---------------------------------------
 // The fastapi-users auth + identity routes live at the origin root (/auth,
 // /users), NOT under /api/v1 — they're session plumbing, so no API prefix.

@@ -712,6 +712,19 @@ def delete_cycle(cycle_id: int, board_id: int | None = None) -> dict[str, Any]:
     return _client_instance().delete_cycle(_require_board(board_id), cycle_id)
 
 
+@mcp.tool()
+def cycle_metrics(cycle_id: int, board_id: int | None = None) -> dict[str, Any]:
+    """Report derived burndown / velocity metrics for a cycle/iteration (V34).
+    Reports committed vs completed (stories + story points), velocity (completed
+    points), and a per-day burndown of remaining work over the cycle's
+    starts_on..ends_on window (empty when the cycle has no dates). All computed
+    from the cycle's card state + the activity feed; nothing is written.
+    ``board_id`` targets one board (defaults to KANBAN_BOARD_ID). 404 if no such
+    cycle is on that board; authorized via the board (you must be able to read it).
+    """
+    return _client_instance().cycle_metrics(_require_board(board_id), cycle_id)
+
+
 def main() -> None:
     """Entry point — run the server over stdio."""
     mcp.run()
