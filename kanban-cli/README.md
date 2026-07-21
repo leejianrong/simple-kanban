@@ -66,6 +66,12 @@ nested groups so their verbs don't collide with the card verbs (parity with the
 Valid columns are `todo`, `in_progress`, `done`. `delete` requires `--yes` as a
 guard against accidental destruction.
 
+**Ids accept tickets.** Anywhere a card or epic id is taken (`get`/`update`/`move`/
+`delete`, `--epic`, `dep --blocked-by`, `epic update`/`delete`, …) you can pass the
+`KAN-<n>` / `EPIC-<n>` **ticket** the CLI itself prints (case-insensitive) instead of
+the numeric DB id — the CLI resolves it to the id for you via a lookup. Bare integers
+still work unchanged. (Label ids are numeric only — labels have no ticket number.)
+
 `kan warmup` pings the public health endpoint to wake a scaled-to-zero Fly + Neon
 deploy (the first request after idle is slow — a documented cold start), riding it
 out via the shared client's cold-start retry/timeout. Handy as a **CI pre-step**

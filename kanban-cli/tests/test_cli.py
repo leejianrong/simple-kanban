@@ -40,10 +40,19 @@ BOARD = {"id": 2, "name": "Roadmap", "owner_id": None}
 class FakeClient:
     """Records method calls; returns a canned result or raises a canned error."""
 
-    def __init__(self, result=None, error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        result=None,
+        error: Exception | None = None,
+        results: dict | None = None,
+    ) -> None:
         self.calls: list[tuple[str, dict]] = []
         self._result = CARD if result is None else result
         self._error = error
+        # Optional per-method overrides (e.g. `list_cards` returns a card page while
+        # `get_card` returns the single card) — used by the KAN-285 ticket-resolution
+        # tests, where one command makes two different client calls.
+        self._results = results or {}
 
     def __enter__(self) -> "FakeClient":
         return self
@@ -55,6 +64,8 @@ class FakeClient:
         self.calls.append((method, kwargs))
         if self._error is not None:
             raise self._error
+        if method in self._results:
+            return self._results[method]
         return self._result
 
     def warmup(self):
@@ -1288,3 +1299,213 @@ def test_next_humanizes_empty(monkeypatch, env, capsys):
     code = cli.run(["next", "--board", "3"])
     assert code == 0
     assert capsys.readouterr().out.strip() == "(no card ready)"
+
+
+# --- KAN-285: id-taking commands accept KAN-/EPIC- tickets (not only DB ids) --
+# Every id argument resolves a KAN-<n> / EPIC-<n> ticket (the form the CLI itself
+# prints) to its numeric id via a client-side lookup; bare integers still pass
+# through unchanged with no extra request. Fixtures carry the full CardRead shape
+# (labels/story_points) so they match the real API (the KAN-277 lesson).
+
+
+def _card(ticket, cid, **extra):
+    return {
+        "ticket_number": ticket, "id": cid, "column": "todo",
+        "title": "t", "story_points": None, "labels": [], **extra,
+    }
+
+
+def _epic(ticket, eid, **extra):
+    return {"ticket_number": ticket, "id": eid, "name": "n", "description": None, **extra}
+
+
+def test_get_accepts_kan_ticket(monkeypatch, env):
+    # `get KAN-9` lists cards, matches the ticket → numeric id 42, then GETs it.
+    fake = patch_client(
+        monkeypatch,
+        FakeClient(
+            result=_card("KAN-9", 42),
+            results={"list_cards": {"cards": [_card("KAN-9", 42)]}},
+        ),
+    )
+    assert cli.run(["get", "KAN-9"]) == 0
+    assert fake.calls == [
+        ("list_cards", {"board_id": None}),
+        ("get_card", {"card_id": 42}),
+    ]
+
+
+def test_get_ticket_is_case_insensitive(monkeypatch, env):
+    fake = patch_client(
+        monkeypatch,
+        FakeClient(
+            result=_card("KAN-9", 42),
+            results={"list_cards": {"cards": [_card("KAN-9", 42)]}},
+        ),
+    )
+    assert cli.run(["get", "kan-9"]) == 0
+    assert fake.calls[-1] == ("get_card", {"card_id": 42})
+
+
+def test_bare_int_card_id_skips_lookup(monkeypatch, env):
+    # A bare integer resolves with NO list request — only the target call is made.
+    fake = patch_client(monkeypatch, FakeClient())
+    assert cli.run(["get", "42"]) == 0
+    assert fake.calls == [("get_card", {"card_id": 42})]
+
+
+def test_move_accepts_kan_ticket(monkeypatch, env):
+    fake = patch_client(
+        monkeypatch,
+        FakeClient(
+            result=_card("KAN-7", 7),
+            results={"list_cards": {"cards": [_card("KAN-7", 7)]}},
+        ),
+    )
+    assert cli.run(["move", "KAN-7", "done"]) == 0
+    assert fake.calls == [
+        ("list_cards", {"board_id": None}),
+        ("move_card", {"card_id": 7, "column": "done", "position": None}),
+    ]
+
+
+def test_delete_accepts_kan_ticket(monkeypatch, env):
+    fake = patch_client(
+        monkeypatch,
+        FakeClient(result={"deleted": 7}, results={"list_cards": {"cards": [_card("KAN-7", 7)]}}),
+    )
+    assert cli.run(["delete", "KAN-7", "--yes"]) == 0
+    assert fake.calls == [
+        ("list_cards", {"board_id": None}),
+        ("delete_card", {"card_id": 7}),
+    ]
+
+
+def test_card_ticket_resolution_pages_the_cursor(monkeypatch, env):
+    # A ticket on a later page is still found — the resolver follows next_cursor.
+    class Paging:
+        def __init__(self):
+            self.calls = []
+            self._pages = [
+                {"cards": [_card("KAN-1", 1)], "next_cursor": "c2"},
+                {"cards": [_card("KAN-9", 42)]},
+            ]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def list_cards(self, **kw):
+            self.calls.append(("list_cards", kw))
+            return self._pages.pop(0)
+
+        def get_card(self, card_id):
+            self.calls.append(("get_card", {"card_id": card_id}))
+            return _card("KAN-9", card_id)
+
+    fake = Paging()
+    patch_client(monkeypatch, fake)
+    assert cli.run(["get", "KAN-9"]) == 0
+    assert fake.calls == [
+        ("list_cards", {"board_id": None}),
+        ("list_cards", {"board_id": None, "cursor": "c2"}),
+        ("get_card", {"card_id": 42}),
+    ]
+
+
+def test_unknown_card_ticket_is_a_clean_error(monkeypatch, env, capsys):
+    fake = patch_client(monkeypatch, FakeClient(results={"list_cards": {"cards": []}}))
+    assert cli.run(["get", "KAN-999"]) == cli.EXIT_ERROR
+    assert "no card found with ticket KAN-999" in capsys.readouterr().err
+    assert fake.calls == [("list_cards", {"board_id": None})]
+
+
+def test_card_id_arg_rejects_epic_ticket(monkeypatch, env, capsys):
+    fake = patch_client(monkeypatch, FakeClient())
+    assert cli.run(["get", "EPIC-3"]) == cli.EXIT_ERROR
+    assert "not a card ticket" in capsys.readouterr().err
+    assert fake.calls == []  # never lists — the shape is wrong up front
+
+
+def test_malformed_id_is_usage_error(env):
+    # A value that is neither an int nor a KAN-/EPIC- ticket is a usage error (2).
+    with pytest.raises(SystemExit) as exc:
+        cli.run(["get", "not-an-id"])
+    assert exc.value.code == cli.EXIT_USAGE
+
+
+def test_list_epic_filter_accepts_epic_ticket(monkeypatch, env):
+    fake = patch_client(
+        monkeypatch,
+        FakeClient(
+            result={"cards": []},
+            results={"list_epics": {"epics": [_epic("EPIC-4", 7)]}},
+        ),
+    )
+    assert cli.run(["list", "--epic", "EPIC-4"]) == 0
+    assert fake.calls[0] == ("list_epics", {"board_id": None})
+    assert fake.calls[1][0] == "list_cards"
+    assert fake.calls[1][1]["epic_id"] == 7
+
+
+def test_update_epic_link_accepts_epic_ticket(monkeypatch, env):
+    fake = patch_client(
+        monkeypatch,
+        FakeClient(
+            result=_card("KAN-7", 7),
+            results={"list_epics": {"epics": [_epic("EPIC-4", 9)]}},
+        ),
+    )
+    assert cli.run(["update", "7", "--epic", "EPIC-4"]) == 0
+    assert fake.calls == [
+        ("list_epics", {"board_id": None}),
+        (
+            "update_card",
+            {
+                "card_id": 7, "title": None, "description": None, "story_points": None,
+                "assignee": None, "epic_id": 9, "priority": None, "due_date": None,
+                "label_ids": None,
+            },
+        ),
+    ]
+
+
+def test_epic_update_accepts_epic_ticket(monkeypatch, env):
+    fake = patch_client(
+        monkeypatch,
+        FakeClient(
+            result=_epic("EPIC-4", 7),
+            results={"list_epics": {"epics": [_epic("EPIC-4", 7)]}},
+        ),
+    )
+    assert cli.run(["epic", "update", "EPIC-4", "--name", "New"]) == 0
+    assert fake.calls == [
+        ("list_epics", {"board_id": None}),
+        ("update_epic", {"epic_id": 7, "name": "New", "description": None}),
+    ]
+
+
+def test_epic_arg_rejects_kan_ticket(monkeypatch, env, capsys):
+    fake = patch_client(monkeypatch, FakeClient())
+    assert cli.run(["epic", "update", "KAN-3", "--name", "x"]) == cli.EXIT_ERROR
+    assert "not an epic ticket" in capsys.readouterr().err
+    assert fake.calls == []
+
+
+def test_dep_add_resolves_both_card_and_blocker_tickets(monkeypatch, env):
+    fake = patch_client(
+        monkeypatch,
+        FakeClient(
+            result={"ticket_number": "KAN-7", "blocked_by": [3], "blocks": [], "id": 7},
+            results={"list_cards": {"cards": [_card("KAN-7", 7), _card("KAN-3", 3)]}},
+        ),
+    )
+    assert cli.run(["dep", "add", "KAN-7", "--blocked-by", "KAN-3"]) == 0
+    # Two lookups (card + blocker), then the add with resolved numeric ids.
+    assert fake.calls == [
+        ("list_cards", {"board_id": None}),
+        ("list_cards", {"board_id": None}),
+        ("add_dependency", {"card_id": 7, "blocker_id": 3}),
+    ]
