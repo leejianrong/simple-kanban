@@ -1553,3 +1553,37 @@ def test_normalize_sort_argv_only_touches_sort():
     assert cli._normalize_sort_argv(["list", "--column", "todo"]) == [
         "list", "--column", "todo",
     ]
+
+
+# --- KAN-287: `template list` human formatter (not raw JSON) -----------------
+# Every other list verb prints a tab-separated human line without --json;
+# `template list` used to dump raw JSON always. It now prints `id<TAB>name<TAB>N
+# cards` and reserves raw JSON for --json.
+
+# A realistic CardTemplateRead carries id/board_id/name/cards/created_at.
+TEMPLATE = {
+    "id": 5,
+    "board_id": 3,
+    "name": "sprint",
+    "cards": [{"title": "A"}, {"title": "B"}],
+    "created_at": "2026-07-17T12:00:00Z",
+}
+
+
+def test_template_list_human_output(monkeypatch, env, capsys):
+    patch_client(monkeypatch, FakeClient(result={"templates": [TEMPLATE]}))
+    assert cli.run(["template", "list", "--board", "3"]) == 0
+    assert capsys.readouterr().out.strip() == "5\tsprint\t2 cards"
+
+
+def test_template_list_empty_human_output(monkeypatch, env, capsys):
+    patch_client(monkeypatch, FakeClient(result={"templates": []}))
+    assert cli.run(["template", "list", "--board", "3"]) == 0
+    assert capsys.readouterr().out.strip() == "(no templates)"
+
+
+def test_template_list_json_is_still_raw(monkeypatch, env, capsys):
+    result = {"templates": [TEMPLATE]}
+    patch_client(monkeypatch, FakeClient(result=result))
+    assert cli.run(["template", "list", "--board", "3", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == result

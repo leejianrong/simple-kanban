@@ -101,6 +101,13 @@ def _humanize(result: Any, *, noun: str = "card") -> str:
     if isinstance(result, dict) and "views" in result:  # list_views
         views = result["views"]
         return "\n".join(_view_line(v) for v in views) if views else "(no views)"
+    if isinstance(result, dict) and "templates" in result:  # list_templates
+        templates = result["templates"]
+        return (
+            "\n".join(_template_line(t) for t in templates)
+            if templates
+            else "(no templates)"
+        )
     if isinstance(result, dict) and "activity" in result:  # list_activity
         rows = result["activity"]
         if not rows:
@@ -206,6 +213,22 @@ def _view_line(view: dict[str, Any]) -> str:
             str(view.get("id", "?")),
             str(view.get("name", "")),
             json.dumps(view.get("query", {}), default=str, sort_keys=True),
+        )
+    )
+
+
+def _template_line(tmpl: dict[str, Any]) -> str:
+    """One concise line for a card template: id, name, card count (tab-separated).
+
+    Matches the other list verbs' human output (KAN-287) — ``template list`` used
+    to dump raw JSON even without ``--json``. The stored ``cards`` list is a JSON
+    array of card payloads; we show its length rather than the payloads."""
+    cards = tmpl.get("cards") or []
+    return "\t".join(
+        (
+            str(tmpl.get("id", "?")),
+            str(tmpl.get("name", "")),
+            f"{len(cards)} cards",
         )
     )
 
