@@ -40,7 +40,7 @@ nested groups so their verbs don't collide with the card verbs (parity with the
 | `kan epic update <epic_id> [--name N] [--description D] [--json]` | `PATCH /epics/{id}` |
 | `kan epic delete <epic_id> --yes [--json]` | `DELETE /epics/{id}` |
 | `kan label list [--board N] [--json]` | `GET /boards/{id}/labels` |
-| `kan label create <name> <color> [--board N] [--json]` | `POST /boards/{id}/labels` |
+| `kan label create <name> [color] [--color C] [--board N] [--json]` | `POST /boards/{id}/labels` |
 | `kan label delete <label_id> --yes [--json]` | `DELETE /labels/{id}` |
 | `kan view list [--board N] [--json]` | `GET /boards/{id}/views` |
 | `kan view create <name> [--board N] [--column C] [--epic ID] [--priority P] [--label ID] [--due-before ISO] [--overdue] [--needs-human] [--assignee A] [--sort SPEC] [--json]` | `POST /boards/{id}/views` |

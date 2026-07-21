@@ -1587,3 +1587,54 @@ def test_template_list_json_is_still_raw(monkeypatch, env, capsys):
     patch_client(monkeypatch, FakeClient(result=result))
     assert cli.run(["template", "list", "--board", "3", "--json"]) == 0
     assert json.loads(capsys.readouterr().out) == result
+
+
+# --- KAN-288: `label create` accepts --color as well as the positional --------
+# The signature was `label create <name> <color>` (color a required positional);
+# docs/users expected a --color flag. Color is now optional either way — the
+# positional still works, --color works, --color wins if both are given, and
+# omitting both falls back to a neutral default.
+
+
+def test_label_create_color_positional_still_works(monkeypatch, env):
+    fake = patch_client(
+        monkeypatch,
+        FakeClient(result={"id": 1, "board_id": 2, "name": "bug", "color": "#ef4444"}),
+    )
+    assert cli.run(["label", "create", "bug", "#ef4444", "--board", "2"]) == 0
+    assert fake.calls == [
+        ("create_label", {"board_id": 2, "name": "bug", "color": "#ef4444"})
+    ]
+
+
+def test_label_create_color_flag(monkeypatch, env):
+    fake = patch_client(
+        monkeypatch,
+        FakeClient(result={"id": 1, "board_id": 2, "name": "bug", "color": "#ef4444"}),
+    )
+    assert cli.run(["label", "create", "bug", "--color", "#ef4444", "--board", "2"]) == 0
+    assert fake.calls == [
+        ("create_label", {"board_id": 2, "name": "bug", "color": "#ef4444"})
+    ]
+
+
+def test_label_create_color_flag_wins_over_positional(monkeypatch, env):
+    fake = patch_client(
+        monkeypatch,
+        FakeClient(result={"id": 1, "board_id": 2, "name": "bug", "color": "#111111"}),
+    )
+    assert cli.run(
+        ["label", "create", "bug", "#000000", "--color", "#111111", "--board", "2"]
+    ) == 0
+    assert fake.calls == [
+        ("create_label", {"board_id": 2, "name": "bug", "color": "#111111"})
+    ]
+
+
+def test_label_create_default_color_when_omitted(monkeypatch, env):
+    label = {"id": 1, "board_id": 2, "name": "bug", "color": cli.DEFAULT_LABEL_COLOR}
+    fake = patch_client(monkeypatch, FakeClient(result=label))
+    assert cli.run(["label", "create", "bug", "--board", "2"]) == 0
+    assert fake.calls == [
+        ("create_label", {"board_id": 2, "name": "bug", "color": cli.DEFAULT_LABEL_COLOR})
+    ]

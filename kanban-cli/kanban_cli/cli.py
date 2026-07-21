@@ -57,6 +57,11 @@ _STATUS_EXIT = {401: EXIT_AUTH, 403: EXIT_FORBIDDEN, 404: EXIT_NOT_FOUND}
 COLUMNS = ("todo", "in_progress", "done")
 PRIORITIES = ("none", "low", "medium", "high", "urgent")
 
+# Fallback color for `label create` when neither the positional nor --color is
+# given (KAN-288). A neutral slate so an unspecified label still renders sensibly;
+# the API requires a non-empty color string.
+DEFAULT_LABEL_COLOR = "#64748b"
+
 
 # --- output helpers ---------------------------------------------------------
 
@@ -640,7 +645,10 @@ def _cmd_label_create(client: KanbanClient, config: Config, args: argparse.Names
     board = _resolve_board(args.board, config)
     if board is None:
         raise ConfigError("a board is required; pass --board or set KANBAN_BOARD_ID")
-    return client.create_label(board, args.name, args.color)
+    # KAN-288: color accepts either the positional or the --color flag (flag wins),
+    # falling back to a neutral default so it can be omitted entirely.
+    color = args.color_opt or args.color_pos or DEFAULT_LABEL_COLOR
+    return client.create_label(board, args.name, color)
 
 
 def _cmd_label_delete(client: KanbanClient, config: Config, args: argparse.Namespace) -> Any:
@@ -1202,7 +1210,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_label_create = label_sub.add_parser("create", parents=[common], help="create a label")
     p_label_create.add_argument("name")
-    p_label_create.add_argument("color", help="a color string, e.g. a hex like #0ea5e9")
+    # KAN-288: color is accepted as an optional positional OR the --color flag, so
+    # both `label create bug '#hex'` and `label create bug --color '#hex'` work.
+    # Omit both → a neutral default (DEFAULT_LABEL_COLOR); --color wins over the
+    # positional when both are given.
+    p_label_create.add_argument(
+        "color_pos", nargs="?", metavar="COLOR",
+        help=f"a color string, e.g. #0ea5e9 (or use --color; default {DEFAULT_LABEL_COLOR})",
+    )
+    p_label_create.add_argument(
+        "--color", dest="color_opt", metavar="COLOR",
+        help="a color string, e.g. #0ea5e9 (alternative to the positional)",
+    )
     p_label_create.add_argument("--board", type=int, help="board id (default: KANBAN_BOARD_ID)")
     p_label_create.set_defaults(func=_cmd_label_create, noun="label")
 
