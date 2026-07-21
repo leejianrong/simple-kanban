@@ -35,6 +35,7 @@ from ..models import Card, CardComment, CardDependency, CardLabel, CardLink, Epi
 from ..ordering import next_position, renumber_column
 from ..pagination import NEXT_CURSOR_HEADER, decode_cursor, encode_cursor
 from ..schemas import (
+    MAX_BATCH_ITEMS,
     CardBatchUpdateItem,
     CardCreate,
     CardMove,
@@ -617,6 +618,13 @@ def batch_update_cards(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="batch must contain at least one card update",
+        )
+    # Payload hardening (V28, KAN-292): cap the batch so a single call can't fan out
+    # into an unbounded transaction. Configurable via MAX_BATCH_ITEMS (generous default).
+    if len(payload) > MAX_BATCH_ITEMS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"batch must not exceed {MAX_BATCH_ITEMS} card updates",
         )
     ids = [item.id for item in payload]
     if len(set(ids)) != len(ids):
