@@ -2010,6 +2010,21 @@ button.primary:disabled {
   flex: none;
   color: var(--accent);
 }
+/* Trailing shortcut hint on a menu item (e.g. `?` on Keyboard shortcuts, KAN-392). */
+.ui-item-hint {
+  margin-left: auto;
+  flex: none;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  line-height: 1;
+  min-width: 1.2rem;
+  text-align: center;
+  padding: 0.2rem 0.35rem;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
 .ui-item[data-highlighted],
 .ui-item[data-selected],
 .ui-item:hover {

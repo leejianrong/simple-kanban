@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { LogOut, Menu, Moon, Search, Settings, Sun } from "lucide-svelte";
+  import { Keyboard, LogOut, Menu, Moon, Search, Settings, Sun } from "lucide-svelte";
   import Activity from "./lib/components/Activity.svelte";
   import Board from "./lib/components/Board.svelte";
   import Dashboard from "./lib/components/Dashboard.svelte";
@@ -14,12 +14,14 @@
   import Tokens from "./lib/components/Tokens.svelte";
   import Members from "./lib/components/Members.svelte";
   import Trash from "./lib/components/Trash.svelte";
+  import ShortcutsHelp from "./lib/components/ShortcutsHelp.svelte";
   import { DropdownMenu } from "./lib/components/ui";
   import type { MenuItem } from "./lib/components/ui";
   import { refetch, refetchBoards, refetchEpics, refetchLabels, refetchViews, setQuery } from "./lib/board.svelte";
   import { refetchTokens } from "./lib/tokens.svelte";
   import { setSessionUser } from "./lib/session.svelte";
   import { initTheme, themeStore, toggleTheme } from "./lib/theme.svelte";
+  import { kbd } from "./lib/keyboard.svelte";
   import { getCurrentUser, logout, type CurrentUser } from "./lib/api";
 
   // The board is the primary view (a pill in the top bar). Secondary views live in
@@ -108,6 +110,12 @@
   // inline email + logout icon that used to crowd the top bar.
   const avatarMenuItems: MenuItem[] = [
     { label: "Settings", icon: Settings, onSelect: () => show("settings") },
+    {
+      label: "Keyboard shortcuts",
+      icon: Keyboard,
+      hint: "?",
+      onSelect: () => (kbd.helpOpen = true),
+    },
     {
       label: "Log out",
       icon: LogOut,
@@ -231,6 +239,14 @@
       <Trash />
     {/if}
   </main>
+
+  <!-- Keyboard-shortcuts help overlay (V36, KAN-300). Mounted here at the top level
+       (not inside Board) so the avatar menu's "Keyboard shortcuts" entry (KAN-392)
+       can open it from ANY view, not just the board. The board's `?` shortcut sets
+       the same `kbd.helpOpen` flag, so it still opens here. -->
+  {#if kbd.helpOpen}
+    <ShortcutsHelp />
+  {/if}
 {/if}
 
 <style>

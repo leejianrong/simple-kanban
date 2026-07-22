@@ -1,10 +1,9 @@
 <script lang="ts">
   import { board, cardsFor, COLUMNS, refetch, viewStore } from "../board.svelte";
-  import { handleBoardKeydown, kbd } from "../keyboard.svelte";
+  import { handleBoardKeydown } from "../keyboard.svelte";
   import Column from "./Column.svelte";
   import ViewSwitcher from "./ViewSwitcher.svelte";
   import BoardTable from "./BoardTable.svelte";
-  import ShortcutsHelp from "./ShortcutsHelp.svelte";
 </script>
 
 <!-- Board keyboard shortcuts (V36, KAN-300). Only live while the board view is
@@ -33,8 +32,4 @@
       <Column column={col.key} label={col.label} cards={cardsFor(col.key)} />
     {/each}
   </div>
-{/if}
-
-{#if kbd.helpOpen}
-  <ShortcutsHelp />
 {/if}
