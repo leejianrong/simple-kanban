@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { cleanupE2eBoards, epicItem, openFreshBoard, uniqueTitle } from "./helpers";
+import { cleanupE2eBoards, epicItem, openFreshBoard, openView, uniqueTitle } from "./helpers";
 
 // V32 (KAN-296): the Epics view surfaces a server-authoritative progress bar
 // (% done over non-deleted children) + a health pill (on_track / at_risk /
@@ -39,7 +39,7 @@ test("epic progress bar + health pill render (60% → at risk)", async ({ page }
 
   // Open the Epics view (reload so the store fetches the seeded state).
   await page.reload();
-  await page.getByRole("button", { name: "Epics", exact: true }).click();
+  await openView(page, "Epics");
 
   const item = epicItem(page, epicName);
   await expect(item).toBeVisible();
@@ -57,13 +57,13 @@ test("epic progress bar + health pill render (60% → at risk)", async ({ page }
   // --- Screenshots: light then dark (via the persisted theme + reload) --------
   await page.evaluate(() => localStorage.setItem("kanban.theme", "light"));
   await page.reload();
-  await page.getByRole("button", { name: "Epics", exact: true }).click();
+  await openView(page, "Epics");
   await expect(epicItem(page, epicName)).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("epics-light.png"), fullPage: true });
 
   await page.evaluate(() => localStorage.setItem("kanban.theme", "dark"));
   await page.reload();
-  await page.getByRole("button", { name: "Epics", exact: true }).click();
+  await openView(page, "Epics");
   await expect(epicItem(page, epicName)).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("epics-dark.png"), fullPage: true });
 });

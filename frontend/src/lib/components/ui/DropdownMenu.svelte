@@ -21,6 +21,7 @@
   let {
     items,
     heading,
+    subtitle,
     trigger,
     triggerClass = "",
     triggerLabel,
@@ -28,6 +29,12 @@
   }: {
     items: MenuItem[];
     heading?: string;
+    /**
+     * Optional secondary line under the heading — e.g. the signed-in email in the
+     * avatar menu (KAN-319/U4). Backward-compatible: callers that omit it (e.g.
+     * BoardSwitcher's board-actions menu) render exactly as before.
+     */
+    subtitle?: string;
     trigger: Snippet;
     triggerClass?: string;
     triggerLabel?: string;
@@ -42,6 +49,7 @@
   <DropdownMenu.Portal>
     <DropdownMenu.Content class="ui-popup detached" {align} sideOffset={6}>
       {#if heading}<div class="ui-menu-label">{heading}</div>{/if}
+      {#if subtitle}<div class="ui-menu-subtitle">{subtitle}</div>{/if}
       {#each items as item (item.label)}
         {#if item.separatorBefore}<DropdownMenu.Separator class="ui-sep" />{/if}
         <DropdownMenu.Item

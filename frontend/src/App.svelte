@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { LogOut, Moon, Search, Sun } from "lucide-svelte";
+  import { LogOut, Menu, Moon, Search, Settings, Sun } from "lucide-svelte";
   import Activity from "./lib/components/Activity.svelte";
   import Board from "./lib/components/Board.svelte";
   import Dashboard from "./lib/components/Dashboard.svelte";
@@ -8,20 +8,35 @@
   import Epics from "./lib/components/Epics.svelte";
   import Landing from "./lib/components/Landing.svelte";
   import BoardSwitcher from "./lib/components/BoardSwitcher.svelte";
+  import SideNav from "./lib/components/SideNav.svelte";
+  import type { DrawerView } from "./lib/components/SideNav.svelte";
   import Tokens from "./lib/components/Tokens.svelte";
   import Members from "./lib/components/Members.svelte";
   import Trash from "./lib/components/Trash.svelte";
+  import { DropdownMenu } from "./lib/components/ui";
+  import type { MenuItem } from "./lib/components/ui";
   import { refetch, refetchBoards, refetchEpics, refetchLabels, refetchViews, setQuery } from "./lib/board.svelte";
   import { refetchTokens } from "./lib/tokens.svelte";
   import { setSessionUser } from "./lib/session.svelte";
   import { initTheme, themeStore, toggleTheme } from "./lib/theme.svelte";
   import { getCurrentUser, logout, type CurrentUser } from "./lib/api";
 
-  // The board shows stories; epics + agent tokens are managed in their own views.
-  // A simple top-bar toggle switches between them — no client-side router.
+  // The board is the primary view (a pill in the top bar). Secondary views live in
+  // a hamburger side-nav drawer (KAN-319/U4). Still no client-side router — a
+  // conditional render keyed on `view`.
   let view = $state<
-    "board" | "dashboard" | "epics" | "activity" | "tokens" | "members" | "trash"
+    | "board"
+    | "dashboard"
+    | "epics"
+    | "activity"
+    | "tokens"
+    | "members"
+    | "trash"
+    | "settings"
   >("board");
+
+  // The side-nav drawer's open state (secondary views live inside it).
+  let drawerOpen = $state(false);
 
   // Tokens are user-scoped (not board-scoped), so load them lazily the first time
   // the Tokens view is opened.
@@ -30,10 +45,20 @@
     if (next === "tokens") refetchTokens();
   }
 
+  // Navigating from the drawer selects the view and closes the drawer.
+  function navigateFromDrawer(next: DrawerView) {
+    show(next);
+    drawerOpen = false;
+  }
+
   // Auth gating (M3 V6, A9): undefined = check in flight; null = logged out (show
   // the landing); a user = logged in (show the board). No client-side router — a
   // conditional render, matching the Board|Epics toggle style.
   let user = $state<CurrentUser | null | undefined>(undefined);
+
+  // The avatar's initial. Derived (not inline) because the DropdownMenu trigger is
+  // a snippet closure, where the `{:else user}` template narrowing doesn't reach.
+  const avatarInitial = $derived((user?.email ?? "?").charAt(0).toUpperCase());
 
   onMount(async () => {
     initTheme();
@@ -62,6 +87,20 @@
     setSessionUser(null);
   }
 
+  // Avatar dropdown menu (KAN-319/U4): the signed-in email (as a heading/subtitle),
+  // a Settings entry (stub view), and Log out (danger). Replaces the always-on
+  // inline email + logout icon that used to crowd the top bar.
+  const avatarMenuItems: MenuItem[] = [
+    { label: "Settings", icon: Settings, onSelect: () => show("settings") },
+    {
+      label: "Log out",
+      icon: LogOut,
+      danger: true,
+      separatorBefore: true,
+      onSelect: handleLogout,
+    },
+  ];
+
   // Full-text search (M5 V15, KAN-248): typing merges a `q` into the active card
   // query and refetches (server-authoritative — the board shows exactly what the
   // server returned for the query). Debounced so a keystroke burst is one request;
@@ -84,17 +123,23 @@
   <Landing />
 {:else}
   <header class="topbar">
+    <button
+      class="icon-btn"
+      aria-label="Open menu"
+      aria-expanded={drawerOpen}
+      onclick={() => (drawerOpen = true)}
+    >
+      <Menu size={18} />
+    </button>
     <Brand />
-    <nav class="topbar-nav">
-      <button class:active={view === "board"} onclick={() => show("board")}>Board</button>
-      <button class:active={view === "dashboard"} onclick={() => show("dashboard")}>Dashboard</button>
-      <button class:active={view === "epics"} onclick={() => show("epics")}>Epics</button>
-      <button class:active={view === "activity"} onclick={() => show("activity")}>Activity</button>
-      <button class:active={view === "tokens"} onclick={() => show("tokens")}>Tokens</button>
-      <button class:active={view === "members"} onclick={() => show("members")}>Members</button>
-      <button class:active={view === "trash"} onclick={() => show("trash")}>Trash</button>
-    </nav>
     <BoardSwitcher />
+    <button
+      class="board-tab"
+      class:active={view === "board"}
+      onclick={() => show("board")}
+    >
+      Board
+    </button>
     <div class="topbar-search">
       <Search size={15} aria-hidden="true" />
       <input
@@ -118,15 +163,27 @@
           <Moon size={16} />
         {/if}
       </button>
-      <span class="user-avatar" title={user.email} aria-hidden="true">
-        {user.email.charAt(0).toUpperCase()}
-      </span>
-      <span class="user-email" title={user.email}>{user.email}</span>
-      <button class="icon-btn" title="Log out" aria-label="Log out" onclick={handleLogout}>
-        <LogOut size={16} />
-      </button>
+      <DropdownMenu
+        items={avatarMenuItems}
+        heading="Signed in as"
+        subtitle={user.email}
+        triggerClass="user-avatar"
+        triggerLabel="Account menu"
+        align="end"
+      >
+        {#snippet trigger()}
+          {avatarInitial}
+        {/snippet}
+      </DropdownMenu>
     </div>
   </header>
+
+  <SideNav
+    {view}
+    open={drawerOpen}
+    onNavigate={navigateFromDrawer}
+    onClose={() => (drawerOpen = false)}
+  />
 
   <main>
     {#if view === "board"}
@@ -141,8 +198,39 @@
       <Tokens />
     {:else if view === "members"}
       <Members />
+    {:else if view === "settings"}
+      <section class="settings-stub">
+        <h2>Settings</h2>
+        <p>Account settings are coming soon.</p>
+        <p>
+          Looking for personal access tokens?
+          <button class="link" onclick={() => show("tokens")}>Open Tokens →</button>
+        </p>
+      </section>
     {:else}
       <Trash />
     {/if}
   </main>
 {/if}
+
+<style>
+  .settings-stub {
+    max-width: 32rem;
+    color: var(--muted);
+  }
+  .settings-stub h2 {
+    color: var(--text);
+    margin-top: 0;
+  }
+  .settings-stub .link {
+    border: none;
+    background: none;
+    padding: 0;
+    font: inherit;
+    color: var(--accent);
+    cursor: pointer;
+  }
+  .settings-stub .link:hover {
+    text-decoration: underline;
+  }
+</style>

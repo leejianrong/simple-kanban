@@ -78,6 +78,15 @@ export async function pickSelect(
   await page.getByRole("option", { name: optionLabel, exact: true }).click();
 }
 
+// Navigate to a secondary view via the hamburger side-nav drawer (KAN-319/U4).
+// Dashboard/Epics/Activity/Tokens/Members/Trash moved out of the always-visible
+// top bar into a drawer: open it (hamburger), then click the item, which navigates
+// and closes the drawer. Board stays a top-bar pill (click "Board" directly).
+export async function openView(page: Page, name: string): Promise<void> {
+  await page.getByRole("button", { name: "Open menu" }).click();
+  await page.getByRole("button", { name, exact: true }).click();
+}
+
 export function column(page: Page, label: string): Locator {
   return page.locator(".column", {
     has: page.getByRole("heading", { name: label, exact: true }),
@@ -116,7 +125,7 @@ export function epicItem(page: Page, name: string): Locator {
 // Create an epic via the Epics view; returns its assigned ticket (e.g. "EPIC-1")
 // so callers can assert a linked story's epic tag. Leaves the Epics view open.
 export async function createEpic(page: Page, name: string): Promise<string> {
-  await page.getByRole("button", { name: "Epics", exact: true }).click();
+  await openView(page, "Epics");
   await page.getByRole("button", { name: "New epic" }).click();
   await page.getByPlaceholder("Epic name (required)").fill(name);
   await page.getByRole("button", { name: "Create" }).click();
