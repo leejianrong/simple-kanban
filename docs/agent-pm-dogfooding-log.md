@@ -1077,3 +1077,43 @@ Dogfooding observations about driving this board as an agent PM. Seeded from the
     native `<select>`s but left CardModal's title/description/assignee inputs (already deliberately
     styled in the KAN-65/66 modal redesign) native — forcing the wrapper there risked regressing a
     tuned layout for zero visual change. Reasonable; U3 reworks the description into markdown anyway.
+
+- **EPIC-49 Wave 3: U3 ‖ U4 ‖ U5 — three slices in parallel, serialized landing.** Ran U3 (KAN-318
+  card-modal markdown, PR #174), U4 (KAN-319 top-nav reorg, PR #175), U5 (KAN-320 filter/sort clarity,
+  PR #173) concurrently, all off post-U2 `main`. U4 was **design-first (mockup → PM review → resume
+  same agent)** like U2; U3/U5 went straight to implementation. All merged + deployed + prod-verified.
+  Learnings:
+  - **Disjointness held because the target files were genuinely distinct**, verified by grepping actual
+    imports before launch — U3 = `CardModal.svelte` + `package.json` (its own new deps) + the `.desc-*`
+    section of `app.css`; U5 = `ViewSwitcher.svelte`'s **own scoped `<style>`** only; U4 = `App.svelte`
+    + new `SideNav.svelte` + `ui/DropdownMenu.svelte` + the **top-bar section** of `app.css`. `app.css`
+    is one 1700-line global sheet touched by two slices (U3, U4), but in far-apart sections
+    (`.desc-*` vs `.topbar`/`.board-tab`), so git auto-merged with zero conflicts. The trick was
+    briefing each agent on exactly which files/sections it owned and which to stay out of.
+  - **Launch UI-heavy design-first slices as mockup-only while the others implement.** U4's Phase 1
+    (mockup, no real code) ran concurrently with U3/U5's implementation — three agents, fully disjoint,
+    because a mockup-only agent writes nothing that can collide. Then resumed U4 for Phase 2 once its
+    mockup was approved. Kept the pipeline full without risking a merge conflict.
+  - **The last parallel PR to land needs an update-branch + full-suite re-CI even when GitHub says
+    CLEAN.** This repo's protection doesn't force "up to date", so U4 (#175) showed `MERGEABLE` on a CI
+    run that had **never executed U3's new `card-markdown.spec.ts`** (U4 branched before U3 merged). Since
+    U4 rewires how *every* secondary view is reached (drawer nav), a spec added by a sibling slice could
+    have broken semantically with no textual conflict. `gh pr update-branch` merged current `main` in and
+    forced the **combined** full suite (U3+U5+U4) to re-run green before merge — the documented
+    serialized-landing safeguard, worth doing on the tail PR of any parallel batch that changes shared
+    navigation/behavior. (Here it was provably safe — `card-markdown.spec.ts` is Board-only — but "prove
+    it green on the combined tree" beats "reason about why it's probably fine".)
+  - **`isolation: worktree` does NOT sandbox Bash — an agent's muscle-memory `cd .../frontend` hit the
+    PARENT checkout.** U3 ran `npm install` in the primary checkout by reflex; the Edit-tool worktree
+    guard caught it before any source write, and the agent reverted the parent's `package.json`/lock. The
+    PM re-verified the primary tree was clean (`git status` + `git diff` on the lockfiles) after the agent
+    returned. Mitigation applied: briefs now name the exact worktree `frontend/` path. Always re-check the
+    primary checkout is clean after each worktree agent.
+  - **U3 XSS handling is the reference pattern for `{@html}` user text:** `marked.parse` → `DOMPurify.sanitize`
+    with a narrow `ALLOWED_TAGS`/`ALLOWED_ATTR`, `ALLOWED_URI_REGEXP` locking link schemes to
+    http(s)/mailto/#, and an `afterSanitizeAttributes` hook forcing `rel="noopener noreferrer"`. The e2e
+    proves it by injecting `<script>`/`<img onerror>` and asserting they're stripped + `window.__pwned`
+    is undefined. Stays clean under V29's report-only CSP (rendered DOM only, no inline handlers).
+  - **Prod-verify a frontend card by grepping the deployed hashed `/assets/index-*.js`** for a distinctive
+    NEW string per slice: `group-label`/`Filter cards` (U5), `No comments yet`/`markdown-body`/`dompurify`
+    (U3), `drawer-scrim`/`Account menu`/`Account settings are coming soon` (U4).

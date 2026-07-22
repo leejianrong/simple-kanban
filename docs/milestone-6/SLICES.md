@@ -52,7 +52,7 @@ this epic** since the palette builds on U2's Bits UI Command primitive.
 | **U4 · Top-nav reorg** | minimal top bar + hamburger side-nav drawer + avatar menu | KAN-319 | Uncrowded top bar; drawer reaches every view; avatar menu = email/settings/logout |
 | **U5 · Filter/sort clarity** | lucide icons + grouping distinguishing filter from sort | KAN-320 | The filter/sort row reads at a glance as filtering vs sorting |
 
-> **Status:** U1 ✅ done (PR #168), U2 ✅ done (PR #170, `ui/` wrapper lib + Bits UI, deployed + prod-verified). U3–U5 + V35/V36 in progress.
+> **Status:** U1–U5 ✅ all done + deployed + prod-verified (PRs #168, #170, #174, #175, #173). V35/V36 in progress.
 > **Build order:** U1 solo → U2 (design-first) → U3 ‖ U4 (design-first) ‖ U5 → V35 (on U2's Command)
 > → V36. **EPIC-50 (notifications, V37–V39) stays deferred.**
 
