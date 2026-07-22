@@ -1117,3 +1117,38 @@ Dogfooding observations about driving this board as an agent PM. Seeded from the
   - **Prod-verify a frontend card by grepping the deployed hashed `/assets/index-*.js`** for a distinctive
     NEW string per slice: `group-label`/`Filter cards` (U5), `No comments yet`/`markdown-body`/`dompurify`
     (U3), `drawer-scrim`/`Account menu`/`Account settings are coming soon` (U4).
+
+- **EPIC-49 Wave 4: V35 (⌘K palette) → V36 (keyboard shortcuts + help) — serialized, and EPIC-49 DONE.**
+  Ran V35 (KAN-299, PR #177) then V36 (KAN-300, PR #178) **serially, not in parallel**, because both add
+  a global `<svelte:window onkeydown>` handler to the same area (App.svelte / Board.svelte) — conceptually
+  coupled (V36's help overlay must list V35's ⌘K) and touching overlapping files. Both merged + deployed +
+  prod-verified. **All 7 EPIC-49 cards (U1–U5, V35, V36) shipped; EPIC-50 notifications stays deferred.**
+  Learnings:
+  - **A slice whose design was already locked upstream skips the mockup phase.** V35's palette visuals were
+    approved back in U2's mockup (the Command panel), and `ui/Command.svelte` shipped styled-but-unmounted
+    for exactly this — so V35 went straight to implementation (wiring the registry + Cmd-K + overlay). The
+    agent confirmed the primitive was "genuinely drop-in per its declarative `groups` API; the only real
+    work was the registry + overlay/keybind." Building the reusable primitive one slice early (U2) paid off.
+  - **Two global keydown handlers coexist cleanly by owning disjoint key sets.** App.svelte's ⌘K handler
+    fires only on the Cmd/Ctrl-`K` chord; V36's board handler bails on the FIRST line for any
+    Cmd/Ctrl/Alt chord. Neither clobbers the other. The pattern to repeat: chord-shortcuts and
+    single-key-shortcuts live in separate handlers that each early-return on the other's trigger shape.
+  - **The anti-typing-hijack guard is the load-bearing correctness property of a single-key-shortcut
+    feature** — a regression breaks typing in every form. V36's guard early-returns when: a Cmd/Ctrl/Alt
+    modifier is present; the target is `INPUT`/`TEXTAREA`/`SELECT`/`isContentEditable`/closest
+    `[contenteditable]`; OR any overlay is open (`.modal-backdrop`, Bits UI floating wrapper, `[role=listbox]`).
+    Prove it with an e2e that **types the shortcut letters into a field** (`jklheonc`) and asserts they land
+    as text, not navigation — not just that the happy-path shortcuts work.
+  - **Bits UI focus quirk (V35):** selecting a Command item by MOUSE moves focus to the `role=application`
+    root; with `shouldFilter=false` (a free-text sub-mode, e.g. typing a new card title) root-level
+    keystrokes aren't routed to the search value, so typed text silently dropped. Fix = refocus the input
+    on sub-mode entry. Keyboard flow (arrow/Enter) never lost focus; only mouse-select did.
+  - **`reuseExistingServer: !CI` in `playwright.config.ts` is a multi-project-machine trap.** Locally it
+    silently reuses whatever holds :8000/:5173 — here an unrelated app — so worktree e2e binds to the wrong
+    backend (login 404s). Both V35 and V36 worked around it by retargeting to free ports + a per-worktree
+    Postgres and reverting the config before commit. **Standing tech-debt: make the e2e port/API-origin
+    env-overridable** so worktree runs need zero source edits (it currently requires editing 3 files:
+    vite config, playwright config, `helpers.ts` `API_ORIGIN`). This recurred across the whole epic.
+  - **Programmatic `.focus()` needs a visible ring of its own.** Browsers don't reliably paint
+    `:focus-visible` for a `.focus()` call, so V36 added a persistent teal `.kbd-focused` class to mark the
+    active card during keyboard nav — otherwise the "where am I" state is invisible.
