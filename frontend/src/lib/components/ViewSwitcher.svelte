@@ -5,7 +5,16 @@
   // query as a named view, and flip between the board and a sortable table over
   // the same (filtered) cards. board.svelte.ts owns the state + server calls;
   // every change refetch()es, so the UI only shows server-confirmed cards.
-  import { Bookmark, Columns3, Save, Table, Trash2, X } from "lucide-svelte";
+  import {
+    ArrowUpDown,
+    Bookmark,
+    Columns3,
+    ListFilter,
+    Save,
+    Table,
+    Trash2,
+    X,
+  } from "lucide-svelte";
   import {
     viewStore,
     setActiveView,
@@ -112,48 +121,62 @@
   </div>
 
   <div class="view-filters">
-    <label class="filter">
-      <span>Priority</span>
-      <Select
-        class="compact"
-        aria-label="Filter by priority"
-        value={viewStore.query.priority ?? ""}
-        options={priorityOptions}
-        onValueChange={onPriority}
-      />
-    </label>
-
-    <label class="filter">
-      <span>Assignee</span>
-      <span class="input-wrap">
-        <TextInput
-          placeholder="anyone"
-          aria-label="Filter by assignee"
-          bind:value={assigneeInput}
-          onchange={onAssignee}
-        />
+    <div class="control-group" role="group" aria-label="Filter cards">
+      <span class="group-label">
+        <ListFilter size={14} aria-hidden="true" />
+        Filter
       </span>
-    </label>
+      <label class="filter">
+        <span>Priority</span>
+        <Select
+          class="compact"
+          aria-label="Filter by priority"
+          value={viewStore.query.priority ?? ""}
+          options={priorityOptions}
+          onValueChange={onPriority}
+        />
+      </label>
 
-    <div class="filter checkbox">
-      <Checkbox
-        label="Needs human"
-        aria-label="Only cards needing a human"
-        checked={viewStore.query.needs_human === true}
-        onCheckedChange={onNeedsHuman}
-      />
+      <label class="filter">
+        <span>Assignee</span>
+        <span class="input-wrap">
+          <TextInput
+            placeholder="anyone"
+            aria-label="Filter by assignee"
+            bind:value={assigneeInput}
+            onchange={onAssignee}
+          />
+        </span>
+      </label>
+
+      <div class="filter checkbox">
+        <Checkbox
+          label="Needs human"
+          aria-label="Only cards needing a human"
+          checked={viewStore.query.needs_human === true}
+          onCheckedChange={onNeedsHuman}
+        />
+      </div>
     </div>
 
-    <label class="filter">
-      <span>Sort</span>
-      <Select
-        class="compact"
-        aria-label="Sort cards"
-        value={viewStore.query.sort ?? ""}
-        options={SORTS}
-        onValueChange={onSort}
-      />
-    </label>
+    <span class="group-divider" aria-hidden="true"></span>
+
+    <div class="control-group" role="group" aria-label="Sort cards">
+      <span class="group-label">
+        <ArrowUpDown size={14} aria-hidden="true" />
+        Sort
+      </span>
+      <label class="filter">
+        <span class="sr-only">Sort by</span>
+        <Select
+          class="compact"
+          aria-label="Sort cards"
+          value={viewStore.query.sort ?? ""}
+          options={SORTS}
+          onValueChange={onSort}
+        />
+      </label>
+    </div>
   </div>
 
   <div class="view-actions">
@@ -224,8 +247,44 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.35rem 0.9rem;
+    gap: 0.4rem 0.75rem;
     flex: 1 1 auto;
+  }
+  /* Each labelled cluster: a funnel-led FILTER group and an arrows-led SORT
+     group, so the row reads as filtering vs sorting at a glance (U5). */
+  .control-group {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.75rem;
+  }
+  .group-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  /* Slim vertical rule separating the two groups. */
+  .group-divider {
+    align-self: stretch;
+    width: 1px;
+    min-height: 1.2rem;
+    background: var(--border);
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
   :global(.view-icon) {
     color: var(--muted);
