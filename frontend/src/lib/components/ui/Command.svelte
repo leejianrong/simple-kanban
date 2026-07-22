@@ -24,16 +24,21 @@
     placeholder = "Type a command or search…",
     emptyMessage = "No results.",
     label = "Command palette",
+    shouldFilter = true,
   }: {
     value?: string;
     groups: CommandGroup[];
     placeholder?: string;
     emptyMessage?: string;
     label?: string;
+    // Bits UI does the fuzzy filtering by default; a driver (the V35 ⌘K palette)
+    // can turn it off for a mode where the search box is a free-text input (e.g.
+    // typing a new card's title) rather than a filter over a fixed item list.
+    shouldFilter?: boolean;
   } = $props();
 </script>
 
-<Command.Root class="ui-command" {label}>
+<Command.Root class="ui-command" {label} {shouldFilter}>
   <div class="ui-command-search">
     <Search size={16} aria-hidden="true" />
     <Command.Input bind:value {placeholder} />
