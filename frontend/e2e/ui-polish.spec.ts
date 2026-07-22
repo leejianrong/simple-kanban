@@ -8,6 +8,7 @@ import {
   epicItem,
   login,
   openFreshBoard,
+  openView,
   pickSelect,
   uniqueTitle,
 } from "./helpers";
@@ -87,7 +88,7 @@ test("epics page groups Active vs Completed", async ({ page }) => {
   await page.keyboard.press("Escape");
 
   // Open the Epics view and assert the two grouped sections.
-  await page.getByRole("button", { name: "Epics", exact: true }).click();
+  await openView(page, "Epics");
   await expect(page.locator(".section-label", { hasText: "Active" })).toBeVisible();
   await expect(page.locator(".section-label", { hasText: "Completed" })).toBeVisible();
 
@@ -117,7 +118,7 @@ test("epic modal opens on click; edit name and save persists across reload", asy
 
   await expect(epicItem(page, renamed)).toBeVisible();
   await page.reload();
-  await page.getByRole("button", { name: "Epics", exact: true }).click();
+  await openView(page, "Epics");
   await expect(epicItem(page, renamed)).toBeVisible();
 });
 

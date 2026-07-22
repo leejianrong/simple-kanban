@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { cleanupE2eBoards, login, uniqueTitle } from "./helpers";
+import { cleanupE2eBoards, login, openView, uniqueTitle } from "./helpers";
 
 // M5 V16 awareness dashboard (KAN-249): the Dashboard view composes, for the
 // active board, in-flight-by-assignee (+ PR links), a needs-attention list (V13),
@@ -104,7 +104,7 @@ async function seedDashboardBoard(page: Page): Promise<{ note: string }> {
 
 async function openDashboard(page: Page) {
   await page.goto("/");
-  await page.getByRole("button", { name: "Dashboard", exact: true }).click();
+  await openView(page, "Dashboard");
   await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
 }
 

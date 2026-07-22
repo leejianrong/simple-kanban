@@ -147,21 +147,21 @@ body {
   height: 9px;
 }
 
-.topbar-nav {
-  display: flex;
-  gap: 0.4rem;
-}
-.topbar-nav button {
+/* Primary Board view — a pill kept in the top bar (KAN-319/U4). Secondary views
+   moved into the hamburger side-nav drawer (SideNav.svelte). */
+.board-tab {
   border: 1px solid transparent;
   background: none;
   color: var(--muted);
-  padding: 0.3rem 0.7rem;
+  padding: 0.3rem 0.8rem;
   font-size: 0.85rem;
+  border-radius: 7px;
+  cursor: pointer;
 }
-.topbar-nav button:hover {
+.board-tab:hover {
   color: var(--text);
 }
-.topbar-nav button.active {
+.board-tab.active {
   background: var(--accent-soft);
   border-color: var(--border);
   color: var(--accent);
@@ -173,7 +173,8 @@ body {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  flex-wrap: wrap;
+  /* Single row — the New(+)/actions(…) buttons must not wrap to a 2nd row (U4). */
+  flex-wrap: nowrap;
 }
 .board-switcher select {
   font: inherit;
@@ -266,25 +267,22 @@ body {
   align-items: center;
   gap: 0.6rem;
 }
+/* The avatar is the DropdownMenu trigger (KAN-319/U4) — a real <button>, so reset
+   the native button chrome and make it read as the circular avatar. */
 .user-avatar {
   flex: none;
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
   border-radius: 50%;
   background: var(--accent);
   color: #fff;
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-.topbar-user .user-email {
   font-size: 0.8rem;
-  color: var(--muted);
-  max-width: 22ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 main {
@@ -1912,6 +1910,16 @@ button.primary:disabled {
   letter-spacing: 0.06em;
   color: var(--muted);
   padding: 0.35rem 0.55rem 0.2rem;
+}
+/* Secondary line under a menu heading (e.g. the signed-in email, KAN-319/U4). */
+.ui-menu-subtitle {
+  font-size: 0.8rem;
+  color: var(--text);
+  padding: 0 0.55rem 0.35rem;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ---- Checkbox ---- */
