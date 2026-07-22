@@ -5,6 +5,7 @@ import {
   column,
   createCard,
   openFreshBoard,
+  openView,
   uniqueTitle,
 } from "./helpers";
 
@@ -98,6 +99,49 @@ test("`?` opens the shortcuts help overlay and lists the ⌘K palette", async ({
   await expect(help.getByText("Open command palette")).toBeVisible();
 
   // Esc closes it (Modal contract).
+  await page.keyboard.press("Escape");
+  await expect(help).toBeHidden();
+});
+
+// KAN-392: the help overlay is discoverable without knowing '?' — a visible
+// "Keyboard shortcuts" entry in the avatar dropdown menu opens the same overlay.
+// The overlay mount moved to App.svelte (global), so it works from any view.
+test("avatar menu 'Keyboard shortcuts' entry opens the help overlay", async ({
+  page,
+}) => {
+  await openFreshBoard(page);
+
+  await page.getByRole("button", { name: "Account menu" }).click();
+  await page.getByRole("menuitem", { name: "Keyboard shortcuts" }).click();
+
+  const help = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+  await expect(help).toBeVisible();
+  // The board's '?' block was removed from Board — confirm exactly one overlay
+  // renders (no double-mount) when opened while on the board view.
+  await expect(help).toHaveCount(1);
+  await expect(help.getByText("Open command palette")).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(help).toBeHidden();
+});
+
+test("avatar menu opens the help overlay from a NON-board view (Epics)", async ({
+  page,
+}) => {
+  await openFreshBoard(page);
+
+  // Navigate away from the board — the overlay used to be mounted only in Board,
+  // so this is the case the App-level mount fixes.
+  await openView(page, "Epics");
+  await expect(page.getByRole("button", { name: "New epic" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Account menu" }).click();
+  await page.getByRole("menuitem", { name: "Keyboard shortcuts" }).click();
+
+  const help = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+  await expect(help).toBeVisible();
+  await expect(help).toHaveCount(1);
+
   await page.keyboard.press("Escape");
   await expect(help).toBeHidden();
 });

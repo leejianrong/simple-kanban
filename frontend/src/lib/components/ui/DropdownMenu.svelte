@@ -15,6 +15,11 @@
     danger?: boolean;
     disabled?: boolean;
     separatorBefore?: boolean;
+    /**
+     * Optional trailing hint, right-aligned — e.g. the `?` shortcut on the
+     * "Keyboard shortcuts" entry (KAN-392). Rendered in a <kbd>-style chip.
+     */
+    hint?: string;
     onSelect: () => void;
   };
 
@@ -62,6 +67,7 @@
             <Icon size={15} />
           {/if}
           <span class="ui-item-label">{item.label}</span>
+          {#if item.hint}<kbd class="ui-item-hint">{item.hint}</kbd>{/if}
         </DropdownMenu.Item>
       {/each}
     </DropdownMenu.Content>
