@@ -8,6 +8,7 @@
   import Epics from "./lib/components/Epics.svelte";
   import Landing from "./lib/components/Landing.svelte";
   import BoardSwitcher from "./lib/components/BoardSwitcher.svelte";
+  import CommandPalette from "./lib/components/CommandPalette.svelte";
   import SideNav from "./lib/components/SideNav.svelte";
   import type { DrawerView } from "./lib/components/SideNav.svelte";
   import Tokens from "./lib/components/Tokens.svelte";
@@ -37,6 +38,21 @@
 
   // The side-nav drawer's open state (secondary views live inside it).
   let drawerOpen = $state(false);
+
+  // The ⌘K command palette's open state (V35, KAN-299).
+  let paletteOpen = $state(false);
+
+  // ⌘K / Ctrl-K toggles the command palette. This is a deliberate GLOBAL — it
+  // fires even while focus is in an input/search box (that's the whole point of a
+  // command palette), so we don't guard against a focused field here; we only ever
+  // react to the ⌘/Ctrl + K chord, so ordinary typing is never hijacked. Escape and
+  // the backdrop close it (handled by the Modal the palette mounts in).
+  function onWindowKeydown(e: KeyboardEvent) {
+    if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+      e.preventDefault();
+      paletteOpen = !paletteOpen;
+    }
+  }
 
   // Tokens are user-scoped (not board-scoped), so load them lazily the first time
   // the Tokens view is opened.
@@ -117,6 +133,8 @@
   }
 </script>
 
+<svelte:window onkeydown={onWindowKeydown} />
+
 {#if user === undefined}
   <!-- Auth check in flight: render nothing so the landing doesn't flash. -->
 {:else if user === null}
@@ -184,6 +202,8 @@
     onNavigate={navigateFromDrawer}
     onClose={() => (drawerOpen = false)}
   />
+
+  <CommandPalette bind:open={paletteOpen} navigate={(v) => show(v as typeof view)} />
 
   <main>
     {#if view === "board"}
