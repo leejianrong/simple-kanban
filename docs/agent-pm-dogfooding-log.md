@@ -1152,3 +1152,21 @@ Dogfooding observations about driving this board as an agent PM. Seeded from the
   - **Programmatic `.focus()` needs a visible ring of its own.** Browsers don't reliably paint
     `:focus-visible` for a `.focus()` call, so V36 added a persistent teal `.kbd-focused` class to mark the
     active card during keyboard nav — otherwise the "where am I" state is invisible.
+
+- **EPIC-49 follow-up: KAN-392 — expose the shortcuts help via a visible avatar-menu entry (PR #180).**
+  Prompted by a human (on Windows) asking how to try the shortcuts: V36's help overlay was reachable
+  ONLY by pressing `?` — a chicken-and-egg discoverability dead-end (you can't discover the `?` help
+  without knowing `?`). Fix (user-approved placement): a "Keyboard shortcuts" item (⌨ icon + teal `?`
+  hint chip) in U4's avatar `DropdownMenu`, opening the same `kbd.helpOpen` overlay. Learnings:
+  - **A keyboard-only entry point to a keyboard-help overlay is not discoverable** — always pair a
+    keyboard shortcut with a visible affordance for the same action. General UX rule, not specific to
+    this app.
+  - **The overlay was mounted inside `Board.svelte`, so a global trigger needed the mount moved to
+    `App.svelte`.** Triggering `kbd.helpOpen = true` from the always-visible avatar menu while on a
+    non-board view (Epics/Dashboard/…) flipped the flag but rendered nothing. Moving the
+    `{#if kbd.helpOpen}<ShortcutsHelp/>` mount up to `App.svelte` (and removing it from `Board.svelte`,
+    NOT leaving it in both — that double-renders on the board) made it work from any view; the board
+    `?` handler still opens it since it sets the same shared rune. The e2e asserts `toHaveCount(1)` for
+    the dialog to lock in "no double-render".
+  - **The help overlay is OS-aware:** it labels the palette chord `⌘K` on macOS and `Ctrl-K` elsewhere
+    (`/mac/i.test(navigator.platform)`), so Windows/Linux users see the right modifier.

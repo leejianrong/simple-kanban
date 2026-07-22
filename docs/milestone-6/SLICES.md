@@ -53,10 +53,12 @@ this epic** since the palette builds on U2's Bits UI Command primitive.
 | **U5 · Filter/sort clarity** | lucide icons + grouping distinguishing filter from sort | KAN-320 | The filter/sort row reads at a glance as filtering vs sorting |
 | **V35 · Command palette (⌘K)** | fuzzy command menu on U2's Command primitive | KAN-299 | ⌘K → "move KAN-x to Done" → the card moves |
 | **V36 · Keyboard shortcuts + help** | board keyboard nav + `?` help overlay | KAN-300 | Navigate columns + move a card with only the keyboard; `?` lists shortcuts |
+| **KAN-392 · Shortcuts-help discoverability** | visible "Keyboard shortcuts" avatar-menu entry (opens the `?` overlay from any view) | KAN-392 | A human can open the shortcuts help from the avatar menu without knowing `?` |
 
-> **Status:** ✅ **EPIC-49 COMPLETE** — all 7 cards done + deployed + prod-verified (PRs #168, #170,
-> #174, #175, #173, #177, #178). **Build order:** U1 solo → U2 (design-first) → U3 ‖ U4 (design-first)
-> ‖ U5 → V35 (on U2's Command) → V36. **EPIC-50 (notifications, V37–V39) stays deferred.**
+> **Status:** ✅ **EPIC-49 COMPLETE** — all 7 planned cards + a discoverability follow-up (KAN-392)
+> done + deployed + prod-verified (PRs #168, #170, #174, #175, #173, #177, #178, #180). **Build order:**
+> U1 solo → U2 (design-first) → U3 ‖ U4 (design-first) ‖ U5 → V35 (on U2's Command) → V36 → KAN-392.
+> **EPIC-50 (notifications, V37–V39) stays deferred.**
 
 ---
 
