@@ -65,7 +65,16 @@
   // The card is read live from the store by id (not a snapshot): every mutation
   // refetches board state, and this modal must reflect the fresh card without
   // being reopened. If the card vanishes (deleted elsewhere), close.
-  let { cardId, onclose }: { cardId: number; onclose: () => void } = $props();
+  // `editFocus` (V36, KAN-300): when opened via the `e` keyboard shortcut, focus +
+  // select the title input on mount so the card lands ready to edit (vs. `o`/Enter,
+  // which open it with focus on the Close button, the Modal's default).
+  let {
+    cardId,
+    onclose,
+    editFocus = false,
+  }: { cardId: number; onclose: () => void; editFocus?: boolean } = $props();
+
+  let titleInput = $state<HTMLInputElement | undefined>();
 
   const card = $derived(cardById(cardId));
   $effect(() => {
@@ -267,6 +276,12 @@
     }
   }
   onMount(loadComments);
+  onMount(() => {
+    if (editFocus) {
+      titleInput?.focus();
+      titleInput?.select();
+    }
+  });
 
   const canPostComment = $derived(newComment.trim().length > 0 && !commentBusy);
   async function onPostComment() {
@@ -401,6 +416,7 @@
               placeholder="Title (required)"
               aria-label="Title"
               bind:value={title}
+              bind:this={titleInput}
             />
             <div class="desc-head">
               <span class="field-label">Description</span>

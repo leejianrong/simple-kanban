@@ -1,9 +1,16 @@
 <script lang="ts">
   import { board, cardsFor, COLUMNS, refetch, viewStore } from "../board.svelte";
+  import { handleBoardKeydown, kbd } from "../keyboard.svelte";
   import Column from "./Column.svelte";
   import ViewSwitcher from "./ViewSwitcher.svelte";
   import BoardTable from "./BoardTable.svelte";
+  import ShortcutsHelp from "./ShortcutsHelp.svelte";
 </script>
+
+<!-- Board keyboard shortcuts (V36, KAN-300). Only live while the board view is
+     mounted; coexists with App.svelte's global ⌘K handler (that one only reacts to
+     the Cmd/Ctrl-K chord, this one only to un-chorded keys, and both guard typing). -->
+<svelte:window onkeydown={handleBoardKeydown} />
 
 {#if board.error}
   <div class="banner error" role="alert">
@@ -26,4 +33,8 @@
       <Column column={col.key} label={col.label} cards={cardsFor(col.key)} />
     {/each}
   </div>
+{/if}
+
+{#if kbd.helpOpen}
+  <ShortcutsHelp />
 {/if}

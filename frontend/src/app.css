@@ -1097,6 +1097,14 @@ button.primary:disabled {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+/* Keyboard-navigation focus ring (V36, KAN-300): a persistent, high-contrast ring
+   on the card the keyboard is acting on, so the "focused card" stays visible even
+   when the browser wouldn't paint :focus-visible for a programmatic .focus(). */
+.card.kbd-focused {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
 .card.is-blocked {
   border-left: 3px solid var(--danger);
 }
